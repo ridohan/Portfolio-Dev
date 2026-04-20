@@ -252,6 +252,115 @@
       color: var(--text-3);
     }
 
+    /* ── PROFILE SELECTOR ── */
+    .profile-selector {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+    .profile-btn {
+      flex: 1;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: inherit;
+      text-align: center;
+      padding: 5px 4px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-2);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .profile-btn:hover { border-color: var(--border-mid); }
+    .profile-btn.active {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+    .profile-breakdown {
+      margin-top: 8px;
+      padding: 10px 11px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .profile-breakdown.visible { display: flex; }
+    .breakdown-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-2);
+    }
+    .breakdown-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .breakdown-inputs { display: flex; align-items: center; gap: 3px; flex-shrink: 0; font-size: 11px; }
+    .breakdown-input {
+      width: 42px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-card);
+      border: 1px solid var(--border-mid);
+      border-radius: 4px;
+      padding: 2px 4px;
+      -moz-appearance: textfield;
+      font-variant-numeric: tabular-nums;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .breakdown-input:focus { outline: none; border-color: var(--accent); }
+    .breakdown-input::-webkit-outer-spin-button,
+    .breakdown-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .rate-fixed { font-weight: 600; color: var(--green); font-variant-numeric: tabular-nums; }
+    .breakdown-sep { color: var(--text-3); }
+    .breakdown-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-2);
+      border-top: 1px solid var(--border);
+      padding-top: 6px;
+      margin-top: 2px;
+    }
+    .breakdown-total.warn { color: var(--red); }
+    .total-rate { font-weight: 700; color: var(--green); }
+    .breakdown-total.warn .total-rate { color: var(--red); }
+    .breakdown-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 2px;
+    }
+    .breakdown-source {
+      font-size: 10px;
+      color: var(--text-3);
+    }
+    .breakdown-reset-btn {
+      font-size: 10px;
+      color: var(--text-3);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 0;
+      text-decoration: underline;
+      flex-shrink: 0;
+    }
+    .breakdown-reset-btn:hover { color: var(--text-1); }
+    .ctrl.profile-active input[type=range] { opacity: 0.35; pointer-events: none; }
+    .ctrl.profile-active .ctrl-num-input  { opacity: 0.45; pointer-events: none; }
+
     /* ── DIVIDER ── */
     .sidebar-divider {
       height: 1px;
@@ -296,6 +405,20 @@
       color: var(--text-3);
       margin-top: 5px;
     }
+    .depart-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .depart-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-2);
+      margin-bottom: 4px;
+    }
+    .depart-field .flow-number { width: 100%; }
 
     /* ── MAIN ── */
     .main {
@@ -538,16 +661,22 @@
         </div>
 
         <!-- Rendement -->
-        <div class="ctrl">
+        <div class="ctrl" id="returnCtrl">
           <div class="ctrl-top">
             <label class="ctrl-label" for="nReturn">Rendement annuel</label>
             <input type="number" id="nReturn" class="ctrl-num-input"
               min="0" max="10" step="0.1" value="7">
           </div>
+          <div class="profile-selector">
+            <button class="profile-btn active" data-profile="manual">Manuel</button>
+            <button class="profile-btn" data-profile="monde">🌍 Monde</button>
+            <button class="profile-btn" data-profile="sp500">🇺🇸 S&P 500</button>
+          </div>
           <div class="ctrl-range-wrap">
             <input type="range" id="rReturn" min="0" max="10" step="0.1" value="7">
           </div>
           <div class="ctrl-range-labels"><span>0%</span><span>10%</span></div>
+          <div class="profile-breakdown" id="profileBreakdown"></div>
         </div>
 
         <!-- Inflation -->
@@ -592,14 +721,22 @@
 
       <div class="sidebar-divider"></div>
 
-      <!-- Année de début -->
+      <!-- Départ -->
       <div class="flow-ctrl">
-        <div class="sidebar-section-title" style="margin-bottom:0.5rem;">Année de début</div>
-        <div class="flow-input-wrap">
-          <input type="number" id="nStartYear" class="flow-number"
-            value="2025" min="1900" max="2100" step="1" placeholder="ex: 2025" style="width:110px;">
+        <div class="sidebar-section-title" style="margin-bottom:0.25rem;">Départ</div>
+        <div class="depart-grid">
+          <div class="depart-field">
+            <label for="nStartYear">Année de début</label>
+            <input type="number" id="nStartYear" class="flow-number"
+              value="2025" min="1900" max="2100" step="1" placeholder="2025">
+          </div>
+          <div class="depart-field">
+            <label for="nAge">Âge actuel</label>
+            <input type="number" id="nAge" class="flow-number"
+              value="" min="1" max="120" step="1" placeholder="—">
+          </div>
         </div>
-        <div class="flow-hint">Affichée dans le graphique et le tableau</div>
+        <div class="flow-hint">Affichés dans le graphique et le tableau</div>
       </div>
     </aside>
 
@@ -662,10 +799,11 @@
         </div>
         <div class="tbl-scroll">
           <table>
-            <colgroup><col><col><col><col><col><col><col><col></colgroup>
+            <colgroup><col><col><col><col><col><col><col><col><col></colgroup>
             <thead>
               <tr>
                 <th>Année</th>
+                <th>Âge</th>
                 <th>Valeur brute</th>
                 <th>Valeur réelle</th>
                 <th>Intérêts</th>
@@ -700,6 +838,123 @@
 
     /* ── SERIES VISIBILITY ── */
     const seriesVisible = { brut: true, real: true, contrib: true };
+
+    /* ── RETURN PROFILES ── */
+    const PROFILE_DEFAULTS = {
+      monde: {
+        source: 'MSCI World NTR · ~1970–2024 (USD)',
+        breakdown: [
+          { name: 'ETF Monde (MSCI World)', alloc: 80, rate: 9.5,  rateEditable: false },
+          { name: 'Obligations',            alloc: 15, rate: 4.0,  rateEditable: true  },
+          { name: 'Cash',                   alloc:  5, rate: 2.5,  rateEditable: true  },
+        ],
+      },
+      sp500: {
+        source: 'S&P 500 TR · ~1928–2024 (USD)',
+        breakdown: [
+          { name: 'ETF S&P 500', alloc: 80, rate: 10.5, rateEditable: false },
+          { name: 'Obligations', alloc: 15, rate:  4.0, rateEditable: true  },
+          { name: 'Cash',        alloc:  5, rate:  2.5, rateEditable: true  },
+        ],
+      },
+    };
+
+    /* mutable working copy */
+    const PROFILES = {
+      manual: null,
+      monde:  { ...PROFILE_DEFAULTS.monde,  breakdown: PROFILE_DEFAULTS.monde.breakdown.map(r => ({...r})) },
+      sp500:  { ...PROFILE_DEFAULTS.sp500,  breakdown: PROFILE_DEFAULTS.sp500.breakdown.map(r => ({...r})) },
+    };
+
+    let activeProfile = 'manual';
+
+    function calcProfileRate(key) {
+      return PROFILES[key].breakdown.reduce((s, r) => s + (r.alloc / 100) * r.rate, 0);
+    }
+
+    function updateBreakdownTotal(key) {
+      const el = document.getElementById('breakdownTotal');
+      if (!el) return;
+      const total = PROFILES[key].breakdown.reduce((s, r) => s + r.alloc, 0);
+      const rate  = calcProfileRate(key);
+      const warn  = Math.abs(total - 100) > 0.5;
+      el.className = 'breakdown-total' + (warn ? ' warn' : '');
+      el.innerHTML = `<span>Total&nbsp;: <strong>${total.toFixed(0)} %</strong>${warn ? '&nbsp;⚠ doit être 100 %' : ''}</span>`
+                   + `<span>Rendement&nbsp;: <strong class="total-rate">${rate.toFixed(2).replace('.', ',')} %</strong></span>`;
+    }
+
+    function renderBreakdown(key) {
+      const profile = PROFILES[key];
+      const el = document.getElementById('profileBreakdown');
+
+      el.innerHTML = profile.breakdown.map((r, i) => `
+        <div class="breakdown-row">
+          <span class="breakdown-name" title="${r.name}">${r.name}</span>
+          <div class="breakdown-inputs">
+            <input class="breakdown-input" type="number" min="0" max="100" step="1"
+              data-idx="${i}" data-field="alloc" value="${r.alloc}">
+            <span class="breakdown-sep">%&nbsp;×</span>
+            ${r.rateEditable
+              ? `<input class="breakdown-input" type="number" min="0" max="30" step="0.1"
+                   data-idx="${i}" data-field="rate" value="${r.rate.toFixed(1)}">`
+              : `<span class="rate-fixed">${r.rate.toFixed(1)}</span>`
+            }
+            <span class="breakdown-sep">%</span>
+          </div>
+        </div>`).join('')
+        + `<div class="breakdown-total" id="breakdownTotal"></div>`
+        + `<div class="breakdown-footer">
+             <span class="breakdown-source">${profile.source}</span>
+             <button class="breakdown-reset-btn" id="breakdownResetBtn">Réinitialiser</button>
+           </div>`;
+
+      updateBreakdownTotal(key);
+
+      /* wire inputs */
+      el.querySelectorAll('.breakdown-input').forEach(input => {
+        input.addEventListener('input', () => {
+          const idx = parseInt(input.dataset.idx);
+          const val = parseFloat(input.value);
+          if (!isNaN(val) && val >= 0) PROFILES[key].breakdown[idx][input.dataset.field] = val;
+          const rate = Math.min(10, Math.max(0, +calcProfileRate(key).toFixed(2)));
+          document.getElementById('rReturn').value = rate;
+          document.getElementById('nReturn').value = rate;
+          updateBreakdownTotal(key);
+          compute();
+        });
+      });
+
+      document.getElementById('breakdownResetBtn').addEventListener('click', () => {
+        PROFILES[key].breakdown = PROFILE_DEFAULTS[key].breakdown.map(r => ({...r}));
+        applyProfile(key);
+      });
+    }
+
+    function applyProfile(key) {
+      activeProfile = key;
+      const profile = PROFILES[key];
+      const ctrl    = document.getElementById('returnCtrl');
+      const bdEl    = document.getElementById('profileBreakdown');
+
+      document.querySelectorAll('.profile-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.profile === key)
+      );
+
+      if (profile) {
+        ctrl.classList.add('profile-active');
+        const rate = Math.min(10, Math.max(0, +calcProfileRate(key).toFixed(2)));
+        document.getElementById('rReturn').value = rate;
+        document.getElementById('nReturn').value = rate;
+        renderBreakdown(key);
+        bdEl.classList.add('visible');
+      } else {
+        ctrl.classList.remove('profile-active');
+        bdEl.classList.remove('visible');
+        bdEl.innerHTML = '';
+      }
+
+      compute();
+    }
 
     /* ── THEME ── */
     const THEME_KEY = 'sim_v3_theme';
@@ -791,7 +1046,7 @@
     /* ── CHART ── */
     let chart = null;
 
-    function buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx) {
+    function buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx, startAge) {
       const dark = isDarkMode();
       const textColor = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
       const gridColor = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
@@ -909,6 +1164,11 @@
               padding: 12,
               filter: item => item.dataset.label !== 'Zéro',
               callbacks: {
+                title: items => {
+                  const yr = items[0]?.label || '';
+                  if (startAge > 0) return yr + '  ·  ' + (startAge + (items[0]?.dataIndex ?? 0)) + ' ans';
+                  return yr;
+                },
                 label: ctx => '  ' + ctx.dataset.label + ' : ' + fmtEur(ctx.parsed.y)
               }
             }
@@ -952,10 +1212,16 @@
       const years     = parseInt(document.getElementById('rDuration').value);
       const flow      = parseFloat(document.getElementById('nFlow').value) || 0;
       const startYear = parseInt(document.getElementById('nStartYear').value) || new Date().getFullYear();
+      const startAge  = parseInt(document.getElementById('nAge').value) || 0;
 
       /* save */
-      saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years, flow, startYear,
-                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib } });
+      saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years, flow, startYear, startAge,
+                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib },
+                  profile: activeProfile,
+                  profileBreakdowns: {
+                    monde: PROFILES.monde.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
+                    sp500: PROFILES.sp500.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
+                  } });
 
       /* flow badge */
       const badge = document.getElementById('flowBadge');
@@ -981,6 +1247,7 @@
         dataContrib.push(Math.round(totalContrib));
         rows.push({
           year: startYear + y - 1,
+          age: startAge > 0 ? startAge + (y - 1) : null,
           val: Math.round(val),
           realVal: Math.round(realVal),
           interest: Math.round(interest),
@@ -1016,7 +1283,8 @@
 
       /* table */
       const maxVal = Math.max(...dataBrut, 1);
-      document.getElementById('tblCount').textContent = years + ' années · ' + startYear + '–' + (startYear + years - 1);
+      document.getElementById('tblCount').textContent = years + ' années · ' + startYear + '–' + (startYear + years - 1)
+        + (startAge > 0 ? ' · ' + startAge + '→' + (startAge + years - 1) + ' ans' : '');
       document.getElementById('tblBody').innerHTML = rows.map(row => {
         const neg  = row.val <= 0;
         const c    = neg ? 'td-neg' : (row.gain >= 0 ? 'td-pos' : 'td-neg');
@@ -1024,6 +1292,7 @@
         const barW = row.val > 0 ? Math.round((row.val / maxVal) * 100) : 0;
         return `<tr${neg ? ' class="row-negative"' : ''}>
           <td>${row.year}</td>
+          <td>${row.age !== null ? row.age + ' ans' : '—'}</td>
           <td style="position:relative;">
             <div class="td-bar" style="width:${barW}%"></div>
             ${fmtEur(row.val)}
@@ -1038,7 +1307,7 @@
       }).join('');
 
       /* chart */
-      buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx);
+      buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx, startAge);
     }
 
     /* ── INIT ── */
@@ -1076,6 +1345,19 @@
         if (saved.duration   !== undefined) set('rDuration',  'nDuration',  saved.duration);
         if (saved.flow       !== undefined) document.getElementById('nFlow').value = saved.flow;
         if (saved.startYear  !== undefined) document.getElementById('nStartYear').value = saved.startYear;
+        if (saved.startAge   > 0)           document.getElementById('nAge').value = saved.startAge;
+        if (saved.profileBreakdowns) {
+          ['monde', 'sp500'].forEach(key => {
+            const bd = saved.profileBreakdowns[key];
+            if (bd) bd.forEach((item, i) => {
+              if (PROFILES[key].breakdown[i]) {
+                PROFILES[key].breakdown[i].alloc = item.alloc;
+                PROFILES[key].breakdown[i].rate  = item.rate;
+              }
+            });
+          });
+        }
+        if (saved.profile    !== undefined) activeProfile = saved.profile;
         if (saved.series) {
           ['brut', 'real', 'contrib'].forEach(key => {
             if (saved.series[key] === false) {
@@ -1094,8 +1376,24 @@
       linkSliderInput('rInflation', 'nInflation');
       linkSliderInput('rDuration',  'nDuration');
 
+      /* profile buttons */
+      document.querySelectorAll('.profile-btn').forEach(btn => {
+        btn.addEventListener('click', () => applyProfile(btn.dataset.profile));
+      });
+      /* switching slider/input manually reverts to manual profile */
+      document.getElementById('rReturn').addEventListener('mousedown', () => {
+        if (activeProfile !== 'manual') applyProfile('manual');
+      });
+      document.getElementById('nReturn').addEventListener('focus', () => {
+        if (activeProfile !== 'manual') applyProfile('manual');
+      });
+
+      /* restore profile visually (after DOM is ready) */
+      if (activeProfile !== 'manual') applyProfile(activeProfile);
+
       document.getElementById('nFlow').addEventListener('input', compute);
       document.getElementById('nStartYear').addEventListener('change', compute);
+      document.getElementById('nAge').addEventListener('change', compute);
 
       /* series toggles */
       [
