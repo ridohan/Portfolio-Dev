@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulateur de Portefeuille</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-page:      #F2F1ED;
+      --bg-card:      #FFFFFF;
+      --bg-input:     #F7F6F2;
+      --border:       rgba(0,0,0,0.08);
+      --border-mid:   rgba(0,0,0,0.12);
+      --text-1:       #1A1A19;
+      --text-2:       #5F5E5A;
+      --text-3:       #9B9A96;
+      --green:        #1D9E75;
+      --green-bg:     rgba(29,158,117,0.09);
+      --blue:         #378ADD;
+      --blue-bg:      rgba(55,138,221,0.07);
+      --red:          #D85A30;
+      --red-bg:       rgba(216,90,48,0.08);
+      --radius-sm:    6px;
+      --radius-md:    10px;
+      --radius-lg:    14px;
+      --accent:       #1D9E75;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg-page:    #141413;
+        --bg-card:    #1E1E1C;
+        --bg-input:   #272725;
+        --border:     rgba(255,255,255,0.07);
+        --border-mid: rgba(255,255,255,0.12);
+        --text-1:     #E8E7E3;
+        --text-2:     #9B9A96;
+        --text-3:     #5F5E5A;
+        --green-bg:   rgba(29,158,117,0.12);
+        --blue-bg:    rgba(55,138,221,0.10);
+        --red-bg:     rgba(216,90,48,0.12);
+      }
+    }
+    [data-theme="dark"] {
+      --bg-page:    #141413;
+      --bg-card:    #1E1E1C;
+      --bg-input:   #272725;
+      --border:     rgba(255,255,255,0.07);
+      --border-mid: rgba(255,255,255,0.12);
+      --text-1:     #E8E7E3;
+      --text-2:     #9B9A96;
+      --text-3:     #5F5E5A;
+      --green-bg:   rgba(29,158,117,0.12);
+      --blue-bg:    rgba(55,138,221,0.10);
+      --red-bg:     rgba(216,90,48,0.12);
+    }
+    [data-theme="light"] {
+      --bg-page:    #F2F1ED;
+      --bg-card:    #FFFFFF;
+      --bg-input:   #F7F6F2;
+      --border:     rgba(0,0,0,0.08);
+      --border-mid: rgba(0,0,0,0.12);
+      --text-1:     #1A1A19;
+      --text-2:     #5F5E5A;
+      --text-3:     #9B9A96;
+      --green-bg:   rgba(29,158,117,0.09);
+      --blue-bg:    rgba(55,138,221,0.07);
+      --red-bg:     rgba(216,90,48,0.08);
+    }
+
+    html { font-size: 15px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-page);
+      color: var(--text-1);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── HEADER ── */
+    .site-header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .site-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .site-title-icon {
+      width: 28px; height: 28px;
+      background: var(--green);
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .save-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--text-3);
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    .save-badge.visible { opacity: 1; }
+    .save-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+    .theme-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px; height: 34px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-2);
+      cursor: pointer;
+      font-size: 16px;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .theme-btn:hover { background: var(--border); }
+
+    /* ── LAYOUT ── */
+    .app-layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 56px);
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      background: var(--bg-card);
+      border-right: 1px solid var(--border);
+      padding: 1.5rem;
+      position: sticky;
+      top: 56px;
+      height: calc(100vh - 56px);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .sidebar-section-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 1rem;
+    }
+
+    /* ── CONTROL ── */
+    .ctrl {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 1.25rem;
+    }
+    .ctrl:last-child { margin-bottom: 0; }
+    .ctrl-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .ctrl-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-2);
+      white-space: nowrap;
+    }
+    .ctrl-num-input {
+      width: 110px;
+      text-align: right;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 3px 8px;
+      font-variant-numeric: tabular-nums;
+      -moz-appearance: textfield;
+      transition: border-color 0.15s;
+    }
+    .ctrl-num-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .ctrl-num-input::-webkit-outer-spin-button,
+    .ctrl-num-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+    .ctrl-range-wrap { position: relative; }
+    input[type=range] {
+      width: 100%;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--border-mid);
+      border-radius: 2px;
+      cursor: pointer;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg-card);
+      box-shadow: 0 0 0 1px var(--accent), 0 1px 3px rgba(0,0,0,0.15);
+      transition: transform 0.1s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+    input[type=range]::-moz-range-thumb {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg-card);
+      box-shadow: 0 0 0 1px var(--accent);
+      cursor: pointer;
+    }
+    .ctrl-range-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 3px;
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    /* ── DIVIDER ── */
+    .sidebar-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 0 -1.5rem;
+    }
+
+    /* ── FLUX ── */
+    .flow-ctrl {}
+    .flow-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .flow-number {
+      flex: 1;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      -moz-appearance: textfield;
+      transition: border-color 0.15s;
+    }
+    .flow-number:focus { outline: none; border-color: var(--accent); }
+    .flow-number::-webkit-outer-spin-button,
+    .flow-number::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .flow-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .flow-badge.pos { background: var(--green-bg); color: var(--green); }
+    .flow-badge.neg { background: var(--red-bg); color: var(--red); }
+    .flow-hint {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 5px;
+    }
+
+    /* ── MAIN ── */
+    .main {
+      padding: 1.75rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      min-width: 0;
+    }
+
+    /* ── METRICS ── */
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .metric {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+    }
+    .metric-lbl {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+    .metric-val {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-1);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.2;
+    }
+    .metric-val.pos { color: var(--green); }
+    .metric-val.neg { color: var(--red); }
+    .metric-sub {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 3px;
+    }
+
+    /* ── CHART PANEL ── */
+    .chart-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1.5rem 1.5rem;
+    }
+    .chart-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .chart-panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .series-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: 500;
+      color: var(--text-2);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 11px 4px 8px;
+      cursor: pointer;
+      transition: opacity 0.2s, background 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+    .series-toggle:hover { background: var(--border); }
+    .series-toggle.off {
+      opacity: 0.45;
+      background: transparent;
+    }
+    .series-toggle.off .toggle-swatch { opacity: 0.3; }
+    .toggle-swatch {
+      width: 20px;
+      height: 2.5px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .toggle-swatch.dashed {
+      background: none !important;
+      height: 0;
+      border-top: 2px dashed currentColor;
+    }
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 420px;
+    }
+
+    /* ── TABLE ── */
+    .tbl-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .tbl-panel-head {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .tbl-panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-2);
+    }
+    .tbl-rows-count {
+      font-size: 11px;
+      color: var(--text-3);
+    }
+    .tbl-scroll { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    colgroup col:nth-child(1) { width: 72px; }
+    colgroup col:nth-child(n+2) { width: 132px; }
+    thead th {
+      text-align: right;
+      padding: 9px 16px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      background: var(--bg-input);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    thead th:first-child { text-align: left; }
+    tbody td {
+      text-align: right;
+      padding: 9px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-1);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      position: relative;
+    }
+    tbody td:first-child {
+      text-align: left;
+      font-weight: 500;
+      color: var(--text-2);
+      background: var(--bg-input);
+      border-right: 1px solid var(--border);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--bg-input); }
+    tbody tr:hover td:first-child { background: var(--bg-input); }
+    .td-pos { color: var(--green); font-weight: 500; }
+    .td-neg { color: var(--red); font-weight: 500; }
+    .td-bar {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: var(--green);
+      opacity: 0.07;
+      pointer-events: none;
+    }
+    .row-negative td { background: var(--red-bg) !important; }
+    .row-negative .td-bar { background: var(--red); }
+    .row-negative td:first-child { color: var(--red); font-weight: 600; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .app-layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 540px) {
+      .main { padding: 1rem; }
+      .site-header { padding: 0 1rem; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="site-title">
+      <div class="site-title-icon">📈</div>
+      Simulateur de Portefeuille
+    </div>
+    <div class="header-right">
+      <div class="save-badge" id="saveBadge">
+        <div class="save-dot"></div>
+        Auto-sauvegardé
+      </div>
+      <button class="theme-btn" id="themeBtn" title="Basculer thème clair / sombre" aria-label="Basculer thème">🌙</button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div>
+        <div class="sidebar-section-title">Paramètres</div>
+
+        <!-- Portfolio -->
+        <div class="ctrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nPortfolio">Portefeuille initial</label>
+            <input type="text" id="nPortfolio" class="ctrl-num-input"
+              inputmode="numeric" value="786 000" style="width:120px;">
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rPortfolio" min="200000" max="3000000" step="5000" value="786000">
+          </div>
+          <div class="ctrl-range-labels"><span>200 k€</span><span>3 M€</span></div>
+        </div>
+
+        <!-- Rendement -->
+        <div class="ctrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nReturn">Rendement annuel</label>
+            <input type="number" id="nReturn" class="ctrl-num-input"
+              min="0" max="10" step="0.1" value="7">
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rReturn" min="0" max="10" step="0.1" value="7">
+          </div>
+          <div class="ctrl-range-labels"><span>0%</span><span>10%</span></div>
+        </div>
+
+        <!-- Inflation -->
+        <div class="ctrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nInflation">Inflation annuelle</label>
+            <input type="number" id="nInflation" class="ctrl-num-input"
+              min="0" max="10" step="0.1" value="2">
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rInflation" min="0" max="10" step="0.1" value="2">
+          </div>
+          <div class="ctrl-range-labels"><span>0%</span><span>10%</span></div>
+        </div>
+
+        <!-- Durée -->
+        <div class="ctrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nDuration">Durée</label>
+            <input type="number" id="nDuration" class="ctrl-num-input"
+              min="1" max="60" step="1" value="25">
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rDuration" min="1" max="60" step="1" value="25">
+          </div>
+          <div class="ctrl-range-labels"><span>1 an</span><span>60 ans</span></div>
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- Flux mensuel -->
+      <div class="flow-ctrl">
+        <div class="sidebar-section-title" style="margin-bottom:0.5rem;">Flux mensuel</div>
+        <input type="number" id="nFlow" class="flow-number"
+          value="1000" placeholder="ex: 500 ou −500">
+        <div class="flow-hint" style="display:flex;align-items:center;gap:8px;margin-top:7px;">
+          <span class="flow-badge pos" id="flowBadge">+ Versement</span>
+          <span>Positif = ajout · Négatif = retrait</span>
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- Année de début -->
+      <div class="flow-ctrl">
+        <div class="sidebar-section-title" style="margin-bottom:0.5rem;">Année de début</div>
+        <div class="flow-input-wrap">
+          <input type="number" id="nStartYear" class="flow-number"
+            value="2025" min="1900" max="2100" step="1" placeholder="ex: 2025" style="width:110px;">
+        </div>
+        <div class="flow-hint">Affichée dans le graphique et le tableau</div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+
+      <!-- METRICS -->
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-lbl">Valeur finale</div>
+          <div class="metric-val" id="mFinal">—</div>
+          <div class="metric-sub" id="mFinalSub"></div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Valeur réelle</div>
+          <div class="metric-val" id="mReal">—</div>
+          <div class="metric-sub">après inflation</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Plus-value totale</div>
+          <div class="metric-val" id="mGain">—</div>
+          <div class="metric-sub" id="mGainSub"></div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Versements cumulés</div>
+          <div class="metric-val" id="mContrib">—</div>
+          <div class="metric-sub" id="mContribSub"></div>
+        </div>
+      </div>
+
+      <!-- CHART -->
+      <div class="chart-panel">
+        <div class="chart-panel-head">
+          <div class="chart-panel-title">Projection sur la durée</div>
+          <div class="legend">
+            <button class="series-toggle" id="toggleBrut" aria-pressed="true">
+              <span class="toggle-swatch" style="background:var(--green);"></span>
+              Valeur brute
+            </button>
+            <button class="series-toggle" id="toggleReal" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:var(--blue);border-color:var(--blue);"></span>
+              Valeur réelle
+            </button>
+            <button class="series-toggle" id="toggleContrib" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:var(--text-3);border-color:var(--text-3);"></span>
+              Capital investi
+            </button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="simChart" role="img" aria-label="Projection du portefeuille par année"></canvas>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="tbl-panel">
+        <div class="tbl-panel-head">
+          <span class="tbl-panel-title">Détail annuel</span>
+          <span class="tbl-rows-count" id="tblCount"></span>
+        </div>
+        <div class="tbl-scroll">
+          <table>
+            <colgroup><col><col><col><col><col><col><col><col></colgroup>
+            <thead>
+              <tr>
+                <th>Année</th>
+                <th>Valeur brute</th>
+                <th>Valeur réelle</th>
+                <th>Intérêts</th>
+                <th>Ajout / Retrait</th>
+                <th>Capital investi</th>
+                <th>Plus-value</th>
+                <th>Perf. %</th>
+              </tr>
+            </thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    /* ── FORMATTERS ── */
+    const fmtEur = v => new Intl.NumberFormat('fr-FR', {
+      style: 'currency', currency: 'EUR', maximumFractionDigits: 0
+    }).format(v);
+
+    const fmtK = v => {
+      const a = Math.abs(v), s = v < 0 ? '−' : '';
+      if (a >= 1e6) return s + (a / 1e6).toFixed(2).replace('.', ',') + ' M€';
+      if (a >= 1e3) return s + Math.round(a / 1e3) + ' k€';
+      return s + Math.round(a) + ' €';
+    };
+
+    const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
+
+    /* ── SERIES VISIBILITY ── */
+    const seriesVisible = { brut: true, real: true, contrib: true };
+
+    /* ── THEME ── */
+    const THEME_KEY = 'sim_v3_theme';
+
+    function isDarkMode() {
+      const t = document.documentElement.dataset.theme;
+      if (t === 'dark') return true;
+      if (t === 'light') return false;
+      return matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    function applyTheme(dark) {
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      document.getElementById('themeBtn').textContent = dark ? '☀️' : '🌙';
+      localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
+      if (chart) compute();
+    }
+
+    /* ── STORAGE ── */
+    const STORAGE_KEY = 'sim_v3';
+
+    function loadState() {
+      try {
+        const s = localStorage.getItem(STORAGE_KEY);
+        if (!s) return null;
+        return JSON.parse(s);
+      } catch { return null; }
+    }
+
+    function saveState(state) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        const badge = document.getElementById('saveBadge');
+        badge.classList.add('visible');
+        clearTimeout(badge._t);
+        badge._t = setTimeout(() => badge.classList.remove('visible'), 2000);
+      } catch {}
+    }
+
+    /* ── PORTFOLIO INPUT FORMATTER ── */
+    const fmtPortfolio = v => new Intl.NumberFormat('fr-FR').format(Math.round(v));
+    const parsePortfolio = s => parseInt(String(s).replace(/\s/g, '').replace(/\u202F/g, '').replace(/\u00A0/g, ''), 10);
+
+    function wirePortfolioInput() {
+      const range = document.getElementById('rPortfolio');
+      const num   = document.getElementById('nPortfolio');
+
+      range.addEventListener('input', () => {
+        num.value = fmtPortfolio(parseFloat(range.value));
+        compute();
+      });
+
+      num.addEventListener('focus', () => {
+        const raw = parsePortfolio(num.value);
+        if (!isNaN(raw)) num.value = raw;
+        num.select();
+      });
+
+      num.addEventListener('blur', () => {
+        let v = parsePortfolio(num.value);
+        if (isNaN(v)) v = parseFloat(range.value);
+        v = Math.min(3000000, Math.max(200000, v));
+        range.value = v;
+        num.value = fmtPortfolio(v);
+        compute();
+      });
+    }
+
+    /* ── SYNC SLIDER ↔ INPUT ── */
+    function linkSliderInput(rangeId, numId) {
+      const range = document.getElementById(rangeId);
+      const num   = document.getElementById(numId);
+
+      range.addEventListener('input', () => {
+        num.value = parseFloat(range.value);
+        compute();
+      });
+
+      num.addEventListener('change', () => {
+        let v = parseFloat(num.value);
+        if (isNaN(v)) v = parseFloat(range.value);
+        v = Math.min(parseFloat(range.max), Math.max(parseFloat(range.min), v));
+        num.value = v;
+        range.value = v;
+        compute();
+      });
+    }
+
+    /* ── CHART ── */
+    let chart = null;
+
+    function buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx) {
+      const dark = isDarkMode();
+      const textColor = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
+      const gridColor = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+      const maxTicks = years <= 20 ? years : 12;
+      const ptR = years > 30 ? 0 : years > 15 ? 2 : 3;
+
+      /* per-point styling on brut line */
+      const ptColors = dataBrut.map(v => v <= 0 ? '#D85A30' : '#1D9E75');
+      const ptSizes  = dataBrut.map((v, i) => {
+        if (v <= 0 && (i === 0 || dataBrut[i - 1] > 0)) return 6;
+        return ptR;
+      });
+
+      /* inline plugin: vertical dashed line + label at crossing point */
+      const crossLinePlugin = crossIdx !== -1 ? {
+        id: 'crossLine',
+        afterDraw(ch) {
+          const { ctx, chartArea, scales } = ch;
+          const x = scales.x.getPixelForValue(crossIdx);
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(x, chartArea.top);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.strokeStyle = 'rgba(216,90,48,0.55)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          /* badge */
+          const lbl = labels[crossIdx];
+          ctx.font = '600 11px system-ui,sans-serif';
+          const tw = ctx.measureText(lbl).width;
+          const bx = Math.min(x + 5, chartArea.right - tw - 10);
+          ctx.fillStyle = 'rgba(216,90,48,0.12)';
+          ctx.beginPath();
+          ctx.roundRect(bx - 3, chartArea.top + 5, tw + 8, 18, 4);
+          ctx.fill();
+          ctx.fillStyle = '#D85A30';
+          ctx.fillText(lbl, bx + 1, chartArea.top + 17);
+          ctx.restore();
+        }
+      } : null;
+
+      if (chart) chart.destroy();
+      chart = new Chart(document.getElementById('simChart'), {
+        type: 'line',
+        plugins: crossLinePlugin ? [crossLinePlugin] : [],
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Zéro',
+              data: Array(years).fill(0),
+              borderColor: 'rgba(216,90,48,0.35)',
+              borderWidth: 1,
+              borderDash: [4, 3],
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+              order: 5
+            },
+            {
+              label: 'Capital investi',
+              data: dataContrib,
+              hidden: !seriesVisible.contrib,
+              borderColor: dark ? '#5F5E5A' : '#B4B2A9',
+              borderWidth: 1.5,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+              order: 3
+            },
+            {
+              label: 'Valeur réelle',
+              data: dataReal,
+              hidden: !seriesVisible.real,
+              borderColor: '#378ADD',
+              backgroundColor: 'rgba(55,138,221,0.07)',
+              borderWidth: 1.5,
+              borderDash: [5, 4],
+              pointRadius: ptR,
+              pointBackgroundColor: '#378ADD',
+              fill: false,
+              tension: 0.3,
+              order: 2
+            },
+            {
+              label: 'Valeur brute',
+              data: dataBrut,
+              hidden: !seriesVisible.brut,
+              borderColor: '#1D9E75',
+              backgroundColor: 'rgba(29,158,117,0.09)',
+              borderWidth: 2,
+              pointRadius: ptSizes,
+              pointBackgroundColor: ptColors,
+              fill: true,
+              tension: 0.3,
+              order: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: dark ? '#2A2A28' : '#fff',
+              borderColor: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+              borderWidth: 1,
+              titleColor: dark ? '#E8E7E3' : '#1A1A19',
+              bodyColor: dark ? '#9B9A96' : '#5F5E5A',
+              padding: 12,
+              filter: item => item.dataset.label !== 'Zéro',
+              callbacks: {
+                label: ctx => '  ' + ctx.dataset.label + ' : ' + fmtEur(ctx.parsed.y)
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: textColor,
+                font: { size: 11 },
+                maxTicksLimit: maxTicks,
+                autoSkip: true,
+                maxRotation: 0
+              },
+              grid: { color: gridColor },
+              border: { color: gridColor }
+            },
+            y: {
+              ticks: {
+                color: textColor,
+                font: { size: 11 },
+                maxTicksLimit: 8,
+                callback: v => {
+                  if (v >= 1e6) return (v / 1e6).toFixed(1) + ' M€';
+                  if (v >= 1e3) return (v / 1e3).toFixed(0) + ' k€';
+                  return v + ' €';
+                }
+              },
+              grid: { color: gridColor },
+              border: { color: gridColor }
+            }
+          }
+        }
+      });
+    }
+
+    /* ── COMPUTE ── */
+    function compute() {
+      const P         = parseFloat(document.getElementById('rPortfolio').value);
+      const r         = parseFloat(document.getElementById('rReturn').value) / 100;
+      const inf       = parseFloat(document.getElementById('rInflation').value) / 100;
+      const years     = parseInt(document.getElementById('rDuration').value);
+      const flow      = parseFloat(document.getElementById('nFlow').value) || 0;
+      const startYear = parseInt(document.getElementById('nStartYear').value) || new Date().getFullYear();
+
+      /* save */
+      saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years, flow, startYear,
+                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib } });
+
+      /* flow badge */
+      const badge = document.getElementById('flowBadge');
+      if (flow >= 0) { badge.textContent = '+ Versement'; badge.className = 'flow-badge pos'; }
+      else           { badge.textContent = '− Retrait';   badge.className = 'flow-badge neg'; }
+
+      /* simulation */
+      const labels = [], dataBrut = [], dataReal = [], dataContrib = [], rows = [];
+      let val = P, totalContrib = P;
+      const annualFlow = Math.round(flow * 12);
+
+      for (let y = 1; y <= years; y++) {
+        const interest = val * r;
+        val = val * (1 + r) + flow * 12;
+        totalContrib += flow * 12;
+        const realVal = val / Math.pow(1 + inf, y);
+        const gain = val - totalContrib;
+        const gainPct = totalContrib !== 0 ? ((val / totalContrib) - 1) * 100 : 0;
+        const yearLabel = String(startYear + y - 1);
+        labels.push(yearLabel);
+        dataBrut.push(Math.round(val));
+        dataReal.push(Math.round(realVal));
+        dataContrib.push(Math.round(totalContrib));
+        rows.push({
+          year: startYear + y - 1,
+          val: Math.round(val),
+          realVal: Math.round(realVal),
+          interest: Math.round(interest),
+          annualFlow,
+          totalContrib: Math.round(totalContrib),
+          gain: Math.round(gain),
+          gainPct
+        });
+      }
+
+      /* metrics */
+      const last = rows[rows.length - 1];
+      const gc   = last.gain >= 0 ? 'pos' : 'neg';
+
+      document.getElementById('mFinal').textContent = fmtK(last.val);
+      document.getElementById('mFinal').className = 'metric-val';
+      document.getElementById('mFinalSub').textContent = fmtPct(((last.val / P) - 1) * 100) + ' vs initial';
+
+      document.getElementById('mReal').textContent = fmtK(last.realVal);
+      document.getElementById('mReal').className = 'metric-val';
+
+      document.getElementById('mGain').textContent = fmtK(last.gain);
+      document.getElementById('mGain').className = 'metric-val ' + gc;
+      document.getElementById('mGainSub').textContent = fmtPct(last.gainPct);
+
+      document.getElementById('mContrib').textContent = fmtK(last.totalContrib);
+      document.getElementById('mContrib').className = 'metric-val';
+      document.getElementById('mContribSub').textContent =
+        (flow !== 0 ? fmtK(Math.abs(flow * 12 * years)) + ' flux total' : 'sans versement');
+
+      /* detect first crossing below zero */
+      const crossIdx = dataBrut.findIndex(v => v <= 0);
+
+      /* table */
+      const maxVal = Math.max(...dataBrut, 1);
+      document.getElementById('tblCount').textContent = years + ' années · ' + startYear + '–' + (startYear + years - 1);
+      document.getElementById('tblBody').innerHTML = rows.map(row => {
+        const neg  = row.val <= 0;
+        const c    = neg ? 'td-neg' : (row.gain >= 0 ? 'td-pos' : 'td-neg');
+        const fc   = row.annualFlow > 0 ? 'td-pos' : row.annualFlow < 0 ? 'td-neg' : '';
+        const barW = row.val > 0 ? Math.round((row.val / maxVal) * 100) : 0;
+        return `<tr${neg ? ' class="row-negative"' : ''}>
+          <td>${row.year}</td>
+          <td style="position:relative;">
+            <div class="td-bar" style="width:${barW}%"></div>
+            ${fmtEur(row.val)}
+          </td>
+          <td>${fmtEur(row.realVal)}</td>
+          <td class="${c}">${fmtEur(row.interest)}</td>
+          <td class="${fc}">${row.annualFlow === 0 ? '—' : fmtEur(row.annualFlow)}</td>
+          <td>${fmtEur(row.totalContrib)}</td>
+          <td class="${c}">${fmtEur(row.gain)}</td>
+          <td class="${c}">${fmtPct(row.gainPct)}</td>
+        </tr>`;
+      }).join('');
+
+      /* chart */
+      buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx);
+    }
+
+    /* ── INIT ── */
+    document.addEventListener('DOMContentLoaded', () => {
+      /* restore theme */
+      const savedTheme = localStorage.getItem(THEME_KEY);
+      if (savedTheme) {
+        document.documentElement.dataset.theme = savedTheme;
+        document.getElementById('themeBtn').textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+      } else {
+        /* mirror system preference into data-theme so CSS explicit selectors work */
+        const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = sysDark ? 'dark' : 'light';
+        document.getElementById('themeBtn').textContent = sysDark ? '☀️' : '🌙';
+      }
+
+      /* theme toggle button */
+      document.getElementById('themeBtn').addEventListener('click', () => {
+        applyTheme(!isDarkMode());
+      });
+
+      /* restore simulation state */
+      const saved = loadState();
+      if (saved) {
+        const set = (rangeId, numId, val) => {
+          document.getElementById(rangeId).value = val;
+          document.getElementById(numId).value   = val;
+        };
+        if (saved.portfolio  !== undefined) {
+          document.getElementById('rPortfolio').value = saved.portfolio;
+          document.getElementById('nPortfolio').value = fmtPortfolio(saved.portfolio);
+        }
+        if (saved.return     !== undefined) set('rReturn',    'nReturn',    saved.return);
+        if (saved.inflation  !== undefined) set('rInflation', 'nInflation', saved.inflation);
+        if (saved.duration   !== undefined) set('rDuration',  'nDuration',  saved.duration);
+        if (saved.flow       !== undefined) document.getElementById('nFlow').value = saved.flow;
+        if (saved.startYear  !== undefined) document.getElementById('nStartYear').value = saved.startYear;
+        if (saved.series) {
+          ['brut', 'real', 'contrib'].forEach(key => {
+            if (saved.series[key] === false) {
+              seriesVisible[key] = false;
+              const idMap = { brut: 'toggleBrut', real: 'toggleReal', contrib: 'toggleContrib' };
+              document.getElementById(idMap[key]).classList.add('off');
+              document.getElementById(idMap[key]).setAttribute('aria-pressed', 'false');
+            }
+          });
+        }
+      }
+
+      /* wire bidirectional controls */
+      wirePortfolioInput();
+      linkSliderInput('rReturn',    'nReturn');
+      linkSliderInput('rInflation', 'nInflation');
+      linkSliderInput('rDuration',  'nDuration');
+
+      document.getElementById('nFlow').addEventListener('input', compute);
+      document.getElementById('nStartYear').addEventListener('change', compute);
+
+      /* series toggles */
+      [
+        { id: 'toggleBrut',   key: 'brut',   dsIdx: 3 },
+        { id: 'toggleReal',   key: 'real',   dsIdx: 2 },
+        { id: 'toggleContrib',key: 'contrib', dsIdx: 1 },
+      ].forEach(({ id, key, dsIdx }) => {
+        document.getElementById(id).addEventListener('click', () => {
+          seriesVisible[key] = !seriesVisible[key];
+          const btn = document.getElementById(id);
+          btn.classList.toggle('off', !seriesVisible[key]);
+          btn.setAttribute('aria-pressed', seriesVisible[key]);
+          if (chart) {
+            chart.data.datasets[dsIdx].hidden = !seriesVisible[key];
+            chart.update();
+          }
+          /* persist immediately without full recompute */
+          const s = loadState() || {};
+          s.series = { ...seriesVisible };
+          saveState(s);
+        });
+      });
+
+      compute();
+    });
+
+    /* sync theme button when system preference changes (if no manual override saved) */
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      if (!localStorage.getItem(THEME_KEY)) {
+        document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
+        document.getElementById('themeBtn').textContent = e.matches ? '☀️' : '🌙';
+        compute();
+      }
+    });
+  </script>
+</body>
+</html>
