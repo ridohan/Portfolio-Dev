@@ -447,12 +447,6 @@
 
     /* ── FLUX ── */
     .flow-ctrl {}
-    .flow-input-wrap {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 8px;
-    }
     .flow-number {
       flex: 1;
       font-size: 15px;
@@ -468,20 +462,88 @@
     .flow-number:focus { outline: none; border-color: var(--accent); }
     .flow-number::-webkit-outer-spin-button,
     .flow-number::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .flow-badge {
-      font-size: 11px;
-      font-weight: 600;
-      padding: 4px 10px;
-      border-radius: 20px;
-      white-space: nowrap;
-    }
-    .flow-badge.pos { background: var(--green-bg); color: var(--green); }
-    .flow-badge.neg { background: var(--red-bg); color: var(--red); }
     .flow-hint {
       font-size: 11px;
       color: var(--text-3);
       margin-top: 5px;
     }
+
+    /* ── FLOW PERIODS ── */
+    .flow-periods-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .flow-empty {
+      font-size: 12px;
+      color: var(--text-3);
+      padding: 8px 0 4px;
+      text-align: center;
+    }
+    .flow-period-row {
+      display: grid;
+      grid-template-columns: auto 44px auto 44px 62px auto 20px;
+      align-items: center;
+      gap: 3px;
+      padding: 4px 2px;
+      border-radius: var(--radius-sm);
+    }
+    .flow-period-row:hover { background: var(--bg-input); }
+    .fp-label {
+      font-size: 11px;
+      color: var(--text-3);
+      white-space: nowrap;
+      padding: 0 2px;
+    }
+    .fp-input {
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-card);
+      border: 1px solid var(--border-mid);
+      border-radius: 4px;
+      padding: 3px 2px;
+      font-family: inherit;
+      font-variant-numeric: tabular-nums;
+      -moz-appearance: textfield;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    .fp-input:focus { outline: none; border-color: var(--accent); }
+    .fp-input::-webkit-inner-spin-button,
+    .fp-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+    .fp-amount { font-size: 12px; }
+    .fp-amount.pos { color: var(--green); }
+    .fp-amount.neg { color: var(--red); }
+    .fp-del {
+      width: 20px; height: 20px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none;
+      cursor: pointer;
+      color: var(--text-3);
+      font-size: 14px;
+      line-height: 1;
+      border-radius: 4px;
+      transition: color 0.12s, background 0.12s;
+    }
+    .fp-del:hover { color: var(--red); background: var(--red-bg); }
+    .add-period-btn {
+      width: 100%;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--text-2);
+      background: none;
+      border: 1px dashed var(--border-mid);
+      border-radius: var(--radius-sm);
+      padding: 5px 10px;
+      cursor: pointer;
+      text-align: left;
+      margin-top: 4px;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .add-period-btn:hover { background: var(--bg-input); color: var(--text-1); }
     .depart-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -796,15 +858,12 @@
 
       <div class="sidebar-divider"></div>
 
-      <!-- Flux mensuel -->
+      <!-- Flux mensuels par période -->
       <div class="flow-ctrl">
-        <div class="sidebar-section-title" style="margin-bottom:0.5rem;">Flux mensuel</div>
-        <input type="number" id="nFlow" class="flow-number"
-          value="1000" placeholder="ex: 500 ou −500">
-        <div class="flow-hint" style="display:flex;align-items:center;gap:8px;margin-top:7px;">
-          <span class="flow-badge pos" id="flowBadge">+ Versement</span>
-          <span>Positif = ajout · Négatif = retrait</span>
-        </div>
+        <div class="sidebar-section-title" style="margin-bottom:0.5rem;">Flux mensuels</div>
+        <div class="flow-periods-list" id="flowPeriodsList"></div>
+        <button class="add-period-btn" id="addFlowPeriodBtn">+ Ajouter une période</button>
+        <div class="flow-hint">Positif = versement · Négatif = retrait</div>
       </div>
 
       <div class="sidebar-divider"></div>
@@ -923,6 +982,62 @@
     };
 
     const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
+
+    /* ── FLOW PERIODS ── */
+    let flowPeriods = []; // [{ from: 1, to: N, flow: monthly€ }]
+
+    function renderFlowPeriods() {
+      const el = document.getElementById('flowPeriodsList');
+      if (!el) return;
+      if (flowPeriods.length === 0) {
+        el.innerHTML = '<div class="flow-empty">Aucune période — aucun flux appliqué</div>';
+        return;
+      }
+      el.innerHTML = flowPeriods.map((p, i) => {
+        const amtCls = p.flow < 0 ? ' neg' : p.flow > 0 ? ' pos' : '';
+        return `<div class="flow-period-row">
+          <span class="fp-label">An</span>
+          <input class="fp-input" type="number" data-idx="${i}" data-field="from"
+            value="${p.from}" min="1" max="9999" step="1">
+          <span class="fp-label" style="text-align:center;">→</span>
+          <input class="fp-input" type="number" data-idx="${i}" data-field="to"
+            value="${p.to}" min="1" max="9999" step="1">
+          <input class="fp-input fp-amount${amtCls}" type="number" data-idx="${i}" data-field="flow"
+            value="${p.flow}" step="100" placeholder="€/m">
+          <span class="fp-label">€/m</span>
+          <button class="fp-del" data-idx="${i}" title="Supprimer">×</button>
+        </div>`;
+      }).join('');
+
+      el.querySelectorAll('.fp-input').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const idx = +inp.dataset.idx;
+          const v = parseFloat(inp.value);
+          if (!isNaN(v)) flowPeriods[idx][inp.dataset.field] = v;
+          if (inp.dataset.field === 'flow') {
+            inp.className = `fp-input fp-amount${v < 0 ? ' neg' : v > 0 ? ' pos' : ''}`;
+          }
+          compute();
+        });
+      });
+      el.querySelectorAll('.fp-del').forEach(btn => {
+        btn.addEventListener('click', () => {
+          flowPeriods.splice(+btn.dataset.idx, 1);
+          renderFlowPeriods();
+          compute();
+        });
+      });
+    }
+
+    function addFlowPeriod() {
+      const years = parseInt(document.getElementById('rDuration').value) || 25;
+      const lastTo = flowPeriods.length > 0 ? flowPeriods[flowPeriods.length - 1].to : 0;
+      const from = lastTo + 1;
+      const to = Math.max(from, years);
+      flowPeriods.push({ from, to, flow: 0 });
+      renderFlowPeriods();
+      compute();
+    }
 
     /* ── SERIES VISIBILITY ── */
     const seriesVisible = { brut: true, real: true, contrib: true };
@@ -1075,7 +1190,8 @@
 
     function defaultSimData() {
       return {
-        portfolio: 786000, return: 7, inflation: 2, duration: 25, flow: 0,
+        portfolio: 786000, return: 7, inflation: 2, duration: 25,
+        flowPeriods: [],
         startYear: new Date().getFullYear(), startAge: 0,
         series: { brut: true, real: true, contrib: true },
         profile: 'manual',
@@ -1189,7 +1305,14 @@
       if (saved.return    !== undefined) set('rReturn',    'nReturn',    saved.return);
       if (saved.inflation !== undefined) set('rInflation', 'nInflation', saved.inflation);
       if (saved.duration  !== undefined) set('rDuration',  'nDuration',  saved.duration);
-      if (saved.flow      !== undefined) document.getElementById('nFlow').value = saved.flow;
+      if (saved.flowPeriods !== undefined) {
+        flowPeriods = saved.flowPeriods.map(p => ({ ...p }));
+      } else if (saved.flow !== undefined && saved.flow !== 0) {
+        flowPeriods = [{ from: 1, to: saved.duration || 25, flow: saved.flow }];
+      } else {
+        flowPeriods = [];
+      }
+      renderFlowPeriods();
       if (saved.startYear !== undefined) document.getElementById('nStartYear').value = saved.startYear;
       document.getElementById('nAge').value = saved.startAge > 0 ? saved.startAge : '';
       if (saved.profileBreakdowns) {
@@ -1429,12 +1552,13 @@
       const r         = parseFloat(document.getElementById('rReturn').value) / 100;
       const inf       = parseFloat(document.getElementById('rInflation').value) / 100;
       const years     = parseInt(document.getElementById('rDuration').value);
-      const flow      = parseFloat(document.getElementById('nFlow').value) || 0;
       const startYear = parseInt(document.getElementById('nStartYear').value) || new Date().getFullYear();
       const startAge  = parseInt(document.getElementById('nAge').value) || 0;
 
       /* save */
-      saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years, flow, startYear, startAge,
+      saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years,
+                  flowPeriods: flowPeriods.map(p => ({ ...p })),
+                  startYear, startAge,
                   series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib },
                   profile: activeProfile,
                   profileBreakdowns: {
@@ -1442,20 +1566,17 @@
                     sp500: PROFILES.sp500.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
                   } });
 
-      /* flow badge */
-      const badge = document.getElementById('flowBadge');
-      if (flow >= 0) { badge.textContent = '+ Versement'; badge.className = 'flow-badge pos'; }
-      else           { badge.textContent = '− Retrait';   badge.className = 'flow-badge neg'; }
-
       /* simulation */
       const labels = [], dataBrut = [], dataReal = [], dataContrib = [], rows = [];
       let val = P, totalContrib = P;
-      const annualFlow = Math.round(flow * 12);
 
       for (let y = 1; y <= years; y++) {
+        const period = flowPeriods.find(p => y >= p.from && y <= p.to);
+        const monthlyFlow = period ? period.flow : 0;
+        const annualFlow = Math.round(monthlyFlow * 12);
         const interest = val * r;
-        val = val * (1 + r) + flow * 12;
-        totalContrib += flow * 12;
+        val = val * (1 + r) + monthlyFlow * 12;
+        totalContrib += monthlyFlow * 12;
         const realVal = val / Math.pow(1 + inf, y);
         const gain = val - totalContrib;
         const gainPct = totalContrib !== 0 ? ((val / totalContrib) - 1) * 100 : 0;
@@ -1494,8 +1615,9 @@
 
       document.getElementById('mContrib').textContent = fmtK(last.totalContrib);
       document.getElementById('mContrib').className = 'metric-val';
+      const netFlow = last.totalContrib - P;
       document.getElementById('mContribSub').textContent =
-        (flow !== 0 ? fmtK(Math.abs(flow * 12 * years)) + ' flux total' : 'sans versement');
+        netFlow !== 0 ? (netFlow > 0 ? '+' : '') + fmtK(netFlow) + ' flux net' : 'sans flux';
 
       /* detect first crossing below zero */
       const crossIdx = dataBrut.findIndex(v => v <= 0);
@@ -1568,7 +1690,7 @@
         if (activeProfile !== 'manual') applyProfile('manual');
       });
 
-      document.getElementById('nFlow').addEventListener('input', compute);
+      document.getElementById('addFlowPeriodBtn').addEventListener('click', addFlowPeriod);
       document.getElementById('nStartYear').addEventListener('change', compute);
       document.getElementById('nAge').addEventListener('change', compute);
 
