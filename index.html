@@ -361,6 +361,83 @@
     .ctrl.profile-active input[type=range] { opacity: 0.35; pointer-events: none; }
     .ctrl.profile-active .ctrl-num-input  { opacity: 0.45; pointer-events: none; }
 
+    /* ── SIM LIST ── */
+    .sim-section { display: flex; flex-direction: column; gap: 8px; }
+    .sim-name-input {
+      width: 100%;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .sim-name-input:focus { outline: none; border-color: var(--accent); }
+    .sim-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 148px;
+      overflow-y: auto;
+    }
+    .sim-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: var(--radius-sm);
+      padding: 2px 2px 2px 6px;
+    }
+    .sim-item:hover { background: var(--bg-input); }
+    .sim-item.active { background: var(--green-bg); }
+    .sim-item-btn {
+      flex: 1; min-width: 0;
+      text-align: left;
+      font-size: 12px;
+      font-family: inherit;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-1);
+      padding: 4px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sim-item.active .sim-item-btn { font-weight: 600; color: var(--green); }
+    .sim-delete-btn {
+      flex-shrink: 0;
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none;
+      cursor: pointer;
+      color: var(--text-3);
+      font-size: 15px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-item:hover .sim-delete-btn { opacity: 1; }
+    .sim-delete-btn:hover { color: var(--red); background: var(--red-bg); }
+    .sim-delete-btn[disabled] { opacity: 0 !important; pointer-events: none; }
+    .new-sim-btn {
+      width: 100%;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--text-2);
+      background: none;
+      border: 1px dashed var(--border-mid);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .new-sim-btn:hover { background: var(--bg-input); color: var(--text-1); }
+
     /* ── DIVIDER ── */
     .sidebar-divider {
       height: 1px;
@@ -644,6 +721,17 @@
 
     <!-- SIDEBAR -->
     <aside class="sidebar">
+
+      <!-- Simulations -->
+      <div class="sim-section">
+        <div class="sidebar-section-title" style="margin-bottom:0;">Simulations</div>
+        <input type="text" id="simNameInput" class="sim-name-input" placeholder="Nom de la simulation" maxlength="48">
+        <div class="sim-list" id="simList"></div>
+        <button class="new-sim-btn" id="newSimBtn">+ Nouvelle simulation</button>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
       <div>
         <div class="sidebar-section-title">Paramètres</div>
 
@@ -973,25 +1061,156 @@
       if (chart) compute();
     }
 
-    /* ── STORAGE ── */
-    const STORAGE_KEY = 'sim_v3';
+    /* ── MULTI-SIM STORAGE ── */
+    const SIMS_KEY   = 'sim_v3_sims';
+    const ACTIVE_KEY = 'sim_v3_active';
+
+    const genId = () => 'sim_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    function loadSims()       { try { return JSON.parse(localStorage.getItem(SIMS_KEY)) || []; } catch { return []; } }
+    function saveSims(sims)   { localStorage.setItem(SIMS_KEY, JSON.stringify(sims)); }
+    function getActiveId()    { return localStorage.getItem(ACTIVE_KEY) || ''; }
+    function setActiveId(id)  { localStorage.setItem(ACTIVE_KEY, id); }
+
+    function defaultSimData() {
+      return {
+        portfolio: 786000, return: 7, inflation: 2, duration: 25, flow: 0,
+        startYear: new Date().getFullYear(), startAge: 0,
+        series: { brut: true, real: true, contrib: true },
+        profile: 'manual',
+        profileBreakdowns: {
+          monde: PROFILE_DEFAULTS.monde.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
+          sp500: PROFILE_DEFAULTS.sp500.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
+        }
+      };
+    }
+
+    function initSimStorage() {
+      let sims = loadSims();
+      if (sims.length === 0) {
+        let data = null;
+        try { data = JSON.parse(localStorage.getItem('sim_v3')); } catch {}
+        const id = genId();
+        sims = [{ id, name: 'Ma simulation', data: data || defaultSimData() }];
+        saveSims(sims); setActiveId(id);
+      } else if (!sims.find(s => s.id === getActiveId())) {
+        setActiveId(sims[0].id);
+      }
+    }
 
     function loadState() {
-      try {
-        const s = localStorage.getItem(STORAGE_KEY);
-        if (!s) return null;
-        return JSON.parse(s);
-      } catch { return null; }
+      const sims = loadSims();
+      const sim  = sims.find(s => s.id === getActiveId()) || sims[0];
+      return sim?.data || null;
     }
 
     function saveState(state) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        const sims = loadSims();
+        const idx  = sims.findIndex(s => s.id === getActiveId());
+        if (idx !== -1) { sims[idx].data = state; saveSims(sims); }
         const badge = document.getElementById('saveBadge');
         badge.classList.add('visible');
         clearTimeout(badge._t);
         badge._t = setTimeout(() => badge.classList.remove('visible'), 2000);
       } catch {}
+    }
+
+    function renderSimList() {
+      const sims = loadSims(), activeId = getActiveId();
+      const active = sims.find(s => s.id === activeId);
+      document.getElementById('simNameInput').value = active?.name || '';
+      const listEl = document.getElementById('simList');
+      listEl.innerHTML = sims.map(sim =>
+        `<div class="sim-item${sim.id === activeId ? ' active' : ''}" data-id="${sim.id}">
+          <button class="sim-item-btn" data-id="${sim.id}">${escHtml(sim.name)}</button>
+          <button class="sim-delete-btn" data-id="${sim.id}" ${sims.length === 1 ? 'disabled' : ''} title="Supprimer">×</button>
+        </div>`
+      ).join('');
+      listEl.querySelectorAll('.sim-item-btn').forEach(btn =>
+        btn.addEventListener('click', () => { if (btn.dataset.id !== activeId) switchToSim(btn.dataset.id); })
+      );
+      listEl.querySelectorAll('.sim-delete-btn:not([disabled])').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const sim = sims.find(s => s.id === btn.dataset.id);
+          if (confirm('Supprimer "' + (sim?.name || 'cette simulation') + '" ?')) deleteSim(btn.dataset.id);
+        })
+      );
+    }
+
+    function switchToSim(id) {
+      setActiveId(id);
+      applyState(loadState());
+      renderSimList();
+    }
+
+    function deleteSim(id) {
+      let sims = loadSims().filter(s => s.id !== id);
+      if (sims.length === 0) sims = [{ id: genId(), name: 'Ma simulation', data: defaultSimData() }];
+      if (getActiveId() === id) setActiveId(sims[0].id);
+      saveSims(sims);
+      applyState(loadState());
+      renderSimList();
+    }
+
+    function createNewSim() {
+      const sims = loadSims();
+      const id   = genId();
+      const data = defaultSimData();
+      sims.push({ id, name: 'Simulation ' + (sims.length + 1), data });
+      saveSims(sims); setActiveId(id);
+      applyState(data);
+      renderSimList();
+    }
+
+    function applyState(saved) {
+      if (!saved) return;
+      /* reset toggles */
+      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = true;
+      ['toggleBrut','toggleReal','toggleContrib'].forEach(id => {
+        document.getElementById(id)?.classList.remove('off');
+        document.getElementById(id)?.setAttribute('aria-pressed', 'true');
+      });
+      /* reset profile breakdowns */
+      ['monde','sp500'].forEach(key =>
+        PROFILES[key].breakdown = PROFILE_DEFAULTS[key].breakdown.map(r => ({...r}))
+      );
+      const set = (rId, nId, v) => {
+        const rounded = +parseFloat(v).toFixed(2);
+        document.getElementById(rId).value = rounded;
+        document.getElementById(nId).value = rounded;
+      };
+      if (saved.portfolio !== undefined) {
+        document.getElementById('rPortfolio').value = saved.portfolio;
+        document.getElementById('nPortfolio').value = fmtPortfolio(saved.portfolio);
+      }
+      if (saved.return    !== undefined) set('rReturn',    'nReturn',    saved.return);
+      if (saved.inflation !== undefined) set('rInflation', 'nInflation', saved.inflation);
+      if (saved.duration  !== undefined) set('rDuration',  'nDuration',  saved.duration);
+      if (saved.flow      !== undefined) document.getElementById('nFlow').value = saved.flow;
+      if (saved.startYear !== undefined) document.getElementById('nStartYear').value = saved.startYear;
+      document.getElementById('nAge').value = saved.startAge > 0 ? saved.startAge : '';
+      if (saved.profileBreakdowns) {
+        ['monde','sp500'].forEach(key => {
+          saved.profileBreakdowns[key]?.forEach((item, i) => {
+            if (PROFILES[key].breakdown[i]) Object.assign(PROFILES[key].breakdown[i], item);
+          });
+        });
+      }
+      if (saved.series) {
+        ['brut','real','contrib'].forEach(key => {
+          if (saved.series[key] === false) {
+            seriesVisible[key] = false;
+            const id = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib' }[key];
+            document.getElementById(id)?.classList.add('off');
+            document.getElementById(id)?.setAttribute('aria-pressed','false');
+          }
+        });
+      }
+      activeProfile = saved.profile || 'manual';
+      applyProfile(activeProfile);
     }
 
     /* ── PORTFOLIO INPUT FORMATTER ── */
@@ -1329,46 +1548,8 @@
         applyTheme(!isDarkMode());
       });
 
-      /* restore simulation state */
-      const saved = loadState();
-      if (saved) {
-        const set = (rangeId, numId, val) => {
-          document.getElementById(rangeId).value = val;
-          document.getElementById(numId).value   = val;
-        };
-        if (saved.portfolio  !== undefined) {
-          document.getElementById('rPortfolio').value = saved.portfolio;
-          document.getElementById('nPortfolio').value = fmtPortfolio(saved.portfolio);
-        }
-        if (saved.return     !== undefined) set('rReturn',    'nReturn',    saved.return);
-        if (saved.inflation  !== undefined) set('rInflation', 'nInflation', saved.inflation);
-        if (saved.duration   !== undefined) set('rDuration',  'nDuration',  saved.duration);
-        if (saved.flow       !== undefined) document.getElementById('nFlow').value = saved.flow;
-        if (saved.startYear  !== undefined) document.getElementById('nStartYear').value = saved.startYear;
-        if (saved.startAge   > 0)           document.getElementById('nAge').value = saved.startAge;
-        if (saved.profileBreakdowns) {
-          ['monde', 'sp500'].forEach(key => {
-            const bd = saved.profileBreakdowns[key];
-            if (bd) bd.forEach((item, i) => {
-              if (PROFILES[key].breakdown[i]) {
-                PROFILES[key].breakdown[i].alloc = item.alloc;
-                PROFILES[key].breakdown[i].rate  = item.rate;
-              }
-            });
-          });
-        }
-        if (saved.profile    !== undefined) activeProfile = saved.profile;
-        if (saved.series) {
-          ['brut', 'real', 'contrib'].forEach(key => {
-            if (saved.series[key] === false) {
-              seriesVisible[key] = false;
-              const idMap = { brut: 'toggleBrut', real: 'toggleReal', contrib: 'toggleContrib' };
-              document.getElementById(idMap[key]).classList.add('off');
-              document.getElementById(idMap[key]).setAttribute('aria-pressed', 'false');
-            }
-          });
-        }
-      }
+      /* init multi-sim storage */
+      initSimStorage();
 
       /* wire bidirectional controls */
       wirePortfolioInput();
@@ -1377,10 +1558,9 @@
       linkSliderInput('rDuration',  'nDuration');
 
       /* profile buttons */
-      document.querySelectorAll('.profile-btn').forEach(btn => {
-        btn.addEventListener('click', () => applyProfile(btn.dataset.profile));
-      });
-      /* switching slider/input manually reverts to manual profile */
+      document.querySelectorAll('.profile-btn').forEach(btn =>
+        btn.addEventListener('click', () => applyProfile(btn.dataset.profile))
+      );
       document.getElementById('rReturn').addEventListener('mousedown', () => {
         if (activeProfile !== 'manual') applyProfile('manual');
       });
@@ -1388,36 +1568,43 @@
         if (activeProfile !== 'manual') applyProfile('manual');
       });
 
-      /* restore profile visually (after DOM is ready) */
-      if (activeProfile !== 'manual') applyProfile(activeProfile);
-
       document.getElementById('nFlow').addEventListener('input', compute);
       document.getElementById('nStartYear').addEventListener('change', compute);
       document.getElementById('nAge').addEventListener('change', compute);
 
       /* series toggles */
       [
-        { id: 'toggleBrut',   key: 'brut',   dsIdx: 3 },
-        { id: 'toggleReal',   key: 'real',   dsIdx: 2 },
-        { id: 'toggleContrib',key: 'contrib', dsIdx: 1 },
+        { id: 'toggleBrut',    key: 'brut',    dsIdx: 3 },
+        { id: 'toggleReal',    key: 'real',    dsIdx: 2 },
+        { id: 'toggleContrib', key: 'contrib', dsIdx: 1 },
       ].forEach(({ id, key, dsIdx }) => {
         document.getElementById(id).addEventListener('click', () => {
           seriesVisible[key] = !seriesVisible[key];
           const btn = document.getElementById(id);
           btn.classList.toggle('off', !seriesVisible[key]);
           btn.setAttribute('aria-pressed', seriesVisible[key]);
-          if (chart) {
-            chart.data.datasets[dsIdx].hidden = !seriesVisible[key];
-            chart.update();
-          }
-          /* persist immediately without full recompute */
-          const s = loadState() || {};
-          s.series = { ...seriesVisible };
-          saveState(s);
+          if (chart) { chart.data.datasets[dsIdx].hidden = !seriesVisible[key]; chart.update(); }
+          const s = loadState() || {}; s.series = { ...seriesVisible }; saveState(s);
         });
       });
 
-      compute();
+      /* sim name rename */
+      document.getElementById('simNameInput').addEventListener('change', () => {
+        const sims = loadSims();
+        const idx  = sims.findIndex(s => s.id === getActiveId());
+        if (idx !== -1) {
+          sims[idx].name = document.getElementById('simNameInput').value.trim() || 'Sans titre';
+          saveSims(sims);
+          renderSimList();
+        }
+      });
+
+      /* new sim button */
+      document.getElementById('newSimBtn').addEventListener('click', createNewSim);
+
+      /* restore active sim + render list */
+      applyState(loadState());
+      renderSimList();
     });
 
     /* sync theme button when system preference changes (if no manual override saved) */
