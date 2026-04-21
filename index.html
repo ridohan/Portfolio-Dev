@@ -1173,9 +1173,9 @@
               <span class="toggle-swatch" style="background:var(--green);"></span>
               Valeur brute
             </button>
-            <button class="series-toggle" id="toggleReal" aria-pressed="true">
+            <button class="series-toggle" id="toggleReal" aria-pressed="true" title="Valeur nette d'inflation — pouvoir d'achat constant">
               <span class="toggle-swatch dashed" style="color:var(--blue);border-color:var(--blue);"></span>
-              Valeur réelle
+              Valeur réelle après inflation
             </button>
             <button class="series-toggle" id="toggleContrib" aria-pressed="true">
               <span class="toggle-swatch dashed" style="color:var(--text-3);border-color:var(--text-3);"></span>
@@ -1212,7 +1212,7 @@
                 <th>Année</th>
                 <th>Âge</th>
                 <th>Valeur brute</th>
-                <th>Valeur réelle</th>
+                <th>Valeur réelle · net d'inflation</span></th>
                 <th>Intérêts</th>
                 <th>Ajout / Retrait /an</th>
                 <th>Ajout / Retrait /mois</th>
@@ -1962,7 +1962,7 @@
               order: 3
             },
             {
-              label: 'Valeur réelle',
+              label: 'Valeur réelle · net d\'inflation',
               data: dataReal,
               hidden: !seriesVisible.real,
               borderColor: '#378ADD',
@@ -2252,7 +2252,7 @@
           <th style="text-align:left;">Année</th>
           <th style="text-align:right;">Âge</th>
           <th style="text-align:right;">Valeur brute</th>
-          <th style="text-align:right;">Valeur réelle</th>
+          <th style="text-align:right;">Valeur réelle · net d'inflation</th>
           <th style="text-align:right;">Intérêts</th>
           <th style="text-align:right;">Ajout / Retrait /an</th>
           <th style="text-align:right;">Ajout / Retrait /mois</th>
