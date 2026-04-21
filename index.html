@@ -743,6 +743,30 @@
     .row-negative .td-bar { background: var(--red); }
     .row-negative td:first-child { color: var(--red); font-weight: 600; }
 
+    /* ── SHARE TOAST ── */
+    .share-toast {
+      position: fixed;
+      bottom: 1.75rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(6px);
+      background: var(--text-1);
+      color: var(--bg-card);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 9px 20px;
+      border-radius: 24px;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      z-index: 9999;
+      white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    }
+    .share-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 900px) {
       .app-layout {
@@ -775,6 +799,12 @@
         <div class="save-dot"></div>
         Auto-sauvegardé
       </div>
+      <button class="theme-btn" id="shareBtn" title="Copier l'URL de partage de cette simulation" aria-label="Partager">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12.5" cy="2.5" r="1.5"/><circle cx="12.5" cy="13.5" r="1.5"/><circle cx="3.5" cy="8" r="1.5"/>
+          <line x1="5" y1="7.1" x2="11" y2="3.4"/><line x1="5" y1="8.9" x2="11" y2="12.6"/>
+        </svg>
+      </button>
       <button class="theme-btn" id="themeBtn" title="Basculer thème clair / sombre" aria-label="Basculer thème">🌙</button>
     </div>
   </header>
@@ -967,6 +997,8 @@
 
     </main>
   </div>
+
+  <div class="share-toast" id="shareToast"></div>
 
   <script>
     /* ── FORMATTERS ── */
@@ -1182,6 +1214,65 @@
 
     const genId = () => 'sim_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    /* ── URL SHARE / IMPORT ── */
+    function simToB64(payload) {
+      try { return btoa(encodeURIComponent(JSON.stringify(payload))); } catch { return null; }
+    }
+    function b64ToSim(b64) {
+      try { return JSON.parse(decodeURIComponent(atob(b64))); } catch { return null; }
+    }
+
+    function showShareToast(msg) {
+      const el = document.getElementById('shareToast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 2800);
+    }
+
+    function shareCurrentSim() {
+      const sims = loadSims();
+      const active = sims.find(s => s.id === getActiveId()) || sims[0];
+      if (!active) return;
+      const b64 = simToB64({ name: active.name, data: active.data });
+      if (!b64) return;
+      const url = location.origin + location.pathname + '#sim=' + b64;
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url)
+          .then(() => showShareToast('🔗 URL copiée dans le presse-papiers'))
+          .catch(() => fallbackShare(url));
+      } else {
+        fallbackShare(url);
+      }
+    }
+
+    function fallbackShare(url) {
+      const inp = document.createElement('input');
+      inp.value = url;
+      document.body.appendChild(inp);
+      inp.select();
+      document.execCommand('copy');
+      document.body.removeChild(inp);
+      showShareToast('🔗 URL copiée dans le presse-papiers');
+    }
+
+    function checkUrlImport() {
+      const hash = location.hash;
+      if (!hash.startsWith('#sim=')) return false;
+      const b64 = hash.slice(5);
+      const imported = b64ToSim(b64);
+      if (!imported || !imported.data) return false;
+      /* push as new sim */
+      const sims = loadSims();
+      const id = genId();
+      const name = (imported.name || 'Simulation importée') + ' (importée)';
+      sims.push({ id, name, data: imported.data });
+      saveSims(sims);
+      setActiveId(id);
+      history.replaceState(null, '', location.pathname); /* clean URL */
+      return true;
+    }
 
     function loadSims()       { try { return JSON.parse(localStorage.getItem(SIMS_KEY)) || []; } catch { return []; } }
     function saveSims(sims)   { localStorage.setItem(SIMS_KEY, JSON.stringify(sims)); }
@@ -1665,10 +1756,16 @@
         document.getElementById('themeBtn').textContent = sysDark ? '☀️' : '🌙';
       }
 
+      /* share button */
+      document.getElementById('shareBtn').addEventListener('click', shareCurrentSim);
+
       /* theme toggle button */
       document.getElementById('themeBtn').addEventListener('click', () => {
         applyTheme(!isDarkMode());
       });
+
+      /* check for shared sim in URL hash (must run before initSimStorage) */
+      checkUrlImport();
 
       /* init multi-sim storage */
       initSimStorage();
