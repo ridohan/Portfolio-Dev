@@ -163,15 +163,39 @@
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
     }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .sidebar::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+    /* ── SIDEBAR SECTIONS ── */
+    .sidebar-section {
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-section:first-child { padding-top: 0; }
+    .sidebar-section:last-child { border-bottom: none; padding-bottom: 0; }
+    .sidebar-section > summary {
+      list-style: none; display: flex; align-items: center;
+      justify-content: space-between; cursor: pointer; user-select: none;
+    }
+    .sidebar-section > summary::-webkit-details-marker { display: none; }
+    .sidebar-section[open] > summary { margin-bottom: 0.75rem; }
+    .sidebar-section-chevron {
+      font-size: 10px; color: var(--text-3);
+      transition: transform 0.2s; display: inline-block; flex-shrink: 0;
+    }
+    .sidebar-section[open] .sidebar-section-chevron { transform: rotate(180deg); }
     .sidebar-section-title {
       font-size: 10px;
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text-3);
-      margin-bottom: 1rem;
     }
 
     /* ── CONTROL ── */
@@ -743,6 +767,13 @@
       border-radius: var(--radius-lg);
       overflow: hidden;
     }
+    .tbl-panel > summary {
+      list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid transparent; transition: border-color 0.15s;
+    }
+    .tbl-panel[open] > summary { border-bottom-color: var(--border); }
+    .tbl-panel > summary::-webkit-details-marker { display: none; }
     .tbl-panel-head {
       padding: 14px 20px;
       border-bottom: 1px solid var(--border);
@@ -813,6 +844,64 @@
     .row-negative td { background: var(--red-bg) !important; }
     .row-negative .td-bar { background: var(--red); }
     .row-negative td:first-child { color: var(--red); font-weight: 600; }
+
+    /* ── FIRE SIDEBAR ── */
+    .fire-mode-toggle { display: flex; gap: 4px; margin-bottom: 10px; }
+    .fire-mode-btn {
+      flex: 1; font-size: 10px; font-weight: 600; font-family: inherit;
+      text-align: center; padding: 5px 4px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--bg-input); color: var(--text-3); cursor: pointer;
+      transition: all 0.15s;
+    }
+    .fire-mode-btn.active { background: #D97706; border-color: #D97706; color: #fff; }
+    .fire-ctrl label { font-size: 11px; font-weight: 500; color: var(--text-2); display: block; margin-bottom: 3px; }
+    .fire-field { margin-top: 8px; }
+    .fire-field .ctrl-top { align-items: center; }
+    .fire-info {
+      margin-top: 10px; padding: 9px 11px;
+      background: rgba(217,119,6,0.09); border: 1px solid rgba(217,119,6,0.2);
+      border-radius: var(--radius-sm); display: none; flex-direction: column; gap: 5px;
+    }
+    .fire-info.visible { display: flex; }
+    .fire-info-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; color: var(--text-2);
+    }
+    .fire-info-val { font-weight: 700; color: #D97706; font-variant-numeric: tabular-nums; }
+    .fire-year-note { font-size: 11px; color: var(--text-3); margin-top: 6px; }
+    .fire-year-note strong { color: #D97706; }
+
+    /* ── FIRE TABLE ── */
+    .fire-tbl-panel {
+      background: var(--bg-card); border: 1px solid rgba(217,119,6,0.3);
+      border-radius: var(--radius-lg); overflow: hidden;
+    }
+    .fire-tbl-panel > summary {
+      list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid transparent; transition: border-color 0.15s;
+    }
+    .fire-tbl-panel[open] > summary { border-bottom-color: rgba(217,119,6,0.2); }
+    .fire-tbl-panel > summary::-webkit-details-marker { display: none; }
+    .fire-tbl-head-left { display: flex; align-items: center; gap: 8px; }
+    .fire-tbl-title {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #D97706;
+    }
+    .fire-tbl-chevron {
+      font-size: 10px; color: var(--text-3);
+      transition: transform 0.2s; display: inline-block;
+    }
+    .fire-tbl-panel[open] .fire-tbl-chevron { transform: rotate(180deg); }
+    .fire-achieved-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 9px;
+      border-radius: 12px; background: rgba(217,119,6,0.12); color: #D97706;
+      white-space: nowrap;
+    }
+    tbody tr.row-fire-achieved td { background: rgba(217,119,6,0.07) !important; }
+    tbody tr.row-fire-achieved td:first-child { color: #D97706; font-weight: 700; }
+    .td-fire { color: #D97706; font-weight: 500; }
 
     /* ── SHARE TOAST ── */
     .share-toast {
@@ -886,17 +975,24 @@
     <aside class="sidebar">
 
       <!-- Simulations -->
-      <div class="sim-section">
-        <div class="sidebar-section-title" style="margin-bottom:0;">Simulations</div>
-        <input type="text" id="simNameInput" class="sim-name-input" placeholder="Nom de la simulation" maxlength="48">
-        <div class="sim-list" id="simList"></div>
-        <button class="new-sim-btn" id="newSimBtn">+ Nouvelle simulation</button>
-      </div>
+      <details class="sidebar-section" open>
+        <summary>
+          <span class="sidebar-section-title">Simulations</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="sim-section">
+          <input type="text" id="simNameInput" class="sim-name-input" placeholder="Nom de la simulation" maxlength="48">
+          <div class="sim-list" id="simList"></div>
+          <button class="new-sim-btn" id="newSimBtn">+ Nouvelle simulation</button>
+        </div>
+      </details>
 
-      <div class="sidebar-divider"></div>
-
-      <div>
-        <div class="sidebar-section-title">Paramètres</div>
+      <!-- Paramètres -->
+      <details class="sidebar-section" open>
+        <summary>
+          <span class="sidebar-section-title">Paramètres</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
 
         <!-- Portfolio -->
         <div class="ctrl">
@@ -959,23 +1055,25 @@
           </div>
           <div class="ctrl-range-labels"><span>1 an</span><span>60 ans</span></div>
         </div>
-      </div>
+      </details>
 
-      <div class="sidebar-divider"></div>
-
-      <!-- Flux mensuels par période -->
-      <div class="flow-ctrl">
-        <div class="sidebar-section-title" style="margin-bottom:0.5rem;">Flux mensuels</div>
+      <!-- Flux mensuels -->
+      <details class="sidebar-section" open>
+        <summary>
+          <span class="sidebar-section-title">Flux mensuels</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
         <div class="flow-periods-list" id="flowPeriodsList"></div>
         <button class="add-period-btn" id="addFlowPeriodBtn">+ Ajouter une période</button>
         <div class="flow-hint">Positif = versement · Négatif = retrait</div>
-      </div>
-
-      <div class="sidebar-divider"></div>
+      </details>
 
       <!-- Départ -->
-      <div class="flow-ctrl">
-        <div class="sidebar-section-title" style="margin-bottom:0.25rem;">Départ</div>
+      <details class="sidebar-section" open>
+        <summary>
+          <span class="sidebar-section-title">Départ</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
         <div class="depart-grid">
           <div class="depart-field">
             <label for="nStartYear">Année de début</label>
@@ -989,7 +1087,54 @@
           </div>
         </div>
         <div class="flow-hint">Affichés dans le graphique et le tableau</div>
-      </div>
+      </details>
+
+      <!-- FIRE -->
+      <details class="sidebar-section" open>
+        <summary>
+          <span class="sidebar-section-title">🔥 FIRE</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="fire-ctrl">
+          <div class="fire-mode-toggle">
+            <button class="fire-mode-btn" id="fireBtnEur">€ / an</button>
+            <button class="fire-mode-btn active" id="fireBtnPct">% retrait</button>
+          </div>
+
+          <!-- Spending input (€ mode only) -->
+          <div class="fire-field" id="fireEurField" style="display:none;">
+            <label for="nFireSpending">Dépenses annuelles cibles</label>
+            <input type="number" id="nFireSpending" class="flow-number"
+              min="0" step="1000" value="40000" placeholder="ex : 40 000">
+          </div>
+
+          <!-- SWR rate -->
+          <div class="fire-field" id="fireSwrField">
+            <div class="ctrl-top">
+              <label for="nFireSWR" style="margin:0;">Taux de retrait (SWR)</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nFireSWR" class="ctrl-num-input"
+                  min="0.5" max="20" step="0.1" value="4" style="width:56px;">
+                <span style="font-size:11px;color:var(--text-3);">%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Auto-computed FIRE info -->
+          <div class="fire-info" id="fireInfo"></div>
+
+          <!-- Optional FIRE departure year -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nFireStartYear" style="margin:0;">Départ FIRE</label>
+              <input type="number" id="nFireStartYear" class="ctrl-num-input"
+                min="1900" max="2200" step="1" placeholder="auto" style="width:72px;">
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Optionnel — calculé automatiquement</div>
+          </div>
+        </div>
+      </details>
+
     </aside>
 
     <!-- MAIN -->
@@ -1036,6 +1181,14 @@
               <span class="toggle-swatch dashed" style="color:var(--text-3);border-color:var(--text-3);"></span>
               Capital investi
             </button>
+            <button class="series-toggle" id="toggleFire" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:#D97706;border-color:#D97706;"></span>
+              FIRE
+            </button>
+            <button class="series-toggle" id="toggleFireTarget" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:#9333EA;border-color:#9333EA;"></span>
+              Objectif FIRE
+            </button>
           </div>
         </div>
         <div class="chart-wrap">
@@ -1044,14 +1197,16 @@
       </div>
 
       <!-- TABLE -->
-      <div class="tbl-panel">
-        <div class="tbl-panel-head">
-          <span class="tbl-panel-title">Détail annuel</span>
+      <details class="tbl-panel" open>
+        <summary>
+          <div class="fire-tbl-head-left">
+            <span class="tbl-panel-title">Détail annuel</span>
+            <span class="fire-tbl-chevron">▾</span>
+          </div>
           <span class="tbl-rows-count" id="tblCount"></span>
-        </div>
+        </summary>
         <div class="tbl-scroll">
           <table>
-            <colgroup><col><col><col><col><col><col><col><col><col></colgroup>
             <thead>
               <tr>
                 <th>Année</th>
@@ -1059,7 +1214,8 @@
                 <th>Valeur brute</th>
                 <th>Valeur réelle</th>
                 <th>Intérêts</th>
-                <th>Ajout / Retrait</th>
+                <th>Ajout / Retrait /an</th>
+                <th>Ajout / Retrait /mois</th>
                 <th>Capital investi</th>
                 <th>Plus-value</th>
                 <th>Perf. %</th>
@@ -1068,7 +1224,24 @@
             <tbody id="tblBody"></tbody>
           </table>
         </div>
-      </div>
+      </details>
+
+      <!-- FIRE TABLE -->
+      <details class="fire-tbl-panel" id="fireTblPanel">
+        <summary>
+          <div class="fire-tbl-head-left">
+            <span class="fire-tbl-title">🔥 Détail FIRE annuel</span>
+            <span class="fire-tbl-chevron">▾</span>
+          </div>
+          <span class="fire-achieved-badge" id="fireAchievedBadge"></span>
+        </summary>
+        <div class="tbl-scroll">
+          <table>
+            <thead id="fireTblHead"></thead>
+            <tbody id="fireTblBody"></tbody>
+          </table>
+        </div>
+      </details>
 
     </main>
   </div>
@@ -1089,6 +1262,12 @@
     };
 
     const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
+
+    /* ── FIRE STATE ── */
+    let fireMode    = 'pct'; // 'eur' | 'pct'
+    let fireSpending = 40000; // annual spending €, used in eur mode
+    let fireSWR     = 4;      // safe withdrawal rate %
+    let fireYearOverride = null; // optional manual FIRE year
 
     /* ── FLOW PERIODS ── */
     let flowPeriods = []; // [{ from: 1, to: N, flow: monthly€ }]
@@ -1147,7 +1326,7 @@
     }
 
     /* ── SERIES VISIBILITY ── */
-    const seriesVisible = { brut: true, real: true, contrib: true };
+    const seriesVisible = { brut: true, real: true, contrib: true, fire: true, fireTarget: true };
 
     /* ── RETURN PROFILES ── */
     const PROFILE_DEFAULTS = {
@@ -1433,7 +1612,8 @@
           monde:         PROFILE_DEFAULTS.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
           sp500:         PROFILE_DEFAULTS.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
           manual_custom: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
-        }
+        },
+        fire: { mode: 'pct', spending: 40000, swr: 4, yearOverride: null },
       };
     }
 
@@ -1519,8 +1699,8 @@
     function applyState(saved) {
       if (!saved) return;
       /* reset toggles */
-      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = true;
-      ['toggleBrut','toggleReal','toggleContrib'].forEach(id => {
+      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = seriesVisible.fire = seriesVisible.fireTarget = true;
+      ['toggleBrut','toggleReal','toggleContrib','toggleFire','toggleFireTarget'].forEach(id => {
         document.getElementById(id)?.classList.remove('off');
         document.getElementById(id)?.setAttribute('aria-pressed', 'true');
       });
@@ -1585,17 +1765,44 @@
         }
       }
       if (saved.series) {
-        ['brut','real','contrib'].forEach(key => {
+        const idMap = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib', fire:'toggleFire', fireTarget:'toggleFireTarget' };
+        ['brut','real','contrib','fire','fireTarget'].forEach(key => {
           if (saved.series[key] === false) {
             seriesVisible[key] = false;
-            const id = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib' }[key];
-            document.getElementById(id)?.classList.add('off');
-            document.getElementById(id)?.setAttribute('aria-pressed','false');
+            document.getElementById(idMap[key])?.classList.add('off');
+            document.getElementById(idMap[key])?.setAttribute('aria-pressed','false');
           }
         });
       }
+      /* FIRE */
+      if (saved.fire) {
+        fireMode    = saved.fire.mode    ?? 'pct';
+        fireSpending = saved.fire.spending ?? 40000;
+        fireSWR     = saved.fire.swr     ?? 4;
+        fireYearOverride = saved.fire.yearOverride ?? null;
+      } else {
+        fireMode = 'pct'; fireSpending = 40000; fireSWR = 4; fireYearOverride = null;
+      }
+      applyFireMode(fireMode);
+      const nFireSWR = document.getElementById('nFireSWR');
+      if (nFireSWR) nFireSWR.value = fireSWR;
+      const nFireSpending = document.getElementById('nFireSpending');
+      if (nFireSpending) nFireSpending.value = fireSpending;
+      const nFireStartYear = document.getElementById('nFireStartYear');
+      if (nFireStartYear) nFireStartYear.value = fireYearOverride ?? '';
+
       activeProfile = saved.profile || 'manual';
       applyProfile(activeProfile);
+    }
+
+    function applyFireMode(mode) {
+      fireMode = mode;
+      document.getElementById('fireBtnEur')?.classList.toggle('active', mode === 'eur');
+      document.getElementById('fireBtnPct')?.classList.toggle('active', mode === 'pct');
+      const eurField = document.getElementById('fireEurField');
+      if (eurField) eurField.style.display = mode === 'eur' ? '' : 'none';
+      const swrField = document.getElementById('fireSwrField');
+      if (swrField) swrField.style.display = mode === 'pct' ? '' : 'none';
     }
 
     /* ── PORTFOLIO INPUT FORMATTER ── */
@@ -1650,7 +1857,7 @@
     /* ── CHART ── */
     let chart = null;
 
-    function buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx, startAge) {
+    function buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, years, crossIdx, startAge) {
       const dark = isDarkMode();
       const textColor = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
       const gridColor = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
@@ -1701,6 +1908,36 @@
         data: {
           labels,
           datasets: [
+            /* FIRE portfolio curve — actual portfolio with withdrawals */
+            {
+              label: 'Portefeuille FIRE',
+              data: dataFirePortfolio,
+              hidden: !seriesVisible.fire,
+              borderColor: '#D97706',
+              backgroundColor: 'rgba(217,119,6,0.07)',
+              borderWidth: 2,
+              borderDash: [6, 3],
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 1
+            },
+            /* FIRE target horizontal line — left axis (€ mode only) */
+            {
+              label: 'Objectif FIRE',
+              data: dataFireTarget,
+              hidden: !seriesVisible.fireTarget || !dataFireTarget[0],
+              borderColor: '#9333EA',
+              backgroundColor: 'rgba(147,51,234,0.05)',
+              borderWidth: 2,
+              borderDash: [8, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+              yAxisID: 'y',
+              order: 0
+            },
             {
               label: 'Zéro',
               data: Array(years).fill(0),
@@ -1773,7 +2010,9 @@
                   if (startAge > 0) return yr + '  ·  ' + (startAge + (items[0]?.dataIndex ?? 0)) + ' ans';
                   return yr;
                 },
-                label: ctx => '  ' + ctx.dataset.label + ' : ' + fmtEur(ctx.parsed.y)
+                label: ctx => {
+                  return '  ' + ctx.dataset.label + ' : ' + fmtEur(ctx.parsed.y);
+                }
               }
             }
           },
@@ -1817,21 +2056,34 @@
       const startYear = parseInt(document.getElementById('nStartYear').value) || new Date().getFullYear();
       const startAge  = parseInt(document.getElementById('nAge').value) || 0;
 
+      /* FIRE inputs */
+      fireSWR      = parseFloat(document.getElementById('nFireSWR').value) || 4;
+      fireSpending = parseFloat(document.getElementById('nFireSpending').value) || 40000;
+      const fireYearInput = parseInt(document.getElementById('nFireStartYear').value);
+      fireYearOverride = isNaN(fireYearInput) ? null : fireYearInput;
+
       /* save */
       saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years,
                   flowPeriods: flowPeriods.map(p => ({ ...p })),
                   startYear, startAge,
-                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib },
+                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib, fire: seriesVisible.fire, fireTarget: seriesVisible.fireTarget },
                   profile: activeProfile,
                   profileBreakdowns: {
                     monde:         PROFILES.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
                     sp500:         PROFILES.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
                     manual_custom: PROFILES.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
-                  } });
+                  },
+                  fire: { mode: fireMode, spending: fireSpending, swr: fireSWR, yearOverride: fireYearOverride } });
+
+      /* FIRE pre-calc */
+      const fireSWRDecimal = fireSWR / 100;
+      const fireTarget = fireSpending > 0 ? fireSpending / fireSWRDecimal : null;
 
       /* simulation */
-      const labels = [], dataBrut = [], dataReal = [], dataContrib = [], rows = [];
+      const labels = [], dataBrut = [], dataReal = [], dataContrib = [],
+            dataFireTarget = [], dataFirePortfolio = [], rows = [];
       let val = P, totalContrib = P;
+      let valFire = P, fireStartedY = null;
 
       for (let y = 1; y <= years; y++) {
         const period = flowPeriods.find(p => y >= p.from && y <= p.to);
@@ -1843,21 +2095,59 @@
         const realVal = val / Math.pow(1 + inf, y);
         const gain = val - totalContrib;
         const gainPct = totalContrib !== 0 ? ((val / totalContrib) - 1) * 100 : 0;
-        const yearLabel = String(startYear + y - 1);
+        const curYear = startYear + y - 1;
+        const yearLabel = String(curYear);
+
+        /* FIRE portfolio simulation (parallel to brut) */
+        const fireInterest = Math.round(valFire * r);
+        if (fireStartedY === null) {
+          const overrideReached = fireYearOverride !== null && curYear >= fireYearOverride;
+          const targetReached   = fireMode === 'eur' && fireTarget !== null && valFire >= fireTarget;
+          const pctNoOverride   = fireMode === 'pct' && fireYearOverride === null;
+          if (overrideReached || targetReached || pctNoOverride) fireStartedY = y;
+        }
+        const fireActive = fireStartedY !== null && y >= fireStartedY;
+        let fireWithdrawal = 0;
+        if (fireActive) {
+          fireWithdrawal = fireMode === 'eur' ? fireSpending : Math.round(valFire * fireSWRDecimal);
+          valFire = Math.max(0, valFire * (1 + r) - fireWithdrawal);
+        } else {
+          valFire = valFire * (1 + r) + monthlyFlow * 12;
+        }
+        const realValFire = valFire / Math.pow(1 + inf, y);
+        const fireGain = valFire - totalContrib;
+        const fireGainPct = totalContrib !== 0 ? ((valFire / totalContrib) - 1) * 100 : 0;
+        const fireAnnualFlow  = fireActive ? -fireWithdrawal : annualFlow;
+        const fireMonthlyFlow = fireActive ? -Math.round(fireWithdrawal / 12) : monthlyFlow;
+
         labels.push(yearLabel);
         dataBrut.push(Math.round(val));
         dataReal.push(Math.round(realVal));
         dataContrib.push(Math.round(totalContrib));
+        dataFireTarget.push(fireTarget);
+        dataFirePortfolio.push(Math.round(valFire));
         rows.push({
-          year: startYear + y - 1,
+          year: curYear,
           age: startAge > 0 ? startAge + (y - 1) : null,
           val: Math.round(val),
           realVal: Math.round(realVal),
           interest: Math.round(interest),
           annualFlow,
+          monthlyFlow,
           totalContrib: Math.round(totalContrib),
           gain: Math.round(gain),
-          gainPct
+          gainPct,
+          valFire: Math.round(valFire),
+          realValFire: Math.round(realValFire),
+          fireInterest,
+          fireGain: Math.round(fireGain),
+          fireGainPct,
+          fireAnnualFlow,
+          fireMonthlyFlow,
+          fireActive,
+          fireWithdrawal,
+          fireProgress: fireTarget ? (Math.round(valFire) / fireTarget * 100) : null,
+          fireDelta: fireTarget ? Math.round(valFire - fireTarget) : null,
         });
       }
 
@@ -1904,14 +2194,97 @@
           <td>${fmtEur(row.realVal)}</td>
           <td class="${c}">${fmtEur(row.interest)}</td>
           <td class="${fc}">${row.annualFlow === 0 ? '—' : fmtEur(row.annualFlow)}</td>
+          <td class="${fc}">${row.monthlyFlow === 0 ? '—' : fmtEur(row.monthlyFlow)}</td>
           <td>${fmtEur(row.totalContrib)}</td>
           <td class="${c}">${fmtEur(row.gain)}</td>
           <td class="${c}">${fmtPct(row.gainPct)}</td>
         </tr>`;
       }).join('');
 
+      /* ── FIRE UI ── */
+      const fireDisplayYear = fireStartedY !== null ? (startYear + fireStartedY - 1) : null;
+      const fireDisplayAge  = fireDisplayYear && startAge > 0
+        ? startAge + (fireDisplayYear - startYear) : null;
+
+      /* sidebar info badge */
+      const fireInfoEl = document.getElementById('fireInfo');
+      if (fireInfoEl) {
+        const lastRow = rows[rows.length - 1];
+        const finalFirePortfolio = lastRow.valFire;
+        if (fireMode === 'eur' && fireTarget) {
+          const finalWithdrawal = fireDisplayYear ? fireSpending : Math.round(finalFirePortfolio * fireSWRDecimal);
+          fireInfoEl.className = 'fire-info visible';
+          fireInfoEl.innerHTML =
+            `<div class="fire-info-row"><span>Objectif FIRE</span><span class="fire-info-val">${fmtEur(fireTarget)}</span></div>` +
+            (fireDisplayYear
+              ? `<div class="fire-info-row"><span>FIRE atteint</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>` +
+                `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>`
+              : `<div class="fire-year-note">FIRE non atteint sur la période</div>`);
+        } else if (fireMode === 'pct') {
+          const lastWithdrawal = lastRow.fireWithdrawal;
+          fireInfoEl.className = 'fire-info visible';
+          fireInfoEl.innerHTML =
+            `<div class="fire-info-row"><span>Retrait final</span><span class="fire-info-val">${fmtEur(lastWithdrawal)}/an</span></div>` +
+            `<div class="fire-info-row"><span>Soit</span><span class="fire-info-val">${fmtEur(Math.round(lastWithdrawal / 12))}/mois</span></div>` +
+            `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>` +
+            (fireYearOverride
+              ? `<div class="fire-info-row"><span>Départ FIRE</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>`
+              : '');
+        } else {
+          fireInfoEl.className = 'fire-info';
+        }
+      }
+
+      /* FIRE achieved badge in table header */
+      const fireAchievedBadge = document.getElementById('fireAchievedBadge');
+      if (fireAchievedBadge) {
+        fireAchievedBadge.textContent = fireDisplayYear
+          ? 'FIRE ' + (fireMode === 'eur' ? 'atteint ' : 'départ ') + fireDisplayYear
+          : '';
+      }
+
+      /* FIRE table */
+      const fireTblHead = document.getElementById('fireTblHead');
+      const fireTblBody = document.getElementById('fireTblBody');
+      if (fireTblHead && fireTblBody) {
+        const hasTarget = fireMode === 'eur' && fireTarget;
+        fireTblHead.innerHTML = `<tr>
+          <th style="text-align:left;">Année</th>
+          <th style="text-align:right;">Âge</th>
+          <th style="text-align:right;">Valeur brute</th>
+          <th style="text-align:right;">Valeur réelle</th>
+          <th style="text-align:right;">Intérêts</th>
+          <th style="text-align:right;">Ajout / Retrait /an</th>
+          <th style="text-align:right;">Ajout / Retrait /mois</th>
+          <th style="text-align:right;">Capital investi</th>
+          <th style="text-align:right;">Plus-value</th>
+          <th style="text-align:right;">Perf. %</th>
+        </tr>`;
+        const fireRowClass = (row) => row.year === fireDisplayYear ? ' class="row-fire-achieved"' : '';
+        fireTblBody.innerHTML = rows.map(row => {
+          const fc = row.fireAnnualFlow > 0 ? 'td-pos' : row.fireAnnualFlow < 0 ? 'td-neg' : '';
+          const c  = row.fireGain >= 0 ? 'td-pos' : 'td-neg';
+          const barW = row.valFire > 0 ? Math.round((row.valFire / Math.max(...rows.map(r => r.valFire), 1)) * 100) : 0;
+          return `<tr${fireRowClass(row)}>
+            <td>${row.year}</td>
+            <td>${row.age !== null ? row.age + ' ans' : '—'}</td>
+            <td style="position:relative;">
+              <div class="td-bar" style="width:${barW}%"></div>
+              ${fmtEur(row.valFire)}
+            </td>
+            <td>${fmtEur(row.realValFire)}</td>
+            <td class="${c}">${fmtEur(row.fireInterest)}</td>
+            <td class="${fc}">${row.fireAnnualFlow === 0 ? '—' : fmtEur(row.fireAnnualFlow)}</td>
+            <td class="${fc}">${row.fireMonthlyFlow === 0 ? '—' : fmtEur(row.fireMonthlyFlow)}</td>
+            <td>${fmtEur(row.totalContrib)}</td>
+            <td class="${c}">${fmtEur(row.fireGain)}</td>
+            <td class="${c}">${fmtPct(row.fireGainPct)}</td>
+          </tr>`;
+        }).join('');
+      }
+
       /* chart */
-      buildChart(labels, dataBrut, dataReal, dataContrib, years, crossIdx, startAge);
+      buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, years, crossIdx, startAge);
     }
 
     /* ── INIT ── */
@@ -1927,6 +2300,13 @@
         document.documentElement.dataset.theme = sysDark ? 'dark' : 'light';
         document.getElementById('themeBtn').textContent = sysDark ? '☀️' : '🌙';
       }
+
+      /* FIRE inputs */
+      document.getElementById('fireBtnEur').addEventListener('click', () => { applyFireMode('eur'); compute(); });
+      document.getElementById('fireBtnPct').addEventListener('click', () => { applyFireMode('pct'); compute(); });
+      document.getElementById('nFireSWR').addEventListener('input', compute);
+      document.getElementById('nFireSpending').addEventListener('input', compute);
+      document.getElementById('nFireStartYear').addEventListener('change', compute);
 
       /* share button */
       document.getElementById('shareBtn').addEventListener('click', shareCurrentSim);
@@ -1969,18 +2349,21 @@
       document.getElementById('nStartYear').addEventListener('change', compute);
       document.getElementById('nAge').addEventListener('change', compute);
 
-      /* series toggles */
+      /* series toggles — dataset order: 0=firePortfolio, 1=fireTarget, 2=zero, 3=contrib, 4=real, 5=brut */
       [
-        { id: 'toggleBrut',    key: 'brut',    dsIdx: 3 },
-        { id: 'toggleReal',    key: 'real',    dsIdx: 2 },
-        { id: 'toggleContrib', key: 'contrib', dsIdx: 1 },
+        { id: 'toggleBrut',        key: 'brut',        dsIdx: 5 },
+        { id: 'toggleReal',        key: 'real',        dsIdx: 4 },
+        { id: 'toggleContrib',     key: 'contrib',     dsIdx: 3 },
+        { id: 'toggleFire',        key: 'fire',        dsIdx: null }, // rebuilt on compute
+        { id: 'toggleFireTarget',  key: 'fireTarget',  dsIdx: null }, // rebuilt on compute
       ].forEach(({ id, key, dsIdx }) => {
-        document.getElementById(id).addEventListener('click', () => {
+        document.getElementById(id)?.addEventListener('click', () => {
           seriesVisible[key] = !seriesVisible[key];
           const btn = document.getElementById(id);
           btn.classList.toggle('off', !seriesVisible[key]);
           btn.setAttribute('aria-pressed', seriesVisible[key]);
-          if (chart) { chart.data.datasets[dsIdx].hidden = !seriesVisible[key]; chart.update(); }
+          if (dsIdx !== null && chart) { chart.data.datasets[dsIdx].hidden = !seriesVisible[key]; chart.update(); }
+          else if (dsIdx === null) compute(); // rebuild chart with correct hidden flags
           const s = loadState() || {}; s.series = { ...seriesVisible }; saveState(s);
         });
       });
