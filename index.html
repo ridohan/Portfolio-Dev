@@ -358,8 +358,79 @@
       flex-shrink: 0;
     }
     .breakdown-reset-btn:hover { color: var(--text-1); }
+    .breakdown-name-input {
+      flex: 1;
+      min-width: 0;
+      font-size: 11px;
+      color: var(--text-2);
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid transparent;
+      padding: 0 2px;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .breakdown-name-input:hover { border-color: var(--border-mid); }
+    .breakdown-name-input:focus { outline: none; border-color: var(--accent); }
+    .breakdown-del-btn {
+      width: 16px; height: 16px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: transparent;
+      font-size: 13px; line-height: 1;
+      border-radius: 3px;
+      transition: color 0.1s, background 0.1s;
+      flex-shrink: 0;
+    }
+    .breakdown-row:hover .breakdown-del-btn { color: var(--text-3); }
+    .breakdown-del-btn:hover { color: var(--red) !important; background: var(--red-bg); }
+    .breakdown-add-row {
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 4px;
+    }
+    .breakdown-add-btn {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 2px 0;
+      transition: color 0.15s;
+    }
+    .breakdown-add-btn:hover { color: var(--text-1); }
     .ctrl.profile-active input[type=range] { opacity: 0.35; pointer-events: none; }
     .ctrl.profile-active .ctrl-num-input  { opacity: 0.45; pointer-events: none; }
+
+    /* ── MANUAL SUB-TOGGLE ── */
+    .manual-mode-toggle {
+      display: none;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .manual-mode-toggle.visible { display: flex; }
+    .manual-mode-btn {
+      flex: 1;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: inherit;
+      text-align: center;
+      padding: 5px 4px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-3);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .manual-mode-btn:hover { border-color: var(--border-mid); color: var(--text-2); }
+    .manual-mode-btn.active {
+      background: var(--bg-card);
+      border-color: var(--border-mid);
+      color: var(--text-1);
+    }
 
     /* ── SIM LIST ── */
     .sim-section { display: flex; flex-direction: column; gap: 8px; }
@@ -852,6 +923,10 @@
             <button class="profile-btn" data-profile="monde">🌍 Monde</button>
             <button class="profile-btn" data-profile="sp500">🇺🇸 S&P 500</button>
           </div>
+          <div class="manual-mode-toggle visible" id="manualModeToggle">
+            <button class="manual-mode-btn active" id="manualBtnCursor">Curseur global</button>
+            <button class="manual-mode-btn" id="manualBtnCustom">Répartition</button>
+          </div>
           <div class="ctrl-range-wrap">
             <input type="range" id="rReturn" min="0" max="10" step="0.1" value="7">
           </div>
@@ -1078,27 +1153,39 @@
     const PROFILE_DEFAULTS = {
       monde: {
         source: 'MSCI World NTR · ~1970–2024 (USD)',
+        allowAddDelete: true,
         breakdown: [
-          { name: 'ETF Monde (MSCI World)', alloc: 80, rate: 9.5,  rateEditable: false },
-          { name: 'Obligations',            alloc: 15, rate: 4.0,  rateEditable: true  },
-          { name: 'Cash',                   alloc:  5, rate: 2.5,  rateEditable: true  },
+          { name: 'ETF Monde (MSCI World)', alloc: 80, rate: 9.5,  rateEditable: false, nameEditable: false },
+          { name: 'Obligations',            alloc: 15, rate: 4.0,  rateEditable: true,  nameEditable: false },
+          { name: 'Cash',                   alloc:  5, rate: 2.5,  rateEditable: true,  nameEditable: false },
         ],
       },
       sp500: {
         source: 'S&P 500 TR · ~1928–2024 (USD)',
+        allowAddDelete: true,
         breakdown: [
-          { name: 'ETF S&P 500', alloc: 80, rate: 10.5, rateEditable: false },
-          { name: 'Obligations', alloc: 15, rate:  4.0, rateEditable: true  },
-          { name: 'Cash',        alloc:  5, rate:  2.5, rateEditable: true  },
+          { name: 'ETF S&P 500', alloc: 80, rate: 10.5, rateEditable: false, nameEditable: false },
+          { name: 'Obligations', alloc: 15, rate:  4.0, rateEditable: true,  nameEditable: false },
+          { name: 'Cash',        alloc:  5, rate:  2.5, rateEditable: true,  nameEditable: false },
+        ],
+      },
+      manual_custom: {
+        source: 'Répartition personnalisée',
+        allowAddDelete: true,
+        breakdown: [
+          { name: 'Actions',     alloc: 70, rate: 8.0, rateEditable: true, nameEditable: true },
+          { name: 'Obligations', alloc: 20, rate: 4.0, rateEditable: true, nameEditable: true },
+          { name: 'Cash',        alloc: 10, rate: 2.5, rateEditable: true, nameEditable: true },
         ],
       },
     };
 
-    /* mutable working copy */
+    /* mutable working copy — spread preserves allowAddDelete */
     const PROFILES = {
       manual: null,
-      monde:  { ...PROFILE_DEFAULTS.monde,  breakdown: PROFILE_DEFAULTS.monde.breakdown.map(r => ({...r})) },
-      sp500:  { ...PROFILE_DEFAULTS.sp500,  breakdown: PROFILE_DEFAULTS.sp500.breakdown.map(r => ({...r})) },
+      monde:         { ...PROFILE_DEFAULTS.monde,         breakdown: PROFILE_DEFAULTS.monde.breakdown.map(r => ({...r})) },
+      sp500:         { ...PROFILE_DEFAULTS.sp500,         breakdown: PROFILE_DEFAULTS.sp500.breakdown.map(r => ({...r})) },
+      manual_custom: { ...PROFILE_DEFAULTS.manual_custom, breakdown: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({...r})) },
     };
 
     let activeProfile = 'manual';
@@ -1121,10 +1208,15 @@
     function renderBreakdown(key) {
       const profile = PROFILES[key];
       const el = document.getElementById('profileBreakdown');
+      const canAddDel = !!profile.allowAddDelete;
 
       el.innerHTML = profile.breakdown.map((r, i) => `
         <div class="breakdown-row">
-          <span class="breakdown-name" title="${r.name}">${r.name}</span>
+          ${r.nameEditable
+            ? `<input class="breakdown-name-input" type="text" data-idx="${i}" data-field="name"
+                 value="${escHtml(r.name)}" maxlength="24" placeholder="Actif">`
+            : `<span class="breakdown-name" title="${r.name}">${r.name}</span>`
+          }
           <div class="breakdown-inputs">
             <input class="breakdown-input" type="number" min="0" max="100" step="1"
               data-idx="${i}" data-field="alloc" value="${r.alloc}">
@@ -1136,7 +1228,16 @@
             }
             <span class="breakdown-sep">%</span>
           </div>
+          ${canAddDel && r.rateEditable !== false
+            ? `<button class="breakdown-del-btn" data-idx="${i}" title="Supprimer">×</button>`
+            : canAddDel ? `<span style="width:16px;flex-shrink:0;"></span>` : ''
+          }
         </div>`).join('')
+        + (canAddDel
+            ? `<div class="breakdown-add-row">
+                 <button class="breakdown-add-btn" id="breakdownAddBtn">+ Ajouter un actif</button>
+               </div>`
+            : '')
         + `<div class="breakdown-total" id="breakdownTotal"></div>`
         + `<div class="breakdown-footer">
              <span class="breakdown-source">${profile.source}</span>
@@ -1145,7 +1246,7 @@
 
       updateBreakdownTotal(key);
 
-      /* wire inputs */
+      /* wire number inputs (alloc / rate) */
       el.querySelectorAll('.breakdown-input').forEach(input => {
         input.addEventListener('input', () => {
           const idx = parseInt(input.dataset.idx);
@@ -1159,10 +1260,48 @@
         });
       });
 
+      /* wire name inputs (manual_custom only) */
+      el.querySelectorAll('.breakdown-name-input').forEach(input => {
+        input.addEventListener('input', () => {
+          const idx = parseInt(input.dataset.idx);
+          PROFILES[key].breakdown[idx].name = input.value;
+        });
+      });
+
+      /* wire delete buttons */
+      if (canAddDel) {
+        el.querySelectorAll('.breakdown-del-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (PROFILES[key].breakdown.length <= 1) return;
+            PROFILES[key].breakdown.splice(parseInt(btn.dataset.idx), 1);
+            renderBreakdown(key);
+            const rate = Math.min(10, Math.max(0, +calcProfileRate(key).toFixed(2)));
+            document.getElementById('rReturn').value = rate;
+            document.getElementById('nReturn').value = rate;
+            compute();
+          });
+        });
+
+        document.getElementById('breakdownAddBtn').addEventListener('click', () => {
+          PROFILES[key].breakdown.push({ name: 'Nouvel actif', alloc: 0, rate: 5.0, rateEditable: true, nameEditable: true });
+          renderBreakdown(key);
+          compute();
+        });
+      }
+
       document.getElementById('breakdownResetBtn').addEventListener('click', () => {
         PROFILES[key].breakdown = PROFILE_DEFAULTS[key].breakdown.map(r => ({...r}));
         applyProfile(key);
       });
+    }
+
+    function updateManualModeToggle() {
+      const toggle = document.getElementById('manualModeToggle');
+      if (!toggle) return;
+      const isManual = activeProfile === 'manual' || activeProfile === 'manual_custom';
+      toggle.classList.toggle('visible', isManual);
+      document.getElementById('manualBtnCursor')?.classList.toggle('active', activeProfile === 'manual');
+      document.getElementById('manualBtnCustom')?.classList.toggle('active', activeProfile === 'manual_custom');
     }
 
     function applyProfile(key) {
@@ -1171,9 +1310,13 @@
       const ctrl    = document.getElementById('returnCtrl');
       const bdEl    = document.getElementById('profileBreakdown');
 
+      /* highlight the correct profile button (manual_custom → highlight 'manual' btn) */
+      const btnKey = key === 'manual_custom' ? 'manual' : key;
       document.querySelectorAll('.profile-btn').forEach(btn =>
-        btn.classList.toggle('active', btn.dataset.profile === key)
+        btn.classList.toggle('active', btn.dataset.profile === btnKey)
       );
+
+      updateManualModeToggle();
 
       if (profile) {
         ctrl.classList.add('profile-active');
@@ -1287,8 +1430,9 @@
         series: { brut: true, real: true, contrib: true },
         profile: 'manual',
         profileBreakdowns: {
-          monde: PROFILE_DEFAULTS.monde.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
-          sp500: PROFILE_DEFAULTS.sp500.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
+          monde:         PROFILE_DEFAULTS.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+          sp500:         PROFILE_DEFAULTS.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+          manual_custom: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
         }
       };
     }
@@ -1381,7 +1525,7 @@
         document.getElementById(id)?.setAttribute('aria-pressed', 'true');
       });
       /* reset profile breakdowns */
-      ['monde','sp500'].forEach(key =>
+      ['monde','sp500','manual_custom'].forEach(key =>
         PROFILES[key].breakdown = PROFILE_DEFAULTS[key].breakdown.map(r => ({...r}))
       );
       const set = (rId, nId, v) => {
@@ -1408,10 +1552,37 @@
       document.getElementById('nAge').value = saved.startAge > 0 ? saved.startAge : '';
       if (saved.profileBreakdowns) {
         ['monde','sp500'].forEach(key => {
-          saved.profileBreakdowns[key]?.forEach((item, i) => {
-            if (PROFILES[key].breakdown[i]) Object.assign(PROFILES[key].breakdown[i], item);
+          const saved_bd = saved.profileBreakdowns[key];
+          if (!saved_bd) return;
+          const defaultLen = PROFILE_DEFAULTS[key].breakdown.length;
+          /* update default rows (alloc + rate only, keep fixed name/flags) */
+          saved_bd.slice(0, defaultLen).forEach((item, i) => {
+            if (PROFILES[key].breakdown[i]) {
+              PROFILES[key].breakdown[i].alloc = item.alloc ?? PROFILES[key].breakdown[i].alloc;
+              PROFILES[key].breakdown[i].rate  = item.rate  ?? PROFILES[key].breakdown[i].rate;
+            }
+          });
+          /* re-append any extra rows the user added */
+          saved_bd.slice(defaultLen).forEach(item => {
+            PROFILES[key].breakdown.push({
+              name: item.name || 'Actif',
+              alloc: item.alloc ?? 0,
+              rate:  item.rate  ?? 5.0,
+              rateEditable: true,
+              nameEditable: true,
+            });
           });
         });
+        /* manual_custom: rows can be added/deleted so we replace the array */
+        if (Array.isArray(saved.profileBreakdowns.manual_custom)) {
+          PROFILES.manual_custom.breakdown = saved.profileBreakdowns.manual_custom.map(r => ({
+            name: r.name || 'Actif',
+            alloc: r.alloc ?? 0,
+            rate:  r.rate  ?? 5.0,
+            rateEditable: true,
+            nameEditable: true,
+          }));
+        }
       }
       if (saved.series) {
         ['brut','real','contrib'].forEach(key => {
@@ -1653,8 +1824,9 @@
                   series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib },
                   profile: activeProfile,
                   profileBreakdowns: {
-                    monde: PROFILES.monde.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
-                    sp500: PROFILES.sp500.breakdown.map(r => ({ alloc: r.alloc, rate: r.rate })),
+                    monde:         PROFILES.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+                    sp500:         PROFILES.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+                    manual_custom: PROFILES.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
                   } });
 
       /* simulation */
@@ -1778,13 +1950,19 @@
 
       /* profile buttons */
       document.querySelectorAll('.profile-btn').forEach(btn =>
-        btn.addEventListener('click', () => applyProfile(btn.dataset.profile))
+        btn.addEventListener('click', () => {
+          /* clicking "Manuel" always goes back to cursor sub-mode */
+          if (btn.dataset.profile === 'manual') applyProfile('manual');
+          else applyProfile(btn.dataset.profile);
+        })
       );
+      document.getElementById('manualBtnCursor').addEventListener('click', () => applyProfile('manual'));
+      document.getElementById('manualBtnCustom').addEventListener('click', () => applyProfile('manual_custom'));
       document.getElementById('rReturn').addEventListener('mousedown', () => {
-        if (activeProfile !== 'manual') applyProfile('manual');
+        if (activeProfile !== 'manual' && activeProfile !== 'manual_custom') applyProfile('manual');
       });
       document.getElementById('nReturn').addEventListener('focus', () => {
-        if (activeProfile !== 'manual') applyProfile('manual');
+        if (activeProfile !== 'manual' && activeProfile !== 'manual_custom') applyProfile('manual');
       });
 
       document.getElementById('addFlowPeriodBtn').addEventListener('click', addFlowPeriod);
