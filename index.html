@@ -917,10 +917,52 @@
       font-size: 11px; font-weight: 600; padding: 3px 9px;
       border-radius: 12px; background: rgba(217,119,6,0.12); color: #D97706;
       white-space: nowrap;
+
     }
     tbody tr.row-fire-achieved td { background: rgba(217,119,6,0.07) !important; }
     tbody tr.row-fire-achieved td:first-child { color: #D97706; font-weight: 700; }
     .td-fire { color: #D97706; font-weight: 500; }
+
+    /* ── DWZ ── */
+    .dwz-profile-btns { display: flex; gap: 4px; margin-top: 6px; }
+    .dwz-profile-btn {
+      flex: 1; padding: 5px 4px;
+      font-size: 10px; font-weight: 600; font-family: inherit;
+      border: 1px solid var(--border-mid); border-radius: var(--radius-sm);
+      background: transparent; color: var(--text-2);
+      cursor: pointer; transition: all 0.15s; text-align: center;
+    }
+    .dwz-profile-btn:hover { background: var(--bg-input); }
+    .dwz-profile-btn.active { background: #0891B2; border-color: #0891B2; color: #fff; }
+    .dwz-info {
+      margin-top: 10px; padding: 9px 11px;
+      background: rgba(8,145,178,0.09); border: 1px solid rgba(8,145,178,0.2);
+      border-radius: var(--radius-sm); display: none; flex-direction: column; gap: 5px;
+    }
+    .dwz-info.visible { display: flex; }
+    .dwz-info-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; color: var(--text-2); }
+    .dwz-info-val { font-weight: 700; color: #0891B2; font-variant-numeric: tabular-nums; }
+    /* DWZ TABLE */
+    .dwz-tbl-panel {
+      background: var(--bg-card); border: 1px solid rgba(8,145,178,0.3);
+      border-radius: var(--radius-lg); overflow: hidden;
+    }
+    .dwz-tbl-panel > summary {
+      list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid transparent; transition: border-color 0.15s;
+    }
+    .dwz-tbl-panel[open] > summary { border-bottom-color: rgba(8,145,178,0.2); }
+    .dwz-tbl-panel > summary::-webkit-details-marker { display: none; }
+    .dwz-tbl-head-left { display: flex; align-items: center; gap: 8px; }
+    .dwz-tbl-title { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #0891B2; }
+    .dwz-tbl-chevron { font-size: 10px; color: var(--text-3); transition: transform 0.2s; display: inline-block; }
+    .dwz-tbl-panel[open] .dwz-tbl-chevron { transform: rotate(180deg); }
+    .dwz-profile-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 9px;
+      border-radius: 12px; background: rgba(8,145,178,0.12); color: #0891B2;
+      white-space: nowrap;
+    }
 
     /* ── SHARE TOAST ── */
     .share-toast {
@@ -1173,6 +1215,44 @@
         </div>
       </details>
 
+      <!-- DIE WITH ZERO -->
+      <details class="sidebar-section">
+        <summary>
+          <span class="sidebar-section-title">⏳ Die With Zero</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="fire-ctrl">
+
+          <!-- Profil -->
+          <div class="fire-field">
+            <label style="margin:0;font-size:11px;font-weight:500;color:var(--text-2);">Profil de dépenses</label>
+            <div class="dwz-profile-btns">
+              <button class="dwz-profile-btn active" data-profile="conservateur">Conservateur</button>
+              <button class="dwz-profile-btn" data-profile="modere">Modéré</button>
+              <button class="dwz-profile-btn" data-profile="agressif">Agressif</button>
+            </div>
+            <div class="flow-hint" style="margin-top:4px;">Conservateur = plat · Modéré = légère décroissance · Agressif = forte décroissance</div>
+          </div>
+
+          <!-- Réserve finale -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nDwzReserve" style="margin:0;">Réserve finale</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nDwzReserve" class="ctrl-num-input"
+                  min="0" step="5000" placeholder="0" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Montant conservé à la fin — legs, sécurité (défaut : 0)</div>
+          </div>
+
+          <!-- Résumé -->
+          <div class="dwz-info" id="dwzInfo"></div>
+
+        </div>
+      </details>
+
     </aside>
 
     <!-- MAIN -->
@@ -1212,7 +1292,7 @@
               Valeur brute
             </button>
             <button class="series-toggle" id="toggleReal" aria-pressed="true" title="Valeur nette d'inflation — pouvoir d'achat constant">
-              <span class="toggle-swatch dashed" style="color:var(--blue);border-color:var(--blue);"></span>
+              <span class="toggle-swatch dashed" style="color:rgba(29,158,117,0.6);border-color:rgba(29,158,117,0.6);"></span>
               Valeur réelle après inflation
             </button>
             <button class="series-toggle" id="toggleContrib" aria-pressed="true">
@@ -1230,6 +1310,14 @@
             <button class="series-toggle" id="toggleFireTarget" aria-pressed="true">
               <span class="toggle-swatch dashed" style="color:#9333EA;border-color:#9333EA;"></span>
               Objectif FIRE
+            </button>
+            <button class="series-toggle" id="toggleDwz" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:#0891B2;border-color:#0891B2;"></span>
+              DWZ
+            </button>
+            <button class="series-toggle" id="toggleDwzReal" aria-pressed="true" title="Valeur DWZ nette d'inflation">
+              <span class="toggle-swatch dashed" style="color:rgba(8,145,178,0.55);border-color:rgba(8,145,178,0.55);"></span>
+              DWZ · net d'inflation
             </button>
           </div>
         </div>
@@ -1285,6 +1373,23 @@
         </div>
       </details>
 
+      <!-- DWZ TABLE -->
+      <details class="dwz-tbl-panel" id="dwzTblPanel">
+        <summary>
+          <div class="dwz-tbl-head-left">
+            <span class="dwz-tbl-title">⏳ Détail Die With Zero annuel</span>
+            <span class="dwz-tbl-chevron">▾</span>
+          </div>
+          <span class="dwz-profile-badge" id="dwzProfileBadge"></span>
+        </summary>
+        <div class="tbl-scroll">
+          <table>
+            <thead id="dwzTblHead"></thead>
+            <tbody id="dwzTblBody"></tbody>
+          </table>
+        </div>
+      </details>
+
     </main>
   </div>
 
@@ -1310,6 +1415,10 @@
     let fireSpendingMax  = 0;    // dépenses mensuelles maximales (0 = illimité via SWR)
     let fireSWR          = 4;     // taux de retrait (SWR) %
     let fireYearOverride = null;  // départ FIRE manuel (null = auto)
+
+    /* ── DWZ STATE ── */
+    let dwzProfile = 'conservateur'; // 'conservateur' | 'modere' | 'agressif'
+    let dwzReserve = 0;              // montant à conserver à la fin
 
     /* ── FLOW PERIODS ── */
     let flowPeriods = []; // [{ from: 1, to: N, flow: monthly€ }]
@@ -1367,8 +1476,22 @@
       compute();
     }
 
+    /* ── DWZ WEIGHT PROFILES ── */
+    function dwzWeights(n, profile) {
+      if (n <= 0) return [];
+      const raw = [];
+      for (let y = 1; y <= n; y++) {
+        const t = n > 1 ? (n - y) / (n - 1) : 0; // 1.0 (y=1) → 0.0 (y=n)
+        if (profile === 'agressif')    raw.push(0.4 + 1.6 * t); // 2.0 → 0.4 : forte décroissance
+        else if (profile === 'modere') raw.push(0.65 + 0.7 * t); // 1.35 → 0.65 : légère décroissance
+        else                           raw.push(1.0);             // conservateur : plat
+      }
+      const sum = raw.reduce((a, b) => a + b, 0);
+      return raw.map(w => (w / sum) * n); // normalise : moyenne = 1
+    }
+
     /* ── SERIES VISIBILITY ── */
-    const seriesVisible = { brut: true, real: true, contrib: true, fire: true, fireReal: true, fireTarget: true };
+    const seriesVisible = { brut: true, real: true, contrib: true, fire: true, fireReal: true, fireTarget: true, dwz: true, dwzReal: true };
 
     /* ── RETURN PROFILES ── */
     const PROFILE_DEFAULTS = {
@@ -1655,7 +1778,8 @@
           sp500:         PROFILE_DEFAULTS.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
           manual_custom: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
         },
-        fire: { spendingMin: 40000, spendingMax: 0, swr: 4, yearOverride: null },
+        fire: { spendingMin: 3500, spendingMax: 0, swr: 4, yearOverride: null },
+        dwz:  { profile: 'conservateur', reserve: 0 },
       };
     }
 
@@ -1764,8 +1888,8 @@
     function applyState(saved) {
       if (!saved) return;
       /* reset toggles */
-      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = seriesVisible.fire = seriesVisible.fireReal = seriesVisible.fireTarget = true;
-      ['toggleBrut','toggleReal','toggleContrib','toggleFire','toggleFireReal','toggleFireTarget'].forEach(id => {
+      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = seriesVisible.fire = seriesVisible.fireReal = seriesVisible.fireTarget = seriesVisible.dwz = seriesVisible.dwzReal = true;
+      ['toggleBrut','toggleReal','toggleContrib','toggleFire','toggleFireReal','toggleFireTarget','toggleDwz','toggleDwzReal'].forEach(id => {
         document.getElementById(id)?.classList.remove('off');
         document.getElementById(id)?.setAttribute('aria-pressed', 'true');
       });
@@ -1830,8 +1954,8 @@
         }
       }
       if (saved.series) {
-        const idMap = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib', fire:'toggleFire', fireReal:'toggleFireReal', fireTarget:'toggleFireTarget' };
-        ['brut','real','contrib','fire','fireReal','fireTarget'].forEach(key => {
+        const idMap = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib', fire:'toggleFire', fireReal:'toggleFireReal', fireTarget:'toggleFireTarget', dwz:'toggleDwz', dwzReal:'toggleDwzReal' };
+        ['brut','real','contrib','fire','fireReal','fireTarget','dwz','dwzReal'].forEach(key => {
           if (saved.series[key] === false) {
             seriesVisible[key] = false;
             document.getElementById(idMap[key])?.classList.add('off');
@@ -1857,6 +1981,19 @@
       if (nFireSWREl) nFireSWREl.value = fireSWR;
       const nFireStartYearEl = document.getElementById('nFireStartYear');
       if (nFireStartYearEl) nFireStartYearEl.value = fireYearOverride ?? '';
+
+      /* DWZ */
+      if (saved.dwz) {
+        dwzProfile = saved.dwz.profile ?? 'conservateur';
+        dwzReserve = saved.dwz.reserve ?? 0;
+      } else {
+        dwzProfile = 'conservateur'; dwzReserve = 0;
+      }
+      document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.profile === dwzProfile)
+      );
+      const nDwzReserveEl = document.getElementById('nDwzReserve');
+      if (nDwzReserveEl) nDwzReserveEl.value = dwzReserve > 0 ? dwzReserve : '';
 
       activeProfile = saved.profile || 'manual';
       applyProfile(activeProfile);
@@ -1915,7 +2052,7 @@
     /* ── CHART ── */
     let chart = null;
 
-    function buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, years, crossIdx, startAge) {
+    function buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, dataDwzPortfolio, dataDwzPortfolioReal, years, crossIdx, startAge) {
       const dark = isDarkMode();
       const textColor = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
       const gridColor = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
@@ -1974,9 +2111,9 @@
               borderColor: '#D97706',
               backgroundColor: 'rgba(217,119,6,0.07)',
               borderWidth: 2,
-              borderDash: [6, 3],
-              pointRadius: 0,
-              fill: false,
+              pointRadius: ptR,
+              pointBackgroundColor: '#D97706',
+              fill: true,
               tension: 0.3,
               yAxisID: 'y',
               order: 1
@@ -2038,12 +2175,12 @@
               label: 'Valeur réelle · net d\'inflation',
               data: dataReal,
               hidden: !seriesVisible.real,
-              borderColor: '#378ADD',
-              backgroundColor: 'rgba(55,138,221,0.07)',
+              borderColor: 'rgba(29,158,117,0.55)',
+              backgroundColor: 'rgba(29,158,117,0.04)',
               borderWidth: 1.5,
               borderDash: [5, 4],
               pointRadius: ptR,
-              pointBackgroundColor: '#378ADD',
+              pointBackgroundColor: 'rgba(29,158,117,0.55)',
               fill: false,
               tension: 0.3,
               order: 2
@@ -2060,6 +2197,35 @@
               fill: true,
               tension: 0.3,
               order: 1
+            },
+            /* ── DWZ datasets (indices 7 & 8) ── */
+            {
+              label: 'Portefeuille DWZ',
+              data: dataDwzPortfolio,
+              hidden: !seriesVisible.dwz,
+              borderColor: '#0891B2',
+              backgroundColor: 'rgba(8,145,178,0.07)',
+              borderWidth: 2,
+              pointRadius: ptR,
+              pointBackgroundColor: '#0891B2',
+              fill: true,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 1
+            },
+            {
+              label: 'DWZ · net d\'inflation',
+              data: dataDwzPortfolioReal,
+              hidden: !seriesVisible.dwzReal,
+              borderColor: 'rgba(8,145,178,0.55)',
+              backgroundColor: 'rgba(8,145,178,0.04)',
+              borderWidth: 1.5,
+              borderDash: [3, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 2
             }
           ]
         },
@@ -2136,18 +2302,22 @@
       const fireYearInput = parseInt(document.getElementById('nFireStartYear').value);
       fireYearOverride = isNaN(fireYearInput) ? null : fireYearInput;
 
+      /* DWZ inputs */
+      dwzReserve = parseFloat(document.getElementById('nDwzReserve')?.value) || 0;
+
       /* save */
       saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years,
                   flowPeriods: flowPeriods.map(p => ({ ...p })),
                   startYear, startAge,
-                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib, fire: seriesVisible.fire, fireTarget: seriesVisible.fireTarget },
+                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib, fire: seriesVisible.fire, fireTarget: seriesVisible.fireTarget, dwz: seriesVisible.dwz, dwzReal: seriesVisible.dwzReal },
                   profile: activeProfile,
                   profileBreakdowns: {
                     monde:         PROFILES.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
                     sp500:         PROFILES.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
                     manual_custom: PROFILES.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
                   },
-                  fire: { spendingMin: fireSpendingMin, spendingMax: fireSpendingMax, swr: fireSWR, yearOverride: fireYearOverride } });
+                  fire: { spendingMin: fireSpendingMin, spendingMax: fireSpendingMax, swr: fireSWR, yearOverride: fireYearOverride },
+                  dwz:  { profile: dwzProfile, reserve: dwzReserve } });
 
       /* FIRE pre-calc */
       const fireSWRDecimal = fireSWR / 100;
@@ -2159,11 +2329,22 @@
       // Cible max = portefeuille nécessaire pour couvrir les dépenses maximales (optionnel)
       const fireMaxTarget = fireAnnualMax > 0 ? Math.round(fireAnnualMax / fireSWRDecimal) : null;
 
+      /* DWZ pre-calc — calcul analytique du retrait de base */
+      const dwzWeightsArr = dwzWeights(years, dwzProfile);
+      let dwzDenom = 0;
+      for (let y = 1; y <= years; y++) {
+        dwzDenom += dwzWeightsArr[y-1] * Math.pow(1 + r, years - y);
+      }
+      // b tel que : P*(1+r)^n - b*Σ(w[y]*(1+r)^(n-y)) = dwzReserve
+      const dwzBase = dwzDenom > 0 ? Math.max(0, (P * Math.pow(1 + r, years) - dwzReserve) / dwzDenom) : 0;
+
       /* simulation */
       const labels = [], dataBrut = [], dataReal = [], dataContrib = [],
-            dataFireTarget = [], dataFirePortfolio = [], dataFirePortfolioReal = [], rows = [];
+            dataFireTarget = [], dataFirePortfolio = [], dataFirePortfolioReal = [],
+            dataDwzPortfolio = [], dataDwzPortfolioReal = [], rows = [];
       let val = P, totalContrib = P;
       let valFire = P, fireStartedY = null;
+      let valDwz = P;
 
       for (let y = 1; y <= years; y++) {
         const period = flowPeriods.find(p => y >= p.from && y <= p.to);
@@ -2211,6 +2392,14 @@
         const fireAnnualFlow  = fireActive ? -fireWithdrawal : 0;
         const fireMonthlyFlow = fireActive ? -Math.round(fireWithdrawal / 12) : 0;
 
+        /* DWZ portfolio simulation */
+        const dwzInterest  = Math.round(valDwz * r);
+        const dwzWithdrawal = Math.round(dwzBase * (dwzWeightsArr[y-1] || 0));
+        valDwz = Math.max(0, valDwz * (1 + r) - dwzWithdrawal);
+        const realValDwz   = valDwz / Math.pow(1 + inf, y);
+        const dwzGain      = valDwz - P;
+        const dwzGainPct   = P !== 0 ? ((valDwz / P) - 1) * 100 : 0;
+
         labels.push(yearLabel);
         dataBrut.push(Math.round(val));
         dataReal.push(Math.round(realVal));
@@ -2218,6 +2407,8 @@
         dataFireTarget.push(fireTarget);
         dataFirePortfolio.push(Math.round(valFire));
         dataFirePortfolioReal.push(Math.round(realValFire));
+        dataDwzPortfolio.push(Math.round(valDwz));
+        dataDwzPortfolioReal.push(Math.round(realValDwz));
         rows.push({
           year: curYear,
           age: startAge > 0 ? startAge + (y - 1) : null,
@@ -2240,6 +2431,13 @@
           fireWithdrawal,
           fireProgress: fireTarget ? (Math.round(valFire) / fireTarget * 100) : null,
           fireDelta: fireTarget ? Math.round(valFire - fireTarget) : null,
+          valDwz: Math.round(valDwz),
+          realValDwz: Math.round(realValDwz),
+          dwzInterest,
+          dwzWithdrawal,
+          dwzMonthlyWithdrawal: Math.round(dwzWithdrawal / 12),
+          dwzGain: Math.round(dwzGain),
+          dwzGainPct,
         });
       }
 
@@ -2371,8 +2569,64 @@
         }).join('');
       }
 
+      /* DWZ info badge */
+      const dwzInfoEl = document.getElementById('dwzInfo');
+      if (dwzInfoEl && rows.length > 0) {
+        const firstRow = rows[0], lastRow = rows[rows.length - 1];
+        const profileLabels = { conservateur: 'Conservateur', modere: 'Modéré', agressif: 'Agressif' };
+        dwzInfoEl.className = 'dwz-info visible';
+        let dwzHtml = '';
+        dwzHtml += `<div class="dwz-info-row"><span>Profil</span><span class="dwz-info-val">${profileLabels[dwzProfile] || dwzProfile}</span></div>`;
+        dwzHtml += `<div class="dwz-info-row"><span>Retrait initial</span><span class="dwz-info-val">${fmtEur(firstRow.dwzMonthlyWithdrawal)}/mois</span></div>`;
+        dwzHtml += `<div class="dwz-info-row"><span>Retrait final</span><span class="dwz-info-val">${fmtEur(lastRow.dwzMonthlyWithdrawal)}/mois</span></div>`;
+        dwzHtml += `<div class="dwz-info-row"><span>Portefeuille final</span><span class="dwz-info-val">${fmtEur(lastRow.valDwz)}</span></div>`;
+        if (dwzReserve > 0) dwzHtml += `<div class="dwz-info-row"><span>Réserve cible</span><span class="dwz-info-val">${fmtEur(dwzReserve)}</span></div>`;
+        dwzInfoEl.innerHTML = dwzHtml;
+      }
+
+      /* DWZ table */
+      const dwzTblHead = document.getElementById('dwzTblHead');
+      const dwzTblBody = document.getElementById('dwzTblBody');
+      if (dwzTblHead && dwzTblBody) {
+        const profileLabels = { conservateur: 'Conservateur', modere: 'Modéré', agressif: 'Agressif' };
+        const dwzProfileBadge = document.getElementById('dwzProfileBadge');
+        if (dwzProfileBadge) dwzProfileBadge.textContent = profileLabels[dwzProfile] || dwzProfile;
+        dwzTblHead.innerHTML = `<tr>
+          <th style="text-align:left;">Année</th>
+          <th style="text-align:right;">Âge</th>
+          <th style="text-align:right;">Valeur brute</th>
+          <th style="text-align:right;">Valeur réelle · net d'inflation</th>
+          <th style="text-align:right;">Intérêts</th>
+          <th style="text-align:right;">Retrait DWZ /an</th>
+          <th style="text-align:right;">Retrait DWZ /mois</th>
+          <th style="text-align:right;">Capital initial</th>
+          <th style="text-align:right;">Plus-value</th>
+          <th style="text-align:right;">Perf. %</th>
+        </tr>`;
+        const maxDwzVal = Math.max(...rows.map(r => r.valDwz), 1);
+        dwzTblBody.innerHTML = rows.map(row => {
+          const barW = row.valDwz > 0 ? Math.round((row.valDwz / maxDwzVal) * 100) : 0;
+          const c    = row.dwzGain >= 0 ? 'td-pos' : 'td-neg';
+          return `<tr>
+            <td>${row.year}</td>
+            <td>${row.age !== null ? row.age + ' ans' : '—'}</td>
+            <td style="position:relative;">
+              <div class="td-bar" style="width:${barW}%;background:rgba(8,145,178,0.12);"></div>
+              ${fmtEur(row.valDwz)}
+            </td>
+            <td>${fmtEur(row.realValDwz)}</td>
+            <td class="${c}">${fmtEur(row.dwzInterest)}</td>
+            <td class="td-neg">${row.dwzWithdrawal === 0 ? '—' : fmtEur(-row.dwzWithdrawal)}</td>
+            <td class="td-neg">${row.dwzMonthlyWithdrawal === 0 ? '—' : fmtEur(-row.dwzMonthlyWithdrawal)}</td>
+            <td>${fmtEur(P)}</td>
+            <td class="${c}">${fmtEur(row.dwzGain)}</td>
+            <td class="${c}">${fmtPct(row.dwzGainPct)}</td>
+          </tr>`;
+        }).join('');
+      }
+
       /* chart */
-      buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, years, crossIdx, startAge);
+      buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, dataDwzPortfolio, dataDwzPortfolioReal, years, crossIdx, startAge);
     }
 
     /* ── INIT ── */
@@ -2394,6 +2648,18 @@
       document.getElementById('nFireSpendingMax').addEventListener('input', compute);
       document.getElementById('nFireSWR').addEventListener('input', compute);
       document.getElementById('nFireStartYear').addEventListener('change', compute);
+
+      /* DWZ inputs */
+      document.getElementById('nDwzReserve')?.addEventListener('input', compute);
+      document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
+        btn.addEventListener('click', () => {
+          dwzProfile = btn.dataset.profile;
+          document.querySelectorAll('.dwz-profile-btn').forEach(b =>
+            b.classList.toggle('active', b === btn)
+          );
+          compute();
+        })
+      );
 
       /* share button */
       document.getElementById('shareBtn').addEventListener('click', shareCurrentSim);
@@ -2436,7 +2702,7 @@
       document.getElementById('nStartYear').addEventListener('change', compute);
       document.getElementById('nAge').addEventListener('change', compute);
 
-      /* series toggles — dataset order: 0=firePortfolio, 1=firePortfolioReal, 2=fireTarget, 3=zero, 4=contrib, 5=real, 6=brut */
+      /* series toggles — dataset order: 0=firePortfolio, 1=firePortfolioReal, 2=fireTarget, 3=zero, 4=contrib, 5=real, 6=brut, 7=dwzPortfolio, 8=dwzPortfolioReal */
       [
         { id: 'toggleBrut',        key: 'brut',        dsIdx: 6 },
         { id: 'toggleReal',        key: 'real',        dsIdx: 5 },
@@ -2444,6 +2710,8 @@
         { id: 'toggleFire',        key: 'fire',        dsIdx: null }, // rebuilt on compute
         { id: 'toggleFireReal',    key: 'fireReal',    dsIdx: null }, // rebuilt on compute
         { id: 'toggleFireTarget',  key: 'fireTarget',  dsIdx: null }, // rebuilt on compute
+        { id: 'toggleDwz',         key: 'dwz',         dsIdx: null }, // rebuilt on compute
+        { id: 'toggleDwzReal',     key: 'dwzReal',     dsIdx: null }, // rebuilt on compute
       ].forEach(({ id, key, dsIdx }) => {
         document.getElementById(id)?.addEventListener('click', () => {
           seriesVisible[key] = !seriesVisible[key];
