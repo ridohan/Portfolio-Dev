@@ -1036,7 +1036,7 @@
     <aside class="sidebar">
 
       <!-- Simulations -->
-      <details class="sidebar-section" open>
+      <details class="sidebar-section" open data-section-id="simulations">
         <summary>
           <span class="sidebar-section-title">Simulations</span>
           <span class="sidebar-section-chevron">▾</span>
@@ -1052,7 +1052,7 @@
       </details>
 
      <!-- Départ -->
-      <details class="sidebar-section" open>
+      <details class="sidebar-section" open data-section-id="depart">
         <summary>
           <span class="sidebar-section-title">Départ</span>
           <span class="sidebar-section-chevron">▾</span>
@@ -1073,7 +1073,7 @@
       </details>
 
       <!-- Paramètres -->
-      <details class="sidebar-section" open>
+      <details class="sidebar-section" open data-section-id="parametres">
         <summary>
           <span class="sidebar-section-title">Paramètres</span>
           <span class="sidebar-section-chevron">▾</span>
@@ -1143,7 +1143,7 @@
       </details>
 
       <!-- Flux mensuels -->
-      <details class="sidebar-section" open>
+      <details class="sidebar-section" open data-section-id="flux">
         <summary>
           <span class="sidebar-section-title">Flux mensuels</span>
           <span class="sidebar-section-chevron">▾</span>
@@ -1154,7 +1154,7 @@
       </details>
 
       <!-- FIRE -->
-      <details class="sidebar-section" open>
+      <details class="sidebar-section" data-section-id="fire">
         <summary>
           <span class="sidebar-section-title">🔥 FIRE</span>
           <span class="sidebar-section-chevron">▾</span>
@@ -1216,7 +1216,7 @@
       </details>
 
       <!-- DIE WITH ZERO -->
-      <details class="sidebar-section">
+      <details class="sidebar-section" data-section-id="dwz">
         <summary>
           <span class="sidebar-section-title">⏳ Die With Zero</span>
           <span class="sidebar-section-chevron">▾</span>
@@ -1504,6 +1504,32 @@
       return raw.map(w => (w / sum) * n); // normalise : moyenne = 1
     }
 
+    /* ── DWZ SOLVER (binary search) ── */
+    // Trouve le scalaire b tel que la simulation réelle (avec plancher) finisse à `reserve`.
+    // 60 itérations de bisection → précision < 1 centime.
+    function solveDwzBase(P, r, n, weights, minAnnual, reserve) {
+      if (n <= 0) return 0;
+      // Si même sans retrait le portefeuille ne dépasse pas la réserve → pas de retrait
+      if (P * Math.pow(1 + r, n) <= reserve) return 0;
+
+      const simulate = b => {
+        let v = P;
+        for (let y = 1; y <= n; y++) {
+          const w = Math.max(b * (weights[y - 1] || 0), minAnnual);
+          v = Math.max(0, v * (1 + r) - w);
+        }
+        return v; // valeur finale du portefeuille
+      };
+
+      // Borne supérieure : b tel que le premier retrait vidange tout le portefeuille
+      let lo = 0, hi = P * (1 + r) * 2;
+      for (let i = 0; i < 60; i++) {
+        const mid = (lo + hi) / 2;
+        simulate(mid) > reserve ? lo = mid : hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
     /* ── SERIES VISIBILITY ── */
     const seriesVisible = { brut: true, real: true, contrib: true, fire: true, fireReal: true, fireTarget: true, dwz: true, dwzReal: true };
 
@@ -1693,7 +1719,31 @@
     }
 
     /* ── THEME ── */
-    const THEME_KEY = 'sim_v3_theme';
+    const THEME_KEY    = 'sim_v3_theme';
+
+    /* ── SIDEBAR SECTION STATES ── */
+    const SECTIONS_KEY = 'sim_v3_sections';
+    // Valeurs par défaut : FIRE et DWZ fermés, les autres ouverts
+    const SECTION_DEFAULTS = { simulations: true, depart: true, parametres: true, flux: true, fire: false, dwz: false };
+
+    function saveSectionStates() {
+      const state = {};
+      document.querySelectorAll('.sidebar-section[data-section-id]').forEach(el => {
+        state[el.dataset.sectionId] = el.open;
+      });
+      try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function restoreSectionStates() {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(SECTIONS_KEY)) || {}; } catch {}
+      document.querySelectorAll('.sidebar-section[data-section-id]').forEach(el => {
+        const id = el.dataset.sectionId;
+        // Priorité : état sauvegardé > défaut défini > attribut HTML
+        if (id in saved) el.open = saved[id];
+        else if (id in SECTION_DEFAULTS) el.open = SECTION_DEFAULTS[id];
+      });
+    }
 
     function isDarkMode() {
       const t = document.documentElement.dataset.theme;
@@ -1785,7 +1835,7 @@
         portfolio: 786000, return: 7, inflation: 2, duration: 25,
         flowPeriods: [],
         startYear: new Date().getFullYear(), startAge: 0,
-        series: { brut: true, real: true, contrib: true },
+        series: { brut: true, real: true, contrib: true, fire: false, fireReal: false, fireTarget: false, dwz: false, dwzReal: false },
         profile: 'manual',
         profileBreakdowns: {
           monde:         PROFILE_DEFAULTS.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
@@ -2347,14 +2397,10 @@
       // Cible max = portefeuille nécessaire pour couvrir les dépenses maximales (optionnel)
       const fireMaxTarget = fireAnnualMax > 0 ? Math.round(fireAnnualMax / fireSWRDecimal) : null;
 
-      /* DWZ pre-calc — calcul analytique du retrait de base */
+      /* DWZ pre-calc — binary search tenant compte du plancher vital */
       const dwzWeightsArr = dwzWeights(years, dwzProfile);
-      let dwzDenom = 0;
-      for (let y = 1; y <= years; y++) {
-        dwzDenom += dwzWeightsArr[y-1] * Math.pow(1 + r, years - y);
-      }
-      // b tel que : P*(1+r)^n - b*Σ(w[y]*(1+r)^(n-y)) = dwzReserve
-      const dwzBase = dwzDenom > 0 ? Math.max(0, (P * Math.pow(1 + r, years) - dwzReserve) / dwzDenom) : 0;
+      const dwzMinAnnual  = dwzSpendingMin * 12;
+      const dwzBase       = solveDwzBase(P, r, years, dwzWeightsArr, dwzMinAnnual, dwzReserve);
 
       /* simulation */
       const labels = [], dataBrut = [], dataReal = [], dataContrib = [],
@@ -2412,12 +2458,10 @@
 
         /* DWZ portfolio simulation */
         const dwzInterest    = Math.round(valDwz * r);
-        const dwzMinAnnual   = dwzSpendingMin * 12;
-        const dwzWeighted    = Math.round(dwzBase * (dwzWeightsArr[y-1] || 0));
-        // Plancher vital : le retrait ne peut jamais descendre sous dwzMinAnnual
-        // Plafond de sécurité : on ne retire pas plus que ce que le portefeuille peut fournir
-        const dwzMaxPossible = Math.round(valDwz * (1 + r));
-        const dwzWithdrawal  = Math.min(Math.max(dwzWeighted, dwzMinAnnual), dwzMaxPossible);
+        const dwzWeighted    = dwzBase * (dwzWeightsArr[y-1] || 0);
+        // Plancher vital + plafond de sécurité (ne pas retirer plus que disponible)
+        const dwzMaxPossible = valDwz * (1 + r);
+        const dwzWithdrawal  = Math.round(Math.min(Math.max(dwzWeighted, dwzMinAnnual), dwzMaxPossible));
         valDwz = Math.max(0, valDwz * (1 + r) - dwzWithdrawal);
         const realValDwz   = valDwz / Math.pow(1 + inf, y);
         const dwzGain      = valDwz - P;
@@ -2654,6 +2698,12 @@
 
     /* ── INIT ── */
     document.addEventListener('DOMContentLoaded', () => {
+      /* restore sidebar section states */
+      restoreSectionStates();
+      document.querySelectorAll('.sidebar-section[data-section-id]').forEach(el => {
+        el.addEventListener('toggle', saveSectionStates);
+      });
+
       /* restore theme */
       const savedTheme = localStorage.getItem(THEME_KEY);
       if (savedTheme) {
