@@ -517,6 +517,25 @@
     .sim-item:hover .sim-delete-btn { opacity: 1; }
     .sim-delete-btn:hover { color: var(--red); background: var(--red-bg); }
     .sim-delete-btn[disabled] { opacity: 0 !important; pointer-events: none; }
+    .sim-dup-btn {
+      flex-shrink: 0;
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none;
+      cursor: pointer;
+      color: var(--text-3);
+      font-size: 12px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-item:hover .sim-dup-btn { opacity: 1; }
+    .sim-dup-btn:hover { color: var(--blue); background: var(--blue-bg); }
+    .sim-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .sim-actions .new-sim-btn { flex: 1; }
     .new-sim-btn {
       width: 100%;
       font-size: 11px;
@@ -983,7 +1002,10 @@
         <div class="sim-section">
           <input type="text" id="simNameInput" class="sim-name-input" placeholder="Nom de la simulation" maxlength="48">
           <div class="sim-list" id="simList"></div>
-          <button class="new-sim-btn" id="newSimBtn">+ Nouvelle simulation</button>
+          <div class="sim-actions">
+            <button class="new-sim-btn" id="newSimBtn">+ Nouvelle</button>
+            <button class="new-sim-btn" id="dupSimBtn" title="Dupliquer la simulation active">⎘ Dupliquer</button>
+          </div>
         </div>
       </details>
 
@@ -1676,11 +1698,15 @@
       listEl.innerHTML = sims.map(sim =>
         `<div class="sim-item${sim.id === activeId ? ' active' : ''}" data-id="${sim.id}">
           <button class="sim-item-btn" data-id="${sim.id}">${escHtml(sim.name)}</button>
+          <button class="sim-dup-btn" data-id="${sim.id}" title="Dupliquer">⎘</button>
           <button class="sim-delete-btn" data-id="${sim.id}" ${sims.length === 1 ? 'disabled' : ''} title="Supprimer">×</button>
         </div>`
       ).join('');
       listEl.querySelectorAll('.sim-item-btn').forEach(btn =>
         btn.addEventListener('click', () => { if (btn.dataset.id !== activeId) switchToSim(btn.dataset.id); })
+      );
+      listEl.querySelectorAll('.sim-dup-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); duplicateSim(btn.dataset.id); })
       );
       listEl.querySelectorAll('.sim-delete-btn:not([disabled])').forEach(btn =>
         btn.addEventListener('click', e => {
@@ -1714,6 +1740,25 @@
       saveSims(sims); setActiveId(id);
       applyState(data);
       renderSimList();
+    }
+
+    function duplicateSim(sourceId) {
+      const sims = loadSims();
+      const source = sims.find(s => s.id === sourceId);
+      if (!source) return;
+      const newId   = genId();
+      const newName = source.name + ' (copie)';
+      const newData = JSON.parse(JSON.stringify(source.data)); // deep clone
+      sims.push({ id: newId, name: newName, data: newData });
+      saveSims(sims);
+      setActiveId(newId);
+      applyState(newData);
+      renderSimList();
+      /* focus le champ nom pour renommer immédiatement */
+      setTimeout(() => {
+        const inp = document.getElementById('simNameInput');
+        if (inp) { inp.focus(); inp.select(); }
+      }, 50);
     }
 
     function applyState(saved) {
@@ -2422,8 +2467,9 @@
         }
       });
 
-      /* new sim button */
+      /* new sim / dup sim buttons */
       document.getElementById('newSimBtn').addEventListener('click', createNewSim);
+      document.getElementById('dupSimBtn').addEventListener('click', () => duplicateSim(getActiveId()));
 
       /* restore active sim + render list */
       applyState(loadState());
