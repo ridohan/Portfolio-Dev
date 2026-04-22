@@ -805,7 +805,8 @@
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--text-2);
+      color:#1D9E75
+      
     }
     .tbl-rows-count {
       font-size: 11px;
@@ -1399,7 +1400,19 @@
         </div>
       </div>
 
-      <!-- TABLE -->
+      <!-- COMPARISON PANEL -->
+      <div class="comparison-panel" id="comparisonPanel">
+        <div class="comparison-header">
+          <span class="comparison-header-title">Comparaison des simulations</span>
+        </div>
+        <div class="comparison-grid">
+          <div class="comparison-col" id="compNormal"></div>
+          <div class="comparison-col" id="compFire"></div>
+          <div class="comparison-col" id="compDwz"></div>
+        </div>
+      </div>
+
+      <!-- TABLE DETAIL ANNUEL -->
       <details class="tbl-panel" open>
         <summary>
           <div class="fire-tbl-head-left">
@@ -1481,17 +1494,7 @@
         </div>
       </details>
 
-      <!-- COMPARISON PANEL -->
-      <div class="comparison-panel" id="comparisonPanel">
-        <div class="comparison-header">
-          <span class="comparison-header-title">Comparaison des simulations</span>
-        </div>
-        <div class="comparison-grid">
-          <div class="comparison-col" id="compNormal"></div>
-          <div class="comparison-col" id="compFire"></div>
-          <div class="comparison-col" id="compDwz"></div>
-        </div>
-      </div>
+      
 
     </main>
   </div>
