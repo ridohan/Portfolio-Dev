@@ -987,6 +987,27 @@
         </div>
       </details>
 
+     <!-- Départ -->
+      <details class="sidebar-section" open>
+        <summary>
+          <span class="sidebar-section-title">Départ</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="depart-grid">
+          <div class="depart-field">
+            <label for="nStartYear">Année de début</label>
+            <input type="number" id="nStartYear" class="flow-number"
+              value="2025" min="1900" max="2100" step="1" placeholder="2025">
+          </div>
+          <div class="depart-field">
+            <label for="nAge">Âge actuel</label>
+            <input type="number" id="nAge" class="flow-number"
+              value="" min="1" max="120" step="1" placeholder="—">
+          </div>
+        </div>
+        <div class="flow-hint">Affichés dans le graphique et le tableau</div>
+      </details>
+
       <!-- Paramètres -->
       <details class="sidebar-section" open>
         <summary>
@@ -1068,27 +1089,6 @@
         <div class="flow-hint">Positif = versement · Négatif = retrait</div>
       </details>
 
-      <!-- Départ -->
-      <details class="sidebar-section" open>
-        <summary>
-          <span class="sidebar-section-title">Départ</span>
-          <span class="sidebar-section-chevron">▾</span>
-        </summary>
-        <div class="depart-grid">
-          <div class="depart-field">
-            <label for="nStartYear">Année de début</label>
-            <input type="number" id="nStartYear" class="flow-number"
-              value="2025" min="1900" max="2100" step="1" placeholder="2025">
-          </div>
-          <div class="depart-field">
-            <label for="nAge">Âge actuel</label>
-            <input type="number" id="nAge" class="flow-number"
-              value="" min="1" max="120" step="1" placeholder="—">
-          </div>
-        </div>
-        <div class="flow-hint">Affichés dans le graphique et le tableau</div>
-      </details>
-
       <!-- FIRE -->
       <details class="sidebar-section" open>
         <summary>
@@ -1096,20 +1096,35 @@
           <span class="sidebar-section-chevron">▾</span>
         </summary>
         <div class="fire-ctrl">
-          <div class="fire-mode-toggle">
-            <button class="fire-mode-btn" id="fireBtnEur">€ / an</button>
-            <button class="fire-mode-btn active" id="fireBtnPct">% retrait</button>
+
+          <!-- Dépenses minimales -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nFireSpendingMin" style="margin:0;">Dépenses min. /an</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nFireSpendingMin" class="ctrl-num-input"
+                  min="0" step="1000" value="40000" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Seuil FIRE — déclenche le retrait automatiquement</div>
           </div>
 
-          <!-- Spending input (€ mode only) -->
-          <div class="fire-field" id="fireEurField" style="display:none;">
-            <label for="nFireSpending">Dépenses annuelles cibles</label>
-            <input type="number" id="nFireSpending" class="flow-number"
-              min="0" step="1000" value="40000" placeholder="ex : 40 000">
+          <!-- Dépenses maximales -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nFireSpendingMax" style="margin:0;">Dépenses max. /an</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nFireSpendingMax" class="ctrl-num-input"
+                  min="0" step="1000" placeholder="auto" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Optionnel — Utilise le SWR si vide</div>
           </div>
 
-          <!-- SWR rate -->
-          <div class="fire-field" id="fireSwrField">
+          <!-- SWR -->
+          <div class="fire-field">
             <div class="ctrl-top">
               <label for="nFireSWR" style="margin:0;">Taux de retrait (SWR)</label>
               <div style="display:flex;align-items:center;gap:4px;">
@@ -1120,18 +1135,19 @@
             </div>
           </div>
 
-          <!-- Auto-computed FIRE info -->
-          <div class="fire-info" id="fireInfo"></div>
-
-          <!-- Optional FIRE departure year -->
+          <!-- Départ FIRE -->
           <div class="fire-field">
             <div class="ctrl-top">
               <label for="nFireStartYear" style="margin:0;">Départ FIRE</label>
               <input type="number" id="nFireStartYear" class="ctrl-num-input"
                 min="1900" max="2200" step="1" placeholder="auto" style="width:72px;">
             </div>
-            <div class="flow-hint" style="margin-top:3px;">Optionnel — calculé automatiquement</div>
+            <div class="flow-hint" style="margin-top:3px;">Auto = dès que les dépenses min sont couvertes</div>
           </div>
+
+          <!-- Résumé -->
+          <div class="fire-info" id="fireInfo"></div>
+
         </div>
       </details>
 
@@ -1184,6 +1200,10 @@
             <button class="series-toggle" id="toggleFire" aria-pressed="true">
               <span class="toggle-swatch dashed" style="color:#D97706;border-color:#D97706;"></span>
               FIRE
+            </button>
+            <button class="series-toggle" id="toggleFireReal" aria-pressed="true" title="Valeur FIRE nette d'inflation — pouvoir d'achat constant">
+              <span class="toggle-swatch dashed" style="color:rgba(217,119,6,0.55);border-color:rgba(217,119,6,0.55);"></span>
+              FIRE · net d'inflation
             </button>
             <button class="series-toggle" id="toggleFireTarget" aria-pressed="true">
               <span class="toggle-swatch dashed" style="color:#9333EA;border-color:#9333EA;"></span>
@@ -1264,10 +1284,10 @@
     const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
 
     /* ── FIRE STATE ── */
-    let fireMode    = 'pct'; // 'eur' | 'pct'
-    let fireSpending = 40000; // annual spending €, used in eur mode
-    let fireSWR     = 4;      // safe withdrawal rate %
-    let fireYearOverride = null; // optional manual FIRE year
+    let fireSpendingMin  = 40000; // dépenses annuelles minimales (seuil FIRE)
+    let fireSpendingMax  = 0;     // dépenses annuelles maximales (0 = illimité via SWR)
+    let fireSWR          = 4;     // taux de retrait (SWR) %
+    let fireYearOverride = null;  // départ FIRE manuel (null = auto)
 
     /* ── FLOW PERIODS ── */
     let flowPeriods = []; // [{ from: 1, to: N, flow: monthly€ }]
@@ -1326,7 +1346,7 @@
     }
 
     /* ── SERIES VISIBILITY ── */
-    const seriesVisible = { brut: true, real: true, contrib: true, fire: true, fireTarget: true };
+    const seriesVisible = { brut: true, real: true, contrib: true, fire: true, fireReal: true, fireTarget: true };
 
     /* ── RETURN PROFILES ── */
     const PROFILE_DEFAULTS = {
@@ -1613,7 +1633,7 @@
           sp500:         PROFILE_DEFAULTS.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
           manual_custom: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
         },
-        fire: { mode: 'pct', spending: 40000, swr: 4, yearOverride: null },
+        fire: { spendingMin: 40000, spendingMax: 0, swr: 4, yearOverride: null },
       };
     }
 
@@ -1699,8 +1719,8 @@
     function applyState(saved) {
       if (!saved) return;
       /* reset toggles */
-      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = seriesVisible.fire = seriesVisible.fireTarget = true;
-      ['toggleBrut','toggleReal','toggleContrib','toggleFire','toggleFireTarget'].forEach(id => {
+      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = seriesVisible.fire = seriesVisible.fireReal = seriesVisible.fireTarget = true;
+      ['toggleBrut','toggleReal','toggleContrib','toggleFire','toggleFireReal','toggleFireTarget'].forEach(id => {
         document.getElementById(id)?.classList.remove('off');
         document.getElementById(id)?.setAttribute('aria-pressed', 'true');
       });
@@ -1765,8 +1785,8 @@
         }
       }
       if (saved.series) {
-        const idMap = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib', fire:'toggleFire', fireTarget:'toggleFireTarget' };
-        ['brut','real','contrib','fire','fireTarget'].forEach(key => {
+        const idMap = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib', fire:'toggleFire', fireReal:'toggleFireReal', fireTarget:'toggleFireTarget' };
+        ['brut','real','contrib','fire','fireReal','fireTarget'].forEach(key => {
           if (saved.series[key] === false) {
             seriesVisible[key] = false;
             document.getElementById(idMap[key])?.classList.add('off');
@@ -1776,32 +1796,27 @@
       }
       /* FIRE */
       if (saved.fire) {
-        fireMode    = saved.fire.mode    ?? 'pct';
-        fireSpending = saved.fire.spending ?? 40000;
-        fireSWR     = saved.fire.swr     ?? 4;
+        fireSpendingMin  = saved.fire.spendingMin  ?? saved.fire.spending ?? 40000;
+        fireSpendingMax  = saved.fire.spendingMax  ?? 0;
+        fireSWR          = saved.fire.swr          ?? 4;
         fireYearOverride = saved.fire.yearOverride ?? null;
       } else {
-        fireMode = 'pct'; fireSpending = 40000; fireSWR = 4; fireYearOverride = null;
+        fireSpendingMin = 40000; fireSpendingMax = 0; fireSWR = 4; fireYearOverride = null;
       }
-      applyFireMode(fireMode);
-      const nFireSWR = document.getElementById('nFireSWR');
-      if (nFireSWR) nFireSWR.value = fireSWR;
-      const nFireSpending = document.getElementById('nFireSpending');
-      if (nFireSpending) nFireSpending.value = fireSpending;
-      const nFireStartYear = document.getElementById('nFireStartYear');
-      if (nFireStartYear) nFireStartYear.value = fireYearOverride ?? '';
+      document.getElementById('nFireSpendingMin')?.setAttribute('value', fireSpendingMin);
+      const nFireSpendingMinEl = document.getElementById('nFireSpendingMin');
+      if (nFireSpendingMinEl) nFireSpendingMinEl.value = fireSpendingMin;
+      const nFireSpendingMaxEl = document.getElementById('nFireSpendingMax');
+      if (nFireSpendingMaxEl) nFireSpendingMaxEl.value = fireSpendingMax > 0 ? fireSpendingMax : '';
+      const nFireSWREl = document.getElementById('nFireSWR');
+      if (nFireSWREl) nFireSWREl.value = fireSWR;
+      const nFireStartYearEl = document.getElementById('nFireStartYear');
+      if (nFireStartYearEl) nFireStartYearEl.value = fireYearOverride ?? '';
 
       activeProfile = saved.profile || 'manual';
       applyProfile(activeProfile);
     }
 
-    function applyFireMode(mode) {
-      fireMode = mode;
-      document.getElementById('fireBtnEur')?.classList.toggle('active', mode === 'eur');
-      document.getElementById('fireBtnPct')?.classList.toggle('active', mode === 'pct');
-      const eurField = document.getElementById('fireEurField');
-      if (eurField) eurField.style.display = mode === 'eur' ? '' : 'none';
-    }
 
     /* ── PORTFOLIO INPUT FORMATTER ── */
     const fmtPortfolio = v => new Intl.NumberFormat('fr-FR').format(Math.round(v));
@@ -1855,7 +1870,7 @@
     /* ── CHART ── */
     let chart = null;
 
-    function buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, years, crossIdx, startAge) {
+    function buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, years, crossIdx, startAge) {
       const dark = isDarkMode();
       const textColor = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
       const gridColor = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
@@ -1906,7 +1921,7 @@
         data: {
           labels,
           datasets: [
-            /* FIRE portfolio curve — actual portfolio with withdrawals */
+            /* FIRE portfolio curve — actual portfolio with withdrawals (brut) */
             {
               label: 'Portefeuille FIRE',
               data: dataFirePortfolio,
@@ -1920,6 +1935,21 @@
               tension: 0.3,
               yAxisID: 'y',
               order: 1
+            },
+            /* FIRE portfolio — real value net d'inflation */
+            {
+              label: 'FIRE · net d\'inflation',
+              data: dataFirePortfolioReal,
+              hidden: !seriesVisible.fireReal,
+              borderColor: 'rgba(217,119,6,0.55)',
+              backgroundColor: 'rgba(217,119,6,0.04)',
+              borderWidth: 1.5,
+              borderDash: [3, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 2
             },
             /* FIRE target horizontal line — left axis (€ mode only) */
             {
@@ -2055,8 +2085,9 @@
       const startAge  = parseInt(document.getElementById('nAge').value) || 0;
 
       /* FIRE inputs */
-      fireSWR      = parseFloat(document.getElementById('nFireSWR').value) || 4;
-      fireSpending = parseFloat(document.getElementById('nFireSpending').value) || 40000;
+      fireSWR         = parseFloat(document.getElementById('nFireSWR').value) || 4;
+      fireSpendingMin = parseFloat(document.getElementById('nFireSpendingMin').value) || 0;
+      fireSpendingMax = parseFloat(document.getElementById('nFireSpendingMax').value) || 0;
       const fireYearInput = parseInt(document.getElementById('nFireStartYear').value);
       fireYearOverride = isNaN(fireYearInput) ? null : fireYearInput;
 
@@ -2071,15 +2102,18 @@
                     sp500:         PROFILES.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
                     manual_custom: PROFILES.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
                   },
-                  fire: { mode: fireMode, spending: fireSpending, swr: fireSWR, yearOverride: fireYearOverride } });
+                  fire: { spendingMin: fireSpendingMin, spendingMax: fireSpendingMax, swr: fireSWR, yearOverride: fireYearOverride } });
 
       /* FIRE pre-calc */
       const fireSWRDecimal = fireSWR / 100;
-      const fireTarget = fireSpending > 0 ? fireSpending / fireSWRDecimal : null;
+      // Cible min = portefeuille nécessaire pour couvrir les dépenses minimales au taux SWR
+      const fireTarget    = fireSpendingMin > 0 ? Math.round(fireSpendingMin / fireSWRDecimal) : null;
+      // Cible max = portefeuille nécessaire pour couvrir les dépenses maximales (optionnel)
+      const fireMaxTarget = fireSpendingMax > 0 ? Math.round(fireSpendingMax / fireSWRDecimal) : null;
 
       /* simulation */
       const labels = [], dataBrut = [], dataReal = [], dataContrib = [],
-            dataFireTarget = [], dataFirePortfolio = [], rows = [];
+            dataFireTarget = [], dataFirePortfolio = [], dataFirePortfolioReal = [], rows = [];
       let val = P, totalContrib = P;
       let valFire = P, fireStartedY = null;
 
@@ -2099,24 +2133,35 @@
         /* FIRE portfolio simulation (parallel to brut) */
         const fireInterest = Math.round(valFire * r);
         if (fireStartedY === null) {
-          const overrideReached = fireYearOverride !== null && curYear >= fireYearOverride;
-          const targetReached   = fireMode === 'eur' && fireTarget !== null && valFire >= fireTarget;
-          const pctNoOverride   = fireMode === 'pct' && fireYearOverride === null;
-          if (overrideReached || targetReached || pctNoOverride) fireStartedY = y;
+          let triggered;
+          if (fireYearOverride !== null) {
+            // Départ manuel : démarre exactement à l'année choisie
+            triggered = curYear >= fireYearOverride;
+          } else if (fireTarget !== null) {
+            // Auto : déclenche quand le portefeuille FIRE couvre les dépenses min au SWR
+            triggered = valFire >= fireTarget;
+          } else {
+            // Pas de cible définie : pas de retraits (courbe FIRE suit la brute)
+            triggered = false;
+          }
+          if (triggered) fireStartedY = y;
         }
         const fireActive = fireStartedY !== null && y >= fireStartedY;
         let fireWithdrawal = 0;
         if (fireActive) {
-          fireWithdrawal = fireMode === 'eur' ? fireSpending : Math.round(valFire * fireSWRDecimal);
+          // Phase FIRE : retrait = SWR% du portefeuille, plafonné aux dépenses max si définies
+          const baseWithdrawal = Math.round(valFire * fireSWRDecimal);
+          fireWithdrawal = fireSpendingMax > 0 ? Math.min(baseWithdrawal, fireSpendingMax) : baseWithdrawal;
           valFire = Math.max(0, valFire * (1 + r) - fireWithdrawal);
         } else {
-          valFire = valFire * (1 + r) + monthlyFlow * 12;
+          // Phase accumulation FIRE : capitalisation pure, sans aucun flux mensuel
+          valFire = valFire * (1 + r);
         }
         const realValFire = valFire / Math.pow(1 + inf, y);
-        const fireGain = valFire - totalContrib;
-        const fireGainPct = totalContrib !== 0 ? ((valFire / totalContrib) - 1) * 100 : 0;
-        const fireAnnualFlow  = fireActive ? -fireWithdrawal : annualFlow;
-        const fireMonthlyFlow = fireActive ? -Math.round(fireWithdrawal / 12) : monthlyFlow;
+        const fireGain = valFire - P;  // capital de référence = portefeuille initial uniquement
+        const fireGainPct = P !== 0 ? ((valFire / P) - 1) * 100 : 0;
+        const fireAnnualFlow  = fireActive ? -fireWithdrawal : 0;
+        const fireMonthlyFlow = fireActive ? -Math.round(fireWithdrawal / 12) : 0;
 
         labels.push(yearLabel);
         dataBrut.push(Math.round(val));
@@ -2124,6 +2169,7 @@
         dataContrib.push(Math.round(totalContrib));
         dataFireTarget.push(fireTarget);
         dataFirePortfolio.push(Math.round(valFire));
+        dataFirePortfolioReal.push(Math.round(realValFire));
         rows.push({
           year: curYear,
           age: startAge > 0 ? startAge + (y - 1) : null,
@@ -2209,25 +2255,22 @@
       if (fireInfoEl) {
         const lastRow = rows[rows.length - 1];
         const finalFirePortfolio = lastRow.valFire;
-        if (fireMode === 'eur' && fireTarget) {
-          const finalWithdrawal = fireDisplayYear ? fireSpending : Math.round(finalFirePortfolio * fireSWRDecimal);
-          fireInfoEl.className = 'fire-info visible';
-          fireInfoEl.innerHTML =
-            `<div class="fire-info-row"><span>Objectif FIRE</span><span class="fire-info-val">${fmtEur(fireTarget)}</span></div>` +
-            (fireDisplayYear
-              ? `<div class="fire-info-row"><span>FIRE atteint</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>` +
-                `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>`
-              : `<div class="fire-year-note">FIRE non atteint sur la période</div>`);
-        } else if (fireMode === 'pct') {
+        if (fireTarget || fireYearOverride) {
           const lastWithdrawal = lastRow.fireWithdrawal;
           fireInfoEl.className = 'fire-info visible';
-          fireInfoEl.innerHTML =
-            `<div class="fire-info-row"><span>Retrait final</span><span class="fire-info-val">${fmtEur(lastWithdrawal)}/an</span></div>` +
-            `<div class="fire-info-row"><span>Soit</span><span class="fire-info-val">${fmtEur(Math.round(lastWithdrawal / 12))}/mois</span></div>` +
-            `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>` +
-            (fireYearOverride
-              ? `<div class="fire-info-row"><span>Départ FIRE</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>`
-              : '');
+          let html = '';
+          if (fireTarget)
+            html += `<div class="fire-info-row"><span>Objectif FIRE</span><span class="fire-info-val">${fmtEur(fireTarget)}</span></div>`;
+          if (fireMaxTarget)
+            html += `<div class="fire-info-row"><span>Objectif confort</span><span class="fire-info-val">${fmtEur(fireMaxTarget)}</span></div>`;
+          if (fireDisplayYear)
+            html += `<div class="fire-info-row"><span>FIRE atteint</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>`;
+          else if (fireTarget && !fireYearOverride)
+            html += `<div class="fire-year-note">FIRE non atteint sur la période</div>`;
+          if (lastWithdrawal > 0)
+            html += `<div class="fire-info-row"><span>Retrait final</span><span class="fire-info-val">${fmtEur(lastWithdrawal)}/an · ${fmtEur(Math.round(lastWithdrawal / 12))}/mois</span></div>`;
+          html += `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>`;
+          fireInfoEl.innerHTML = html;
         } else {
           fireInfoEl.className = 'fire-info';
         }
@@ -2237,7 +2280,7 @@
       const fireAchievedBadge = document.getElementById('fireAchievedBadge');
       if (fireAchievedBadge) {
         fireAchievedBadge.textContent = fireDisplayYear
-          ? 'FIRE ' + (fireMode === 'eur' ? 'atteint ' : 'départ ') + fireDisplayYear
+          ? (fireYearOverride ? 'FIRE départ ' : 'FIRE atteint ') + fireDisplayYear
           : '';
       }
 
@@ -2245,16 +2288,16 @@
       const fireTblHead = document.getElementById('fireTblHead');
       const fireTblBody = document.getElementById('fireTblBody');
       if (fireTblHead && fireTblBody) {
-        const hasTarget = fireMode === 'eur' && fireTarget;
+        const hasTarget = !!fireTarget;
         fireTblHead.innerHTML = `<tr>
           <th style="text-align:left;">Année</th>
           <th style="text-align:right;">Âge</th>
           <th style="text-align:right;">Valeur brute</th>
           <th style="text-align:right;">Valeur réelle · net d'inflation</th>
           <th style="text-align:right;">Intérêts</th>
-          <th style="text-align:right;">Ajout / Retrait /an</th>
-          <th style="text-align:right;">Ajout / Retrait /mois</th>
-          <th style="text-align:right;">Capital investi</th>
+          <th style="text-align:right;">Retrait FIRE /an</th>
+          <th style="text-align:right;">Retrait FIRE /mois</th>
+          <th style="text-align:right;">Capital initial</th>
           <th style="text-align:right;">Plus-value</th>
           <th style="text-align:right;">Perf. %</th>
         </tr>`;
@@ -2272,9 +2315,9 @@
             </td>
             <td>${fmtEur(row.realValFire)}</td>
             <td class="${c}">${fmtEur(row.fireInterest)}</td>
-            <td class="${fc}">${row.fireAnnualFlow === 0 ? '—' : fmtEur(row.fireAnnualFlow)}</td>
-            <td class="${fc}">${row.fireMonthlyFlow === 0 ? '—' : fmtEur(row.fireMonthlyFlow)}</td>
-            <td>${fmtEur(row.totalContrib)}</td>
+            <td class="${row.fireActive ? 'td-neg' : ''}">${row.fireAnnualFlow === 0 ? '—' : fmtEur(row.fireAnnualFlow)}</td>
+            <td class="${row.fireActive ? 'td-neg' : ''}">${row.fireMonthlyFlow === 0 ? '—' : fmtEur(row.fireMonthlyFlow)}</td>
+            <td>${fmtEur(P)}</td>
             <td class="${c}">${fmtEur(row.fireGain)}</td>
             <td class="${c}">${fmtPct(row.fireGainPct)}</td>
           </tr>`;
@@ -2282,7 +2325,7 @@
       }
 
       /* chart */
-      buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, years, crossIdx, startAge);
+      buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, years, crossIdx, startAge);
     }
 
     /* ── INIT ── */
@@ -2300,10 +2343,9 @@
       }
 
       /* FIRE inputs */
-      document.getElementById('fireBtnEur').addEventListener('click', () => { applyFireMode('eur'); compute(); });
-      document.getElementById('fireBtnPct').addEventListener('click', () => { applyFireMode('pct'); compute(); });
+      document.getElementById('nFireSpendingMin').addEventListener('input', compute);
+      document.getElementById('nFireSpendingMax').addEventListener('input', compute);
       document.getElementById('nFireSWR').addEventListener('input', compute);
-      document.getElementById('nFireSpending').addEventListener('input', compute);
       document.getElementById('nFireStartYear').addEventListener('change', compute);
 
       /* share button */
@@ -2347,12 +2389,13 @@
       document.getElementById('nStartYear').addEventListener('change', compute);
       document.getElementById('nAge').addEventListener('change', compute);
 
-      /* series toggles — dataset order: 0=firePortfolio, 1=fireTarget, 2=zero, 3=contrib, 4=real, 5=brut */
+      /* series toggles — dataset order: 0=firePortfolio, 1=firePortfolioReal, 2=fireTarget, 3=zero, 4=contrib, 5=real, 6=brut */
       [
-        { id: 'toggleBrut',        key: 'brut',        dsIdx: 5 },
-        { id: 'toggleReal',        key: 'real',        dsIdx: 4 },
-        { id: 'toggleContrib',     key: 'contrib',     dsIdx: 3 },
+        { id: 'toggleBrut',        key: 'brut',        dsIdx: 6 },
+        { id: 'toggleReal',        key: 'real',        dsIdx: 5 },
+        { id: 'toggleContrib',     key: 'contrib',     dsIdx: 4 },
         { id: 'toggleFire',        key: 'fire',        dsIdx: null }, // rebuilt on compute
+        { id: 'toggleFireReal',    key: 'fireReal',    dsIdx: null }, // rebuilt on compute
         { id: 'toggleFireTarget',  key: 'fireTarget',  dsIdx: null }, // rebuilt on compute
       ].forEach(({ id, key, dsIdx }) => {
         document.getElementById(id)?.addEventListener('click', () => {
