@@ -965,6 +965,55 @@
       white-space: nowrap;
     }
 
+    /* ── COMPARISON PANEL ── */
+    .comparison-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .comparison-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .comparison-header-title {
+      font-size: 12px; font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--text-2);
+    }
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+    }
+    .comparison-col {
+      background: var(--bg-card);
+      padding: 16px 20px;
+    }
+    .comparison-col-title {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .comparison-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%; flex-shrink: 0;
+    }
+    .comparison-row {
+      display: flex; justify-content: space-between;
+      align-items: flex-start; gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .comparison-row:last-child { border-bottom: none; }
+    .comparison-row-label { font-size: 11px; color: var(--text-2); padding-top: 3px; white-space: nowrap; }
+    .comparison-row-val { text-align: right; }
+    .comparison-val-main { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .comparison-val-sub  { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
     /* ── SHARE TOAST ── */
     .share-toast {
       position: fixed;
@@ -1431,6 +1480,18 @@
           </table>
         </div>
       </details>
+
+      <!-- COMPARISON PANEL -->
+      <div class="comparison-panel" id="comparisonPanel">
+        <div class="comparison-header">
+          <span class="comparison-header-title">Comparaison des simulations</span>
+        </div>
+        <div class="comparison-grid">
+          <div class="comparison-col" id="compNormal"></div>
+          <div class="comparison-col" id="compFire"></div>
+          <div class="comparison-col" id="compDwz"></div>
+        </div>
+      </div>
 
     </main>
   </div>
@@ -2149,6 +2210,45 @@
       });
     }
 
+    /* ── COMPARISON PANEL ── */
+    function renderComparisonCol(colId, color, title, finalVal, withdrawals) {
+      const el = document.getElementById(colId);
+      if (!el) return;
+      const min = withdrawals.length > 0 ? Math.min(...withdrawals) : null;
+      const max = withdrawals.length > 0 ? Math.max(...withdrawals) : null;
+      const avg = withdrawals.length > 0
+        ? withdrawals.reduce((a, b) => a + b, 0) / withdrawals.length : null;
+
+      const fmtAmt = v => v !== null
+        ? `<div class="comparison-val-main" style="color:${color}">${fmtEur(Math.round(v / 12))}/mois</div>
+           <div class="comparison-val-sub">${fmtEur(Math.round(v))}/an</div>`
+        : `<div class="comparison-val-main" style="color:var(--text-3)">—</div>`;
+
+      el.innerHTML = `
+        <div class="comparison-col-title">
+          <span class="comparison-dot" style="background:${color}"></span>
+          <span style="color:${color}">${title}</span>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Portefeuille final</span>
+          <div class="comparison-row-val">
+            <div class="comparison-val-main" style="color:${color}">${fmtK(finalVal)}</div>
+          </div>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Retrait min.</span>
+          <div class="comparison-row-val">${fmtAmt(min)}</div>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Retrait max.</span>
+          <div class="comparison-row-val">${fmtAmt(max)}</div>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Retrait moyen</span>
+          <div class="comparison-row-val">${fmtAmt(avg)}</div>
+        </div>`;
+    }
+
     /* ── CHART ── */
     let chart = null;
 
@@ -2739,6 +2839,14 @@
           </tr>`;
         }).join('');
       }
+
+      /* comparison panel */
+      const normalWithdrawals = rows.filter(r => r.annualFlow < 0).map(r => Math.abs(r.annualFlow));
+      const fireWithdrawals   = rows.filter(r => r.fireActive && r.fireWithdrawal > 0).map(r => r.fireWithdrawal);
+      const dwzWithdrawals    = rows.filter(r => r.dwzActive  && r.dwzWithdrawal  > 0).map(r => r.dwzWithdrawal);
+      renderComparisonCol('compNormal', '#1D9E75', 'Simulation normale', last ? last.val    : 0, normalWithdrawals);
+      renderComparisonCol('compFire',   '#D97706', '🔥 FIRE',            last ? last.valFire : 0, fireWithdrawals);
+      renderComparisonCol('compDwz',    '#0891B2', '⏳ Die With Zero',   last ? last.valDwz  : 0, dwzWithdrawals);
 
       /* chart */
       buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, dataDwzPortfolio, dataDwzPortfolioReal, years, crossIdx, startAge);
