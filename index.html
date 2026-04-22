@@ -2267,8 +2267,6 @@
             html += `<div class="fire-info-row"><span>FIRE atteint</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>`;
           else if (fireTarget && !fireYearOverride)
             html += `<div class="fire-year-note">FIRE non atteint sur la période</div>`;
-          if (lastWithdrawal > 0)
-            html += `<div class="fire-info-row"><span>Retrait final</span><span class="fire-info-val">${fmtEur(lastWithdrawal)}/an · ${fmtEur(Math.round(lastWithdrawal / 12))}/mois</span></div>`;
           html += `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>`;
           fireInfoEl.innerHTML = html;
         } else {
