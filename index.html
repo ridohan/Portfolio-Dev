@@ -1261,6 +1261,16 @@
             <div class="flow-hint" style="margin-top:3px;">Montant conservé à la fin — legs, sécurité (défaut : 0)</div>
           </div>
 
+          <!-- Départ DWZ -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nDwzStartYear" style="margin:0;">Départ DWZ</label>
+              <input type="number" id="nDwzStartYear" class="ctrl-num-input"
+                min="1900" max="2200" step="1" placeholder="auto" style="width:72px;">
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Auto = dès le début · sinon capitalisation pure jusqu'à cette année</div>
+          </div>
+
           <!-- Résumé -->
           <div class="dwz-info" id="dwzInfo"></div>
 
@@ -1452,6 +1462,7 @@
     let dwzProfile      = 'conservateur'; // 'conservateur' | 'modere' | 'agressif'
     let dwzSpendingMin  = 0;              // dépenses minimales mensuelles (plancher vital)
     let dwzReserve      = 0;              // montant à conserver à la fin
+    let dwzYearOverride = null;           // année de départ DWZ (null = dès l'an 1)
 
     /* ── FLOW PERIODS ── */
     let flowPeriods = []; // [{ from: 1, to: N, flow: monthly€ }]
@@ -1862,7 +1873,7 @@
           manual_custom: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
         },
         fire: { spendingMin: 3500, spendingMax: 0, swr: 4, yearOverride: null },
-        dwz:  { profile: 'conservateur', spendingMin: 0, reserve: 0 },
+        dwz:  { profile: 'conservateur', spendingMin: 0, reserve: 0, yearOverride: null },
       };
     }
 
@@ -2067,11 +2078,12 @@
 
       /* DWZ */
       if (saved.dwz) {
-        dwzProfile     = saved.dwz.profile     ?? 'conservateur';
-        dwzSpendingMin = saved.dwz.spendingMin ?? 0;
-        dwzReserve     = saved.dwz.reserve     ?? 0;
+        dwzProfile      = saved.dwz.profile      ?? 'conservateur';
+        dwzSpendingMin  = saved.dwz.spendingMin  ?? 0;
+        dwzReserve      = saved.dwz.reserve      ?? 0;
+        dwzYearOverride = saved.dwz.yearOverride ?? null;
       } else {
-        dwzProfile = 'conservateur'; dwzSpendingMin = 0; dwzReserve = 0;
+        dwzProfile = 'conservateur'; dwzSpendingMin = 0; dwzReserve = 0; dwzYearOverride = null;
       }
       document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
         btn.classList.toggle('active', btn.dataset.profile === dwzProfile)
@@ -2080,6 +2092,8 @@
       if (nDwzSpendingMinEl) nDwzSpendingMinEl.value = dwzSpendingMin > 0 ? dwzSpendingMin : '';
       const nDwzReserveEl = document.getElementById('nDwzReserve');
       if (nDwzReserveEl) nDwzReserveEl.value = dwzReserve > 0 ? dwzReserve : '';
+      const nDwzStartYearEl = document.getElementById('nDwzStartYear');
+      if (nDwzStartYearEl) nDwzStartYearEl.value = dwzYearOverride ?? '';
 
       activeProfile = saved.profile || 'manual';
       applyProfile(activeProfile);
@@ -2391,6 +2405,8 @@
       /* DWZ inputs */
       dwzSpendingMin = parseFloat(document.getElementById('nDwzSpendingMin')?.value) || 0;
       dwzReserve     = parseFloat(document.getElementById('nDwzReserve')?.value) || 0;
+      const dwzStartYearInput = parseInt(document.getElementById('nDwzStartYear')?.value);
+      dwzYearOverride = isNaN(dwzStartYearInput) ? null : dwzStartYearInput;
 
       /* save */
       saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years,
@@ -2404,7 +2420,7 @@
                     manual_custom: PROFILES.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
                   },
                   fire: { spendingMin: fireSpendingMin, spendingMax: fireSpendingMax, swr: fireSWR, yearOverride: fireYearOverride },
-                  dwz:  { profile: dwzProfile, spendingMin: dwzSpendingMin, reserve: dwzReserve } });
+                  dwz:  { profile: dwzProfile, spendingMin: dwzSpendingMin, reserve: dwzReserve, yearOverride: dwzYearOverride } });
 
       /* FIRE pre-calc */
       const fireSWRDecimal = fireSWR / 100;
@@ -2416,10 +2432,15 @@
       // Cible max = portefeuille nécessaire pour couvrir les dépenses maximales (optionnel)
       const fireMaxTarget = fireAnnualMax > 0 ? Math.round(fireAnnualMax / fireSWRDecimal) : null;
 
-      /* DWZ pre-calc — binary search tenant compte du plancher vital */
-      const dwzWeightsArr = dwzWeights(years, dwzProfile);
-      const dwzMinAnnual  = dwzSpendingMin * 12;
-      const dwzBase       = solveDwzBase(P, r, years, dwzWeightsArr, dwzMinAnnual, dwzReserve);
+      /* DWZ pre-calc — avec départ différé et binary search */
+      // Année de simulation (1-based) où DWZ commence ; 1 = immédiatement
+      const dwzStartY          = dwzYearOverride !== null ? Math.max(1, dwzYearOverride - startYear + 1) : 1;
+      const dwzRemainingYears  = Math.max(0, years - dwzStartY + 1);
+      // Valeur du portefeuille au moment où DWZ commence (capitalisation pure jusqu'alors)
+      const dwzPortfolioAtStart = dwzStartY > 1 ? P * Math.pow(1 + r, dwzStartY - 1) : P;
+      const dwzWeightsArr      = dwzWeights(dwzRemainingYears, dwzProfile);
+      const dwzMinAnnual       = dwzSpendingMin * 12;
+      const dwzBase            = solveDwzBase(dwzPortfolioAtStart, r, dwzRemainingYears, dwzWeightsArr, dwzMinAnnual, dwzReserve);
 
       /* simulation */
       const labels = [], dataBrut = [], dataReal = [], dataContrib = [],
@@ -2476,11 +2497,15 @@
         const fireMonthlyFlow = fireActive ? -Math.round(fireWithdrawal / 12) : 0;
 
         /* DWZ portfolio simulation */
-        const dwzInterest    = Math.round(valDwz * r);
-        const dwzWeighted    = dwzBase * (dwzWeightsArr[y-1] || 0);
-        // Plancher vital + plafond de sécurité (ne pas retirer plus que disponible)
-        const dwzMaxPossible = valDwz * (1 + r);
-        const dwzWithdrawal  = Math.round(Math.min(Math.max(dwzWeighted, dwzMinAnnual), dwzMaxPossible));
+        const dwzInterest = Math.round(valDwz * r);
+        const dwzActive   = y >= dwzStartY && dwzRemainingYears > 0;
+        let dwzWithdrawal = 0;
+        if (dwzActive) {
+          const wy = y - dwzStartY; // indice 0-based dans les poids DWZ
+          const dwzWeighted    = dwzBase * (dwzWeightsArr[wy] || 0);
+          const dwzMaxPossible = valDwz * (1 + r);
+          dwzWithdrawal = Math.round(Math.min(Math.max(dwzWeighted, dwzMinAnnual), dwzMaxPossible));
+        }
         valDwz = Math.max(0, valDwz * (1 + r) - dwzWithdrawal);
         const realValDwz   = valDwz / Math.pow(1 + inf, y);
         const dwzGain      = valDwz - P;
@@ -2520,6 +2545,7 @@
           valDwz: Math.round(valDwz),
           realValDwz: Math.round(realValDwz),
           dwzInterest,
+          dwzActive,
           dwzWithdrawal,
           dwzMonthlyWithdrawal: Math.round(dwzWithdrawal / 12),
           dwzGain: Math.round(dwzGain),
@@ -2663,7 +2689,9 @@
         dwzInfoEl.className = 'dwz-info visible';
         let dwzHtml = '';
         dwzHtml += `<div class="dwz-info-row"><span>Profil</span><span class="dwz-info-val">${profileLabels[dwzProfile] || dwzProfile}</span></div>`;
-        dwzHtml += `<div class="dwz-info-row"><span>Retrait initial</span><span class="dwz-info-val">${fmtEur(firstRow.dwzMonthlyWithdrawal)}/mois</span></div>`;
+        if (dwzYearOverride) dwzHtml += `<div class="dwz-info-row"><span>Départ DWZ</span><span class="dwz-info-val">${dwzYearOverride}</span></div>`;
+        const firstActiveRow = rows.find(r => r.dwzActive) || firstRow;
+        dwzHtml += `<div class="dwz-info-row"><span>Retrait initial</span><span class="dwz-info-val">${fmtEur(firstActiveRow.dwzMonthlyWithdrawal)}/mois</span></div>`;
         dwzHtml += `<div class="dwz-info-row"><span>Retrait final</span><span class="dwz-info-val">${fmtEur(lastRow.dwzMonthlyWithdrawal)}/mois</span></div>`;
         dwzHtml += `<div class="dwz-info-row"><span>Portefeuille final</span><span class="dwz-info-val">${fmtEur(lastRow.valDwz)}</span></div>`;
         if (dwzReserve > 0) dwzHtml += `<div class="dwz-info-row"><span>Réserve cible</span><span class="dwz-info-val">${fmtEur(dwzReserve)}</span></div>`;
@@ -2703,8 +2731,8 @@
             </td>
             <td>${fmtEur(row.realValDwz)}</td>
             <td class="${ci}">${fmtEur(row.dwzInterest)}</td>
-            <td class="td-neg">${row.dwzWithdrawal === 0 ? '—' : fmtEur(-row.dwzWithdrawal)}</td>
-            <td class="td-neg">${row.dwzMonthlyWithdrawal === 0 ? '—' : fmtEur(-row.dwzMonthlyWithdrawal)}</td>
+            <td class="${row.dwzActive ? 'td-neg' : ''}">${!row.dwzActive ? '—' : fmtEur(-row.dwzWithdrawal)}</td>
+            <td class="${row.dwzActive ? 'td-neg' : ''}">${!row.dwzActive ? '—' : fmtEur(-row.dwzMonthlyWithdrawal)}</td>
             <td>${fmtEur(P)}</td>
             <td class="${c}">${fmtEur(row.dwzGain)}</td>
             <td class="${c}">${fmtPct(row.dwzGainPct)}</td>
@@ -2745,6 +2773,7 @@
       /* DWZ inputs */
       document.getElementById('nDwzSpendingMin')?.addEventListener('input', compute);
       document.getElementById('nDwzReserve')?.addEventListener('input', compute);
+      document.getElementById('nDwzStartYear')?.addEventListener('change', compute);
       document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
         btn.addEventListener('click', () => {
           dwzProfile = btn.dataset.profile;
