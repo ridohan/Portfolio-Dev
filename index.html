@@ -1100,10 +1100,10 @@
           <!-- Dépenses minimales -->
           <div class="fire-field">
             <div class="ctrl-top">
-              <label for="nFireSpendingMin" style="margin:0;">Dépenses min. /an</label>
+              <label for="nFireSpendingMin" style="margin:0;">Dépenses min. /mois</label>
               <div style="display:flex;align-items:center;gap:4px;">
                 <input type="number" id="nFireSpendingMin" class="ctrl-num-input"
-                  min="0" step="1000" value="40000" style="width:90px;">
+                  min="0" step="100" value="3500" style="width:90px;">
                 <span style="font-size:11px;color:var(--text-3);">€</span>
               </div>
             </div>
@@ -1113,10 +1113,10 @@
           <!-- Dépenses maximales -->
           <div class="fire-field">
             <div class="ctrl-top">
-              <label for="nFireSpendingMax" style="margin:0;">Dépenses max. /an</label>
+              <label for="nFireSpendingMax" style="margin:0;">Dépenses max. /mois</label>
               <div style="display:flex;align-items:center;gap:4px;">
                 <input type="number" id="nFireSpendingMax" class="ctrl-num-input"
-                  min="0" step="1000" placeholder="auto" style="width:90px;">
+                  min="0" step="100" placeholder="auto" style="width:90px;">
                 <span style="font-size:11px;color:var(--text-3);">€</span>
               </div>
             </div>
@@ -1284,8 +1284,8 @@
     const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
 
     /* ── FIRE STATE ── */
-    let fireSpendingMin  = 40000; // dépenses annuelles minimales (seuil FIRE)
-    let fireSpendingMax  = 0;     // dépenses annuelles maximales (0 = illimité via SWR)
+    let fireSpendingMin  = 3500;  // dépenses mensuelles minimales (seuil FIRE)
+    let fireSpendingMax  = 0;    // dépenses mensuelles maximales (0 = illimité via SWR)
     let fireSWR          = 4;     // taux de retrait (SWR) %
     let fireYearOverride = null;  // départ FIRE manuel (null = auto)
 
@@ -1796,12 +1796,12 @@
       }
       /* FIRE */
       if (saved.fire) {
-        fireSpendingMin  = saved.fire.spendingMin  ?? saved.fire.spending ?? 40000;
+        fireSpendingMin  = saved.fire.spendingMin  ?? saved.fire.spending ?? 3500;
         fireSpendingMax  = saved.fire.spendingMax  ?? 0;
         fireSWR          = saved.fire.swr          ?? 4;
         fireYearOverride = saved.fire.yearOverride ?? null;
       } else {
-        fireSpendingMin = 40000; fireSpendingMax = 0; fireSWR = 4; fireYearOverride = null;
+        fireSpendingMin = 3500; fireSpendingMax = 0; fireSWR = 4; fireYearOverride = null;
       }
       document.getElementById('nFireSpendingMin')?.setAttribute('value', fireSpendingMin);
       const nFireSpendingMinEl = document.getElementById('nFireSpendingMin');
@@ -2106,10 +2106,13 @@
 
       /* FIRE pre-calc */
       const fireSWRDecimal = fireSWR / 100;
+      // Les inputs sont mensuels → convertir en annuel pour les calculs
+      const fireAnnualMin = fireSpendingMin * 12;
+      const fireAnnualMax = fireSpendingMax * 12;
       // Cible min = portefeuille nécessaire pour couvrir les dépenses minimales au taux SWR
-      const fireTarget    = fireSpendingMin > 0 ? Math.round(fireSpendingMin / fireSWRDecimal) : null;
+      const fireTarget    = fireAnnualMin > 0 ? Math.round(fireAnnualMin / fireSWRDecimal) : null;
       // Cible max = portefeuille nécessaire pour couvrir les dépenses maximales (optionnel)
-      const fireMaxTarget = fireSpendingMax > 0 ? Math.round(fireSpendingMax / fireSWRDecimal) : null;
+      const fireMaxTarget = fireAnnualMax > 0 ? Math.round(fireAnnualMax / fireSWRDecimal) : null;
 
       /* simulation */
       const labels = [], dataBrut = [], dataReal = [], dataContrib = [],
@@ -2149,9 +2152,9 @@
         const fireActive = fireStartedY !== null && y >= fireStartedY;
         let fireWithdrawal = 0;
         if (fireActive) {
-          // Phase FIRE : retrait = SWR% du portefeuille, plafonné aux dépenses max si définies
+          // Phase FIRE : retrait = SWR% du portefeuille, plafonné aux dépenses max annuelles si définies
           const baseWithdrawal = Math.round(valFire * fireSWRDecimal);
-          fireWithdrawal = fireSpendingMax > 0 ? Math.min(baseWithdrawal, fireSpendingMax) : baseWithdrawal;
+          fireWithdrawal = fireAnnualMax > 0 ? Math.min(baseWithdrawal, fireAnnualMax) : baseWithdrawal;
           valFire = Math.max(0, valFire * (1 + r) - fireWithdrawal);
         } else {
           // Phase accumulation FIRE : capitalisation pure, sans aucun flux mensuel
@@ -2267,6 +2270,7 @@
             html += `<div class="fire-info-row"><span>FIRE atteint</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>`;
           else if (fireTarget && !fireYearOverride)
             html += `<div class="fire-year-note">FIRE non atteint sur la période</div>`;
+          
           html += `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>`;
           fireInfoEl.innerHTML = html;
         } else {
