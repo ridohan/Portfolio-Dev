@@ -1234,6 +1234,19 @@
             <div class="flow-hint" style="margin-top:4px;">Conservateur = plat · Modéré = légère décroissance · Agressif = forte décroissance</div>
           </div>
 
+          <!-- Dépenses min. -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nDwzSpendingMin" style="margin:0;">Dépenses min. /mois</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nDwzSpendingMin" class="ctrl-num-input"
+                  min="0" step="100" placeholder="0" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Plancher vital — le retrait ne descend jamais en dessous</div>
+          </div>
+
           <!-- Réserve finale -->
           <div class="fire-field">
             <div class="ctrl-top">
@@ -1417,8 +1430,9 @@
     let fireYearOverride = null;  // départ FIRE manuel (null = auto)
 
     /* ── DWZ STATE ── */
-    let dwzProfile = 'conservateur'; // 'conservateur' | 'modere' | 'agressif'
-    let dwzReserve = 0;              // montant à conserver à la fin
+    let dwzProfile      = 'conservateur'; // 'conservateur' | 'modere' | 'agressif'
+    let dwzSpendingMin  = 0;              // dépenses minimales mensuelles (plancher vital)
+    let dwzReserve      = 0;              // montant à conserver à la fin
 
     /* ── FLOW PERIODS ── */
     let flowPeriods = []; // [{ from: 1, to: N, flow: monthly€ }]
@@ -1779,7 +1793,7 @@
           manual_custom: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
         },
         fire: { spendingMin: 3500, spendingMax: 0, swr: 4, yearOverride: null },
-        dwz:  { profile: 'conservateur', reserve: 0 },
+        dwz:  { profile: 'conservateur', spendingMin: 0, reserve: 0 },
       };
     }
 
@@ -1984,14 +1998,17 @@
 
       /* DWZ */
       if (saved.dwz) {
-        dwzProfile = saved.dwz.profile ?? 'conservateur';
-        dwzReserve = saved.dwz.reserve ?? 0;
+        dwzProfile     = saved.dwz.profile     ?? 'conservateur';
+        dwzSpendingMin = saved.dwz.spendingMin ?? 0;
+        dwzReserve     = saved.dwz.reserve     ?? 0;
       } else {
-        dwzProfile = 'conservateur'; dwzReserve = 0;
+        dwzProfile = 'conservateur'; dwzSpendingMin = 0; dwzReserve = 0;
       }
       document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
         btn.classList.toggle('active', btn.dataset.profile === dwzProfile)
       );
+      const nDwzSpendingMinEl = document.getElementById('nDwzSpendingMin');
+      if (nDwzSpendingMinEl) nDwzSpendingMinEl.value = dwzSpendingMin > 0 ? dwzSpendingMin : '';
       const nDwzReserveEl = document.getElementById('nDwzReserve');
       if (nDwzReserveEl) nDwzReserveEl.value = dwzReserve > 0 ? dwzReserve : '';
 
@@ -2303,7 +2320,8 @@
       fireYearOverride = isNaN(fireYearInput) ? null : fireYearInput;
 
       /* DWZ inputs */
-      dwzReserve = parseFloat(document.getElementById('nDwzReserve')?.value) || 0;
+      dwzSpendingMin = parseFloat(document.getElementById('nDwzSpendingMin')?.value) || 0;
+      dwzReserve     = parseFloat(document.getElementById('nDwzReserve')?.value) || 0;
 
       /* save */
       saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years,
@@ -2317,7 +2335,7 @@
                     manual_custom: PROFILES.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
                   },
                   fire: { spendingMin: fireSpendingMin, spendingMax: fireSpendingMax, swr: fireSWR, yearOverride: fireYearOverride },
-                  dwz:  { profile: dwzProfile, reserve: dwzReserve } });
+                  dwz:  { profile: dwzProfile, spendingMin: dwzSpendingMin, reserve: dwzReserve } });
 
       /* FIRE pre-calc */
       const fireSWRDecimal = fireSWR / 100;
@@ -2393,8 +2411,13 @@
         const fireMonthlyFlow = fireActive ? -Math.round(fireWithdrawal / 12) : 0;
 
         /* DWZ portfolio simulation */
-        const dwzInterest  = Math.round(valDwz * r);
-        const dwzWithdrawal = Math.round(dwzBase * (dwzWeightsArr[y-1] || 0));
+        const dwzInterest    = Math.round(valDwz * r);
+        const dwzMinAnnual   = dwzSpendingMin * 12;
+        const dwzWeighted    = Math.round(dwzBase * (dwzWeightsArr[y-1] || 0));
+        // Plancher vital : le retrait ne peut jamais descendre sous dwzMinAnnual
+        // Plafond de sécurité : on ne retire pas plus que ce que le portefeuille peut fournir
+        const dwzMaxPossible = Math.round(valDwz * (1 + r));
+        const dwzWithdrawal  = Math.min(Math.max(dwzWeighted, dwzMinAnnual), dwzMaxPossible);
         valDwz = Math.max(0, valDwz * (1 + r) - dwzWithdrawal);
         const realValDwz   = valDwz / Math.pow(1 + inf, y);
         const dwzGain      = valDwz - P;
@@ -2650,6 +2673,7 @@
       document.getElementById('nFireStartYear').addEventListener('change', compute);
 
       /* DWZ inputs */
+      document.getElementById('nDwzSpendingMin')?.addEventListener('input', compute);
       document.getElementById('nDwzReserve')?.addEventListener('input', compute);
       document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
         btn.addEventListener('click', () => {
