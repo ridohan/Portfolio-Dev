@@ -784,7 +784,7 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      overflow: hidden;
+      overflow: clip;
     }
     .tbl-panel > summary {
       list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
@@ -812,7 +812,7 @@
       font-size: 11px;
       color: var(--text-3);
     }
-    .tbl-scroll { overflow-x: auto; }
+    .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     table {
       width: 100%;
       table-layout: fixed;
@@ -896,7 +896,7 @@
     /* ── FIRE TABLE ── */
     .fire-tbl-panel {
       background: var(--bg-card); border: 1px solid rgba(217,119,6,0.3);
-      border-radius: var(--radius-lg); overflow: hidden;
+      border-radius: var(--radius-lg); overflow: clip;
     }
     .fire-tbl-panel > summary {
       list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
@@ -947,7 +947,7 @@
     /* DWZ TABLE */
     .dwz-tbl-panel {
       background: var(--bg-card); border: 1px solid rgba(8,145,178,0.3);
-      border-radius: var(--radius-lg); overflow: hidden;
+      border-radius: var(--radius-lg); overflow: clip;
     }
     .dwz-tbl-panel > summary {
       list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
@@ -1051,11 +1051,33 @@
         border-bottom: 1px solid var(--border);
       }
       .metrics { grid-template-columns: repeat(2, 1fr); }
+
+      /* Tables : sur mobile, auto-layout + largeur naturelle pour scroll horizontal fiable */
+      .tbl-scroll table {
+        table-layout: auto;
+        width: max-content;
+        min-width: 100%;
+      }
+
+      /* Comparison : empiler les 3 colonnes */
+      .comparison-grid {
+        grid-template-columns: 1fr;
+      }
+      .comparison-col {
+        border-bottom: 1px solid var(--border);
+      }
+      .comparison-col:last-child { border-bottom: none; }
     }
     @media (max-width: 540px) {
       .main { padding: 1rem; }
       .site-header { padding: 0 1rem; }
       .metrics { grid-template-columns: 1fr 1fr; }
+
+      /* Réduire le padding des colonnes de comparaison sur petit écran */
+      .comparison-col { padding: 14px 16px; }
+
+      /* Tables : taille de police réduite sur très petit écran pour cellules lisibles */
+      .tbl-scroll table { font-size: 11px; }
     }
   </style>
 </head>
