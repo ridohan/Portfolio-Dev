@@ -146,16 +146,43 @@
 
     /* ── LAYOUT ── */
     .app-layout {
-      display: grid;
-      grid-template-columns: 300px 1fr;
-      gap: 0;
+      display: flex;
       min-height: calc(100vh - 56px);
+    }
+    /* prevent text selection while resizing */
+    .app-layout.is-resizing * { user-select: none !important; pointer-events: none; }
+    .app-layout.is-resizing .sidebar-resizer { pointer-events: auto; }
+
+    /* ── SIDEBAR RESIZER ── */
+    .sidebar-resizer {
+      flex-shrink: 0;
+      width: 5px;
+      cursor: col-resize;
+      background: transparent;
+      position: relative;
+      transition: background 0.2s;
+      z-index: 10;
+    }
+    .sidebar-resizer::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      left: 2px;
+      width: 1px;
+      background: var(--border);
+      transition: background 0.2s, width 0.2s, left 0.2s;
+    }
+    .sidebar-resizer:hover::after,
+    .sidebar-resizer.is-resizing::after {
+      background: var(--green);
+      width: 3px;
+      left: 1px;
     }
 
     /* ── SIDEBAR ── */
     .sidebar {
       background: var(--bg-card);
-      border-right: 1px solid var(--border);
+      border-right: none; /* handled by resizer pseudo-element */
       padding: 1.5rem;
       position: sticky;
       top: 56px;
@@ -166,6 +193,11 @@
       gap: 0;
       scrollbar-width: thin;
       scrollbar-color: var(--border) transparent;
+      /* width driven by CSS custom property */
+      width: var(--sidebar-w, 300px);
+      min-width: 180px;
+      max-width: 560px;
+      flex-shrink: 0;
     }
     .sidebar::-webkit-scrollbar { width: 4px; }
     .sidebar::-webkit-scrollbar-track { background: transparent; }
@@ -749,11 +781,12 @@
 
     /* ── MAIN ── */
     .main {
+      flex: 1;
+      min-width: 0;
       padding: 1.75rem 2rem;
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
-      min-width: 0;
     }
 
     /* ── METRICS ── */
@@ -1116,14 +1149,17 @@
     /* ── RESPONSIVE ── */
     @media (max-width: 900px) {
       .app-layout {
-        grid-template-columns: 1fr;
+        flex-direction: column;
       }
       .sidebar {
+        width: 100% !important; /* ignore la custom property */
+        max-width: 100%;
         position: static;
         height: auto;
         border-right: none;
         border-bottom: 1px solid var(--border);
       }
+      .sidebar-resizer { display: none; }
       .metrics { grid-template-columns: repeat(2, 1fr); }
 
       /* Tables : sur mobile, auto-layout + largeur naturelle pour scroll horizontal fiable */
@@ -1425,6 +1461,9 @@
       </details>
 
     </aside>
+
+    <!-- RESIZE HANDLE -->
+    <div class="sidebar-resizer" id="sidebarResizer" title="Glisser pour redimensionner · Double-clic pour réinitialiser"></div>
 
     <!-- MAIN -->
     <main class="main">
@@ -1951,8 +1990,9 @@
     }
 
     /* ── MULTI-SIM STORAGE ── */
-    const SIMS_KEY   = 'sim_v3_sims';   /* legacy – kept for migration */
-    const LIST_KEY   = 'sim_v3_list';   /* unified list: folders + sims */
+    const SIMS_KEY      = 'sim_v3_sims';     /* legacy – kept for migration */
+    const LIST_KEY      = 'sim_v3_list';     /* unified list: folders + sims */
+    const SIDEBAR_W_KEY = 'sim_v3_sidebar_w'; /* sidebar width in px */
     const ACTIVE_KEY = 'sim_v3_active';
 
     const genId = () => 'sim_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -3402,6 +3442,61 @@
       /* restore active sim + render list */
       applyState(loadState());
       renderSimList();
+
+      /* ── SIDEBAR RESIZE ── */
+      (function initSidebarResize() {
+        const MIN_W    = 180;
+        const MAX_W    = 560;
+        const DEFAULT  = 300;
+        const resizer  = document.getElementById('sidebarResizer');
+        const sidebar  = document.querySelector('.sidebar');
+        const layout   = document.querySelector('.app-layout');
+        if (!resizer || !sidebar || !layout) return;
+
+        /* restore saved width */
+        const saved = parseInt(localStorage.getItem(SIDEBAR_W_KEY));
+        if (saved >= MIN_W && saved <= MAX_W) {
+          document.documentElement.style.setProperty('--sidebar-w', saved + 'px');
+        }
+
+        let dragging   = false;
+        let startX     = 0;
+        let startW     = 0;
+
+        resizer.addEventListener('pointerdown', e => {
+          dragging = true;
+          startX   = e.clientX;
+          startW   = sidebar.getBoundingClientRect().width;
+          resizer.setPointerCapture(e.pointerId);
+          resizer.classList.add('is-resizing');
+          layout.classList.add('is-resizing');
+          e.preventDefault();
+        });
+
+        resizer.addEventListener('pointermove', e => {
+          if (!dragging) return;
+          const delta = e.clientX - startX;
+          const newW  = Math.min(MAX_W, Math.max(MIN_W, startW + delta));
+          document.documentElement.style.setProperty('--sidebar-w', newW + 'px');
+        });
+
+        const stopResize = e => {
+          if (!dragging) return;
+          dragging = false;
+          resizer.classList.remove('is-resizing');
+          layout.classList.remove('is-resizing');
+          const finalW = Math.round(sidebar.getBoundingClientRect().width);
+          localStorage.setItem(SIDEBAR_W_KEY, finalW);
+        };
+        resizer.addEventListener('pointerup',     stopResize);
+        resizer.addEventListener('pointercancel', stopResize);
+
+        /* double-click → reset to default */
+        resizer.addEventListener('dblclick', () => {
+          document.documentElement.style.setProperty('--sidebar-w', DEFAULT + 'px');
+          localStorage.setItem(SIDEBAR_W_KEY, DEFAULT);
+        });
+      })();
     });
 
     /* sync theme button when system preference changes (if no manual override saved) */
