@@ -614,6 +614,15 @@
     }
     .sim-folder-header:hover .sim-folder-share-btn { opacity: 1; }
     .sim-folder-share-btn:hover { color: var(--blue); background: var(--blue-bg); }
+    .sim-folder-dup-btn {
+      flex-shrink: 0; width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-3); font-size: 12px; border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-folder-header:hover .sim-folder-dup-btn { opacity: 1; }
+    .sim-folder-dup-btn:hover { color: var(--blue); background: var(--blue-bg); }
     .sim-folder-body { padding-left: 18px; padding-top: 1px; padding-bottom: 2px; }
     .sim-folder-body.sim-folder-collapsed { display: none; }
     /* drag states */
@@ -2415,6 +2424,7 @@
               <span class="sim-folder-toggle">${isOpen ? '▾' : '▸'}</span>
               <span class="sim-folder-icon">📁</span>
               <span class="sim-folder-name" data-folder-id="${item.id}">${escHtml(item.name)}</span>
+              <button class="sim-folder-dup-btn"   data-folder-id="${item.id}" title="Dupliquer le dossier">⎘</button>
               <button class="sim-folder-share-btn" data-folder-id="${item.id}" title="Partager ce dossier">
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12.5" cy="2.5" r="1.5"/><circle cx="12.5" cy="13.5" r="1.5"/><circle cx="3.5" cy="8" r="1.5"/>
@@ -2487,6 +2497,11 @@
           if (fi !== -1) { l[fi].open = l[fi].open === false ? true : false; saveSimList(l); renderSimList(); }
         });
       });
+
+      /* ── EVENTS : folder dup ── */
+      listEl.querySelectorAll('.sim-folder-dup-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); duplicateFolder(btn.dataset.folderId); })
+      );
 
       /* ── EVENTS : folder share ── */
       listEl.querySelectorAll('.sim-folder-share-btn').forEach(btn =>
@@ -2665,6 +2680,33 @@
         const el = document.querySelector(`.sim-folder-name[data-folder-id="${newFolder.id}"]`);
         if (el) el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
       }, 30);
+    }
+
+    function duplicateFolder(folderId) {
+      const list       = loadSimList();
+      const folderIdx  = list.findIndex(i => i.kind === 'folder' && i.id === folderId);
+      if (folderIdx === -1) return;
+      const folder     = list[folderIdx];
+      /* collect children in order */
+      const children   = [];
+      let end = folderIdx + 1;
+      while (end < list.length && list[end].kind === 'sim' && list[end].folderId === folderId) {
+        children.push(list[end]); end++;
+      }
+      /* build duplicates with fresh IDs */
+      const newFolderId = genId();
+      const newFolder   = { ...folder, id: newFolderId, name: folder.name + ' (copie)' };
+      const newChildren = children.map(s => ({
+        ...s,
+        id:       genId(),
+        name:     s.name,
+        folderId: newFolderId,
+        data:     JSON.parse(JSON.stringify(s.data)),
+      }));
+      /* insert the block right after the original block */
+      list.splice(end, 0, newFolder, ...newChildren);
+      saveSimList(list);
+      renderSimList();
     }
 
     function deleteFolder(folderId) {
