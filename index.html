@@ -531,6 +531,22 @@
     }
     .sim-item:hover .sim-dup-btn { opacity: 1; }
     .sim-dup-btn:hover { color: var(--blue); background: var(--blue-bg); }
+    .sim-drag-handle {
+      flex-shrink: 0;
+      width: 18px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; padding: 0;
+      cursor: grab; color: var(--text-3);
+      font-size: 11px; letter-spacing: 1px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      user-select: none;
+    }
+    .sim-item:hover .sim-drag-handle { opacity: 1; }
+    .sim-drag-handle:active { cursor: grabbing; }
+    .sim-item.sim-dragging { opacity: 0.35; }
+    .sim-item.sim-drag-over-top    { box-shadow: 0 -2px 0 var(--green); }
+    .sim-item.sim-drag-over-bottom { box-shadow: 0  2px 0 var(--green); }
     .sim-actions {
       display: flex;
       gap: 6px;
@@ -2000,7 +2016,8 @@
       document.getElementById('simNameInput').value = active?.name || '';
       const listEl = document.getElementById('simList');
       listEl.innerHTML = sims.map(sim =>
-        `<div class="sim-item${sim.id === activeId ? ' active' : ''}" data-id="${sim.id}">
+        `<div class="sim-item${sim.id === activeId ? ' active' : ''}" data-id="${sim.id}" draggable="true">
+          <span class="sim-drag-handle" title="Déplacer">⠿</span>
           <button class="sim-item-btn" data-id="${sim.id}">${escHtml(sim.name)}</button>
           <button class="sim-dup-btn" data-id="${sim.id}" title="Dupliquer">⎘</button>
           <button class="sim-delete-btn" data-id="${sim.id}" ${sims.length === 1 ? 'disabled' : ''} title="Supprimer">×</button>
@@ -2019,6 +2036,67 @@
           if (confirm('Supprimer "' + (sim?.name || 'cette simulation') + '" ?')) deleteSim(btn.dataset.id);
         })
       );
+
+      /* ── DRAG-AND-DROP REORDER ── */
+      let dragSrcId = null;
+      const clearDragClasses = () =>
+        listEl.querySelectorAll('.sim-item').forEach(i =>
+          i.classList.remove('sim-drag-over-top', 'sim-drag-over-bottom'));
+
+      listEl.querySelectorAll('.sim-item').forEach(item => {
+        /* Ne déclencher le drag que depuis la poignée */
+        const handle = item.querySelector('.sim-drag-handle');
+        item.addEventListener('mousedown', e => {
+          /* Désactiver draggable si le mousedown ne vient pas de la poignée */
+          item.draggable = !!e.target.closest('.sim-drag-handle');
+        });
+        item.addEventListener('touchstart', e => {
+          item.draggable = !!e.target.closest('.sim-drag-handle');
+        }, { passive: true });
+
+        item.addEventListener('dragstart', e => {
+          if (!item.draggable) { e.preventDefault(); return; }
+          dragSrcId = item.dataset.id;
+          item.classList.add('sim-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', dragSrcId);
+        });
+
+        item.addEventListener('dragend', () => {
+          item.classList.remove('sim-dragging');
+          clearDragClasses();
+          item.draggable = true; /* réinitialise */
+        });
+
+        item.addEventListener('dragover', e => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          if (item.dataset.id === dragSrcId) return;
+          clearDragClasses();
+          const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+          item.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+        });
+
+        item.addEventListener('dragleave', () => {
+          item.classList.remove('sim-drag-over-top', 'sim-drag-over-bottom');
+        });
+
+        item.addEventListener('drop', e => {
+          e.preventDefault();
+          clearDragClasses();
+          const tgtId = item.dataset.id;
+          if (!dragSrcId || dragSrcId === tgtId) return;
+          const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+          const insertBefore = e.clientY < mid;
+          const arr = loadSims();
+          const srcIdx = arr.findIndex(s => s.id === dragSrcId);
+          const [moved] = arr.splice(srcIdx, 1);
+          const tgtIdx = arr.findIndex(s => s.id === tgtId);
+          arr.splice(insertBefore ? tgtIdx : tgtIdx + 1, 0, moved);
+          saveSims(arr);
+          renderSimList();
+        });
+      });
     }
 
     function switchToSim(id) {
