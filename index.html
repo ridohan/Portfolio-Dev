@@ -1307,6 +1307,23 @@
               </span>
             </button>
           </div>
+          <div class="share-menu-section">
+            <div class="share-menu-label">Fichier JSON</div>
+            <button class="share-menu-item" id="exportFileBtn" role="menuitem">
+              <span class="share-menu-item-icon">⬇</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Exporter en fichier</span>
+                <span class="share-menu-item-desc">Aucune limite — idéal pour beaucoup de simulations</span>
+              </span>
+            </button>
+            <button class="share-menu-item" id="importFileBtn" role="menuitem">
+              <span class="share-menu-item-icon">⬆</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Importer depuis un fichier</span>
+                <span class="share-menu-item-desc">Fusionne avec les simulations existantes</span>
+              </span>
+            </button>
+          </div>
         </div>
       </div>
       <button class="theme-btn" id="themeBtn" title="Basculer thème clair / sombre" aria-label="Basculer thème">🌙</button>
@@ -2170,7 +2187,7 @@
       if (!b64) return;
       const url = location.origin + location.pathname + '#pack=' + b64;
       if (url.length > 20000) {
-        showShareToast('⚠️ Données trop volumineuses pour une URL — essayez de partager les simulations une par une');
+        showShareToast('⚠️ Trop de données pour une URL — utilisez « Exporter en fichier »');
         return;
       }
       copyUrl(url, `🗂 ${simCount} simulation${simCount > 1 ? 's' : ''} copiée${simCount > 1 ? 's' : ''} dans le presse-papiers`);
@@ -2190,43 +2207,85 @@
       return true;
     }
 
-    /* Import full pack: #pack=<b64> */
-    function checkUrlImportPack() {
-      const hash = location.hash;
-      if (!hash.startsWith('#pack=')) return false;
-      const payload = b64ToSim(hash.slice(6));
-      if (!payload?.list || !Array.isArray(payload.list)) return false;
-
-      const list  = loadSimList();
-      const idMap = {}; /* old folder id → new folder id */
+    /* Core import logic — appends a raw list of items (folders + sims) with fresh IDs */
+    function importPackList(rawList) {
+      const list     = loadSimList();
+      const idMap    = {};
       let firstSimId = null;
 
-      /* first pass: remap folder IDs */
-      payload.list.forEach(item => {
+      rawList.forEach(item => {
         if (item.kind === 'folder') idMap[item.id] = genId();
       });
-
-      /* second pass: append with new IDs */
-      payload.list.forEach(item => {
+      rawList.forEach(item => {
         if (item.kind === 'folder') {
           list.push({ ...item, id: idMap[item.id], name: item.name + ' (importé)' });
         } else if (item.kind === 'sim' || !item.kind) {
           const newId = genId();
           if (!firstSimId) firstSimId = newId;
           list.push({
-            ...item,
-            kind: 'sim',
-            id: newId,
+            ...item, kind: 'sim', id: newId,
             name: item.name + ' (importée)',
             folderId: item.folderId ? (idMap[item.folderId] ?? null) : null,
           });
         }
       });
-
       saveSimList(list);
       if (firstSimId) setActiveId(firstSimId);
+      return firstSimId;
+    }
+
+    /* Import full pack: #pack=<b64> */
+    function checkUrlImportPack() {
+      const hash = location.hash;
+      if (!hash.startsWith('#pack=')) return false;
+      const payload = b64ToSim(hash.slice(6));
+      if (!payload?.list || !Array.isArray(payload.list)) return false;
+      importPackList(payload.list);
       history.replaceState(null, '', location.pathname);
       return true;
+    }
+
+    /* Export all simulations as a .json file */
+    function exportAllToFile() {
+      const list    = loadSimList();
+      const payload = JSON.stringify({ v: 1, list }, null, 2);
+      const blob    = new Blob([payload], { type: 'application/json' });
+      const url     = URL.createObjectURL(blob);
+      const a       = document.createElement('a');
+      a.href        = url;
+      a.download    = `simulations-portefeuille-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      const simCount = list.filter(i => i.kind === 'sim').length;
+      showShareToast(`⬇ ${simCount} simulation${simCount > 1 ? 's' : ''} exportée${simCount > 1 ? 's' : ''}`);
+    }
+
+    /* Import simulations from a .json file */
+    function importFromFile() {
+      const input  = document.createElement('input');
+      input.type   = 'file';
+      input.accept = '.json,application/json';
+      input.addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const payload = JSON.parse(ev.target.result);
+            if (!payload?.list || !Array.isArray(payload.list)) throw new Error();
+            const firstId  = importPackList(payload.list);
+            const simCount = payload.list.filter(i => i.kind === 'sim').length;
+            if (firstId) { applyState(loadState()); renderSimList(); }
+            showShareToast(`✅ ${simCount} simulation${simCount > 1 ? 's' : ''} importée${simCount > 1 ? 's' : ''}`);
+          } catch {
+            showShareToast('⚠️ Fichier invalide ou corrompu');
+          }
+        };
+        reader.readAsText(file);
+      });
+      input.click();
     }
 
     /* ── LIST (folders + sims) ── */
@@ -3581,8 +3640,10 @@
         const wrap    = document.getElementById('shareMenuWrap');
         const btn     = document.getElementById('shareBtn');
         const menu    = document.getElementById('shareMenu');
-        const oneBtn  = document.getElementById('shareOneBtn');
-        const allBtn  = document.getElementById('shareAllBtn');
+        const oneBtn    = document.getElementById('shareOneBtn');
+        const allBtn    = document.getElementById('shareAllBtn');
+        const exportBtn = document.getElementById('exportFileBtn');
+        const importBtn = document.getElementById('importFileBtn');
 
         const openMenu  = () => { menu.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); };
         const closeMenu = () => { menu.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
@@ -3590,8 +3651,10 @@
 
         btn.addEventListener('click', e => { e.stopPropagation(); toggle(); });
 
-        oneBtn.addEventListener('click', () => { closeMenu(); shareCurrentSim(); });
-        allBtn.addEventListener('click', () => { closeMenu(); shareAllSims(); });
+        oneBtn.addEventListener('click',    () => { closeMenu(); shareCurrentSim(); });
+        allBtn.addEventListener('click',    () => { closeMenu(); shareAllSims(); });
+        exportBtn.addEventListener('click', () => { closeMenu(); exportAllToFile(); });
+        importBtn.addEventListener('click', () => { closeMenu(); importFromFile(); });
 
         /* close when clicking outside */
         document.addEventListener('click', e => {
