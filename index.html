@@ -531,6 +531,64 @@
     }
     .sim-item:hover .sim-dup-btn { opacity: 1; }
     .sim-dup-btn:hover { color: var(--blue); background: var(--blue-bg); }
+
+    /* ── FOLDERS ── */
+    .sim-folder { margin: 1px 0; }
+    .sim-folder-header {
+      display: flex; align-items: center; gap: 3px;
+      border-radius: var(--radius-sm); padding: 2px 2px 2px 4px;
+      cursor: default; user-select: none; transition: background 0.12s;
+    }
+    .sim-folder-header:hover { background: var(--bg-input); }
+    .sim-folder-drag-handle {
+      flex-shrink: 0; width: 18px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; padding: 0;
+      cursor: grab; color: var(--text-3); font-size: 11px;
+      opacity: 0; transition: opacity 0.15s; user-select: none;
+    }
+    .sim-folder-header:hover .sim-folder-drag-handle { opacity: 1; }
+    .sim-folder-toggle {
+      flex-shrink: 0; width: 14px; font-size: 9px; color: var(--text-3);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .sim-folder-icon { font-size: 12px; flex-shrink: 0; cursor: pointer; }
+    .sim-folder-name {
+      flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--text-1);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    }
+    .sim-folder-name-input {
+      flex: 1; min-width: 0; font-size: 12px; font-weight: 500; font-family: inherit;
+      background: var(--bg-input); border: 1px solid var(--border-mid);
+      border-radius: 4px; padding: 1px 5px; color: var(--text-1); outline: none;
+    }
+    .sim-folder-name-input:focus { border-color: var(--green); }
+    .sim-folder-delete-btn {
+      flex-shrink: 0; width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-3); font-size: 15px; border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-folder-header:hover .sim-folder-delete-btn { opacity: 1; }
+    .sim-folder-delete-btn:hover { color: var(--red); background: var(--red-bg); }
+    .sim-folder-body { padding-left: 18px; padding-top: 1px; padding-bottom: 2px; }
+    .sim-folder-body.sim-folder-collapsed { display: none; }
+    /* drag states */
+    .sim-folder.sim-dragging { opacity: 0.35; }
+    .sim-folder-header.sim-drag-folder-over {
+      background: var(--green-bg); outline: 1px solid var(--green); border-radius: var(--radius-sm);
+    }
+    /* new-folder button */
+    .new-folder-btn {
+      flex-shrink: 0; padding: 5px 8px;
+      font-size: 12px; font-family: inherit; font-weight: 500;
+      background: var(--bg-input); border: 1px solid var(--border-mid);
+      border-radius: var(--radius-sm); cursor: pointer; color: var(--text-2);
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+    .new-folder-btn:hover { background: var(--bg-page); border-color: var(--text-3); color: var(--text-1); }
     .sim-drag-handle {
       flex-shrink: 0;
       width: 18px; height: 22px;
@@ -1136,6 +1194,7 @@
           <div class="sim-actions">
             <button class="new-sim-btn" id="newSimBtn">+ Nouvelle</button>
             <button class="new-sim-btn" id="dupSimBtn" title="Dupliquer la simulation active">⎘ Dupliquer</button>
+            <button class="new-folder-btn" id="newFolderBtn" title="Créer un dossier">📁</button>
           </div>
         </div>
       </details>
@@ -1892,7 +1951,8 @@
     }
 
     /* ── MULTI-SIM STORAGE ── */
-    const SIMS_KEY   = 'sim_v3_sims';
+    const SIMS_KEY   = 'sim_v3_sims';   /* legacy – kept for migration */
+    const LIST_KEY   = 'sim_v3_list';   /* unified list: folders + sims */
     const ACTIVE_KEY = 'sim_v3_active';
 
     const genId = () => 'sim_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -1946,19 +2006,56 @@
       const b64 = hash.slice(5);
       const imported = b64ToSim(b64);
       if (!imported || !imported.data) return false;
-      /* push as new sim */
-      const sims = loadSims();
-      const id = genId();
+      /* push as new sim at root level */
+      const list = loadSimList();
+      const id   = genId();
       const name = (imported.name || 'Simulation importée') + ' (importée)';
-      sims.push({ id, name, data: imported.data });
-      saveSims(sims);
+      list.push({ kind: 'sim', id, name, data: imported.data });
+      saveSimList(list);
       setActiveId(id);
-      history.replaceState(null, '', location.pathname); /* clean URL */
+      history.replaceState(null, '', location.pathname);
       return true;
     }
 
-    function loadSims()       { try { return JSON.parse(localStorage.getItem(SIMS_KEY)) || []; } catch { return []; } }
-    function saveSims(sims)   { localStorage.setItem(SIMS_KEY, JSON.stringify(sims)); }
+    /* ── LIST (folders + sims) ── */
+    function loadSimList() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(LIST_KEY));
+        if (Array.isArray(stored)) return stored;
+      } catch {}
+      /* migrate from legacy SIMS_KEY */
+      try {
+        const old = JSON.parse(localStorage.getItem(SIMS_KEY)) || [];
+        return old.map(s => ({ kind: 'sim', id: s.id, name: s.name, data: s.data }));
+      } catch { return []; }
+    }
+    function saveSimList(list) { localStorage.setItem(LIST_KEY, JSON.stringify(list)); }
+
+    /* helpers */
+    function loadSims() {
+      return loadSimList().filter(i => i.kind === 'sim' || !i.kind);
+    }
+    /* saveSims: merges sim array back into list (preserves folder structure).
+       New sims not yet in the list are appended at root level. */
+    function saveSims(sims) {
+      const list = loadSimList();
+      const inList = new Set(list.filter(i => i.kind === 'sim' || !i.kind).map(i => i.id));
+      const keep   = new Set(sims.map(s => s.id));
+      /* update / remove */
+      let newList = list
+        .filter(item => item.kind === 'folder' || keep.has(item.id))
+        .map(item => {
+          if (item.kind === 'folder') return item;
+          const u = sims.find(s => s.id === item.id);
+          return u ? { ...item, name: u.name, data: u.data } : item;
+        });
+      /* append brand-new sims */
+      for (const s of sims) {
+        if (!inList.has(s.id)) newList.push({ kind: 'sim', id: s.id, name: s.name, data: s.data });
+      }
+      saveSimList(newList);
+    }
+
     function getActiveId()    { return localStorage.getItem(ACTIVE_KEY) || ''; }
     function setActiveId(id)  { localStorage.setItem(ACTIVE_KEY, id); }
 
@@ -1980,13 +2077,14 @@
     }
 
     function initSimStorage() {
-      let sims = loadSims();
+      let list = loadSimList();
+      const sims = list.filter(i => i.kind === 'sim' || !i.kind);
       if (sims.length === 0) {
         let data = null;
         try { data = JSON.parse(localStorage.getItem('sim_v3')); } catch {}
         const id = genId();
-        sims = [{ id, name: 'Ma simulation', data: data || defaultSimData() }];
-        saveSims(sims); setActiveId(id);
+        list = [{ kind: 'sim', id, name: 'Ma simulation', data: data || defaultSimData() }];
+        saveSimList(list); setActiveId(id);
       } else if (!sims.find(s => s.id === getActiveId())) {
         setActiveId(sims[0].id);
       }
@@ -2000,9 +2098,9 @@
 
     function saveState(state) {
       try {
-        const sims = loadSims();
-        const idx  = sims.findIndex(s => s.id === getActiveId());
-        if (idx !== -1) { sims[idx].data = state; saveSims(sims); }
+        const list = loadSimList();
+        const idx  = list.findIndex(i => (i.kind === 'sim' || !i.kind) && i.id === getActiveId());
+        if (idx !== -1) { list[idx].data = state; saveSimList(list); }
         const badge = document.getElementById('saveBadge');
         badge.classList.add('visible');
         clearTimeout(badge._t);
@@ -2010,19 +2108,128 @@
       } catch {}
     }
 
+    /* ── SIM ITEM HTML helper ── */
+    function simItemHTML(sim, activeId, simCount) {
+      return `<div class="sim-item${sim.id === activeId ? ' active' : ''}" data-id="${sim.id}" data-folder-id="${sim.folderId || ''}" draggable="true">
+        <span class="sim-drag-handle" title="Déplacer">⠿</span>
+        <button class="sim-item-btn" data-id="${sim.id}">${escHtml(sim.name)}</button>
+        <button class="sim-dup-btn"  data-id="${sim.id}" title="Dupliquer">⎘</button>
+        <button class="sim-delete-btn" data-id="${sim.id}" ${simCount === 1 ? 'disabled' : ''} title="Supprimer">×</button>
+      </div>`;
+    }
+
+    /* ── LIST MANIPULATION helpers ── */
+
+    /* Move sim before/after another sim; inherit target's folderId */
+    function listMoveSim(srcId, tgtId, before) {
+      const list = loadSimList();
+      const srcIdx = list.findIndex(i => i.id === srcId && i.kind === 'sim');
+      const tgtIdx = list.findIndex(i => i.id === tgtId && i.kind === 'sim');
+      if (srcIdx === -1 || tgtIdx === -1 || srcIdx === tgtIdx) return;
+      const newFolderId = list[tgtIdx].folderId || null;
+      const [moved] = list.splice(srcIdx, 1);
+      moved.folderId = newFolderId;
+      const newTgt = list.findIndex(i => i.id === tgtId && i.kind === 'sim');
+      list.splice(before ? newTgt : newTgt + 1, 0, moved);
+      saveSimList(list);
+    }
+
+    /* Add sim to end of folder */
+    function listAddSimToFolder(srcId, folderId) {
+      const list = loadSimList();
+      const srcIdx = list.findIndex(i => i.id === srcId && i.kind === 'sim');
+      if (srcIdx === -1) return;
+      const [moved] = list.splice(srcIdx, 1);
+      moved.folderId = folderId;
+      /* find insertion point: after last child of this folder */
+      let ins = list.findIndex(i => i.kind === 'folder' && i.id === folderId);
+      if (ins === -1) { list.push(moved); saveSimList(list); return; }
+      ins++;
+      while (ins < list.length && list[ins].kind === 'sim' && list[ins].folderId === folderId) ins++;
+      list.splice(ins, 0, moved);
+      saveSimList(list);
+    }
+
+    /* Extract a folder block (header + all its children) from the list */
+    function extractFolderBlock(list, folderId) {
+      const start = list.findIndex(i => i.kind === 'folder' && i.id === folderId);
+      if (start === -1) return null;
+      let end = start + 1;
+      while (end < list.length && list[end].kind === 'sim' && list[end].folderId === folderId) end++;
+      return { start, end, block: list.splice(start, end - start) };
+    }
+
+    /* Move folder block before/after a sim or another folder header */
+    function listMoveFolder(srcFolderId, tgtId, tgtKind, before) {
+      const list = loadSimList();
+      const extracted = extractFolderBlock(list, srcFolderId);
+      if (!extracted) return;
+      const { block } = extracted;
+      let ins;
+      if (tgtKind === 'sim') {
+        ins = list.findIndex(i => i.id === tgtId && i.kind === 'sim');
+        if (ins === -1) { list.push(...block); saveSimList(list); return; }
+        if (!before) ins++;
+      } else { /* folder */
+        ins = list.findIndex(i => i.id === tgtId && i.kind === 'folder');
+        if (ins === -1) { list.push(...block); saveSimList(list); return; }
+        if (!before) {
+          ins++;
+          while (ins < list.length && list[ins].kind === 'sim' && list[ins].folderId === tgtId) ins++;
+        }
+      }
+      list.splice(ins, 0, ...block);
+      saveSimList(list);
+    }
+
+    /* ── RENDER SIM LIST ── */
     function renderSimList() {
-      const sims = loadSims(), activeId = getActiveId();
-      const active = sims.find(s => s.id === activeId);
+      const list     = loadSimList();
+      const activeId = getActiveId();
+      const simCount = list.filter(i => i.kind === 'sim' || !i.kind).length;
+      const active   = list.find(i => (i.kind === 'sim' || !i.kind) && i.id === activeId);
       document.getElementById('simNameInput').value = active?.name || '';
-      const listEl = document.getElementById('simList');
-      listEl.innerHTML = sims.map(sim =>
-        `<div class="sim-item${sim.id === activeId ? ' active' : ''}" data-id="${sim.id}" draggable="true">
-          <span class="sim-drag-handle" title="Déplacer">⠿</span>
-          <button class="sim-item-btn" data-id="${sim.id}">${escHtml(sim.name)}</button>
-          <button class="sim-dup-btn" data-id="${sim.id}" title="Dupliquer">⎘</button>
-          <button class="sim-delete-btn" data-id="${sim.id}" ${sims.length === 1 ? 'disabled' : ''} title="Supprimer">×</button>
-        </div>`
-      ).join('');
+
+      const folderIds = new Set(list.filter(i => i.kind === 'folder').map(i => i.id));
+      const listEl    = document.getElementById('simList');
+
+      /* Build HTML */
+      let html = '';
+      let i = 0;
+      while (i < list.length) {
+        const item = list[i];
+        if (item.kind === 'folder') {
+          /* collect children */
+          const children = [];
+          let j = i + 1;
+          while (j < list.length && list[j].kind === 'sim' && list[j].folderId === item.id) {
+            children.push(list[j]); j++;
+          }
+          const isOpen = item.open !== false;
+          html += `<div class="sim-folder" data-folder-id="${item.id}">
+            <div class="sim-folder-header" data-folder-id="${item.id}" draggable="true">
+              <span class="sim-folder-drag-handle" title="Déplacer le dossier">⠿</span>
+              <span class="sim-folder-toggle">${isOpen ? '▾' : '▸'}</span>
+              <span class="sim-folder-icon">📁</span>
+              <span class="sim-folder-name" data-folder-id="${item.id}">${escHtml(item.name)}</span>
+              <button class="sim-folder-delete-btn" data-folder-id="${item.id}" title="Supprimer le dossier">×</button>
+            </div>
+            <div class="sim-folder-body${isOpen ? '' : ' sim-folder-collapsed'}">
+              ${children.map(s => simItemHTML(s, activeId, simCount)).join('')}
+            </div>
+          </div>`;
+          i = j;
+        } else if (item.kind === 'sim' || !item.kind) {
+          /* only render root-level sims here (folder sims rendered above) */
+          if (!item.folderId || !folderIds.has(item.folderId)) {
+            html += simItemHTML({ ...item, folderId: null }, activeId, simCount);
+          }
+          i++;
+        } else { i++; }
+      }
+      listEl.innerHTML = html;
+
+      /* ── EVENTS : sim ── */
       listEl.querySelectorAll('.sim-item-btn').forEach(btn =>
         btn.addEventListener('click', () => { if (btn.dataset.id !== activeId) switchToSim(btn.dataset.id); })
       );
@@ -2032,68 +2239,151 @@
       listEl.querySelectorAll('.sim-delete-btn:not([disabled])').forEach(btn =>
         btn.addEventListener('click', e => {
           e.stopPropagation();
-          const sim = sims.find(s => s.id === btn.dataset.id);
-          if (confirm('Supprimer "' + (sim?.name || 'cette simulation') + '" ?')) deleteSim(btn.dataset.id);
+          const s = loadSimList().find(i => i.id === btn.dataset.id);
+          if (confirm('Supprimer "' + (s?.name || 'cette simulation') + '" ?')) deleteSim(btn.dataset.id);
         })
       );
 
-      /* ── DRAG-AND-DROP REORDER ── */
-      let dragSrcId = null;
-      const clearDragClasses = () =>
-        listEl.querySelectorAll('.sim-item').forEach(i =>
-          i.classList.remove('sim-drag-over-top', 'sim-drag-over-bottom'));
+      /* ── EVENTS : folder toggle + rename ── */
+      listEl.querySelectorAll('.sim-folder-toggle, .sim-folder-icon, .sim-folder-name').forEach(el => {
+        if (el.classList.contains('sim-folder-name')) {
+          /* double-click → inline rename */
+          el.addEventListener('dblclick', e => {
+            e.stopPropagation();
+            const fid  = el.dataset.folderId;
+            const inp  = document.createElement('input');
+            inp.type   = 'text';
+            inp.className = 'sim-folder-name-input';
+            inp.value  = el.textContent;
+            el.replaceWith(inp);
+            inp.focus(); inp.select();
+            const commit = () => {
+              const newName = inp.value.trim() || 'Dossier';
+              const l = loadSimList();
+              const fi = l.findIndex(i => i.kind === 'folder' && i.id === fid);
+              if (fi !== -1) { l[fi].name = newName; saveSimList(l); }
+              renderSimList();
+            };
+            inp.addEventListener('blur',    commit);
+            inp.addEventListener('keydown', e2 => { if (e2.key === 'Enter') { e2.preventDefault(); inp.blur(); } if (e2.key === 'Escape') renderSimList(); });
+          });
+        }
+        /* single click → toggle open/closed */
+        el.addEventListener('click', e => {
+          if (el.classList.contains('sim-folder-name') && e.detail > 1) return; /* dblclick handled */
+          const fid = el.closest('[data-folder-id]')?.dataset.folderId;
+          if (!fid) return;
+          const l  = loadSimList();
+          const fi = l.findIndex(i => i.kind === 'folder' && i.id === fid);
+          if (fi !== -1) { l[fi].open = l[fi].open === false ? true : false; saveSimList(l); renderSimList(); }
+        });
+      });
 
+      /* ── EVENTS : folder delete ── */
+      listEl.querySelectorAll('.sim-folder-delete-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); deleteFolder(btn.dataset.folderId); })
+      );
+
+      /* ── DRAG-AND-DROP ── */
+      let dragSrc = null; /* { kind:'sim'|'folder', id, folderId } */
+
+      const clearDrag = () => {
+        listEl.querySelectorAll('.sim-drag-over-top, .sim-drag-over-bottom').forEach(el =>
+          el.classList.remove('sim-drag-over-top', 'sim-drag-over-bottom'));
+        listEl.querySelectorAll('.sim-drag-folder-over').forEach(el =>
+          el.classList.remove('sim-drag-folder-over'));
+      };
+
+      /* SIM drag */
       listEl.querySelectorAll('.sim-item').forEach(item => {
-        /* Ne déclencher le drag que depuis la poignée */
-        const handle = item.querySelector('.sim-drag-handle');
         item.addEventListener('mousedown', e => {
-          /* Désactiver draggable si le mousedown ne vient pas de la poignée */
           item.draggable = !!e.target.closest('.sim-drag-handle');
         });
-        item.addEventListener('touchstart', e => {
-          item.draggable = !!e.target.closest('.sim-drag-handle');
-        }, { passive: true });
-
         item.addEventListener('dragstart', e => {
           if (!item.draggable) { e.preventDefault(); return; }
-          dragSrcId = item.dataset.id;
+          dragSrc = { kind: 'sim', id: item.dataset.id, folderId: item.dataset.folderId || null };
           item.classList.add('sim-dragging');
           e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', dragSrcId);
+          e.dataTransfer.setData('text/plain', item.dataset.id);
         });
-
         item.addEventListener('dragend', () => {
           item.classList.remove('sim-dragging');
-          clearDragClasses();
-          item.draggable = true; /* réinitialise */
+          clearDrag(); item.draggable = true;
         });
-
         item.addEventListener('dragover', e => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
-          if (item.dataset.id === dragSrcId) return;
-          clearDragClasses();
-          const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
-          item.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+          e.preventDefault(); if (!dragSrc) return;
+          clearDrag();
+          if (dragSrc.kind === 'sim') {
+            if (item.dataset.id === dragSrc.id) return;
+            const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+            item.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+          } else { /* folder dragged over a root sim */
+            if (!item.dataset.folderId) {
+              const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+              item.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+            }
+          }
         });
-
-        item.addEventListener('dragleave', () => {
-          item.classList.remove('sim-drag-over-top', 'sim-drag-over-bottom');
-        });
-
+        item.addEventListener('dragleave', () => clearDrag());
         item.addEventListener('drop', e => {
-          e.preventDefault();
-          clearDragClasses();
-          const tgtId = item.dataset.id;
-          if (!dragSrcId || dragSrcId === tgtId) return;
-          const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
-          const insertBefore = e.clientY < mid;
-          const arr = loadSims();
-          const srcIdx = arr.findIndex(s => s.id === dragSrcId);
-          const [moved] = arr.splice(srcIdx, 1);
-          const tgtIdx = arr.findIndex(s => s.id === tgtId);
-          arr.splice(insertBefore ? tgtIdx : tgtIdx + 1, 0, moved);
-          saveSims(arr);
+          e.preventDefault(); clearDrag();
+          if (!dragSrc) return;
+          if (dragSrc.kind === 'sim') {
+            if (dragSrc.id === item.dataset.id) return;
+            const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+            listMoveSim(dragSrc.id, item.dataset.id, e.clientY < mid);
+          } else {
+            if (!item.dataset.folderId) {
+              const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+              listMoveFolder(dragSrc.id, item.dataset.id, 'sim', e.clientY < mid);
+            }
+          }
+          renderSimList();
+        });
+      });
+
+      /* FOLDER HEADER drag */
+      listEl.querySelectorAll('.sim-folder-header').forEach(header => {
+        header.addEventListener('mousedown', e => {
+          header.draggable = !!e.target.closest('.sim-folder-drag-handle');
+        });
+        header.addEventListener('dragstart', e => {
+          if (!header.draggable) { e.preventDefault(); return; }
+          const fid = header.dataset.folderId;
+          dragSrc = { kind: 'folder', id: fid };
+          header.closest('.sim-folder')?.classList.add('sim-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', fid);
+        });
+        header.addEventListener('dragend', () => {
+          header.closest('.sim-folder')?.classList.remove('sim-dragging');
+          clearDrag(); header.draggable = true;
+        });
+        /* FOLDER over FOLDER */
+        header.addEventListener('dragover', e => {
+          e.preventDefault(); if (!dragSrc) return;
+          clearDrag();
+          const tgtFid = header.dataset.folderId;
+          if (dragSrc.kind === 'folder') {
+            if (dragSrc.id === tgtFid) return;
+            const mid = header.getBoundingClientRect().top + header.getBoundingClientRect().height / 2;
+            header.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+          } else { /* sim dragged over folder header → add to folder */
+            header.classList.add('sim-drag-folder-over');
+          }
+        });
+        header.addEventListener('dragleave', () => clearDrag());
+        header.addEventListener('drop', e => {
+          e.preventDefault(); clearDrag();
+          if (!dragSrc) return;
+          const tgtFid = header.dataset.folderId;
+          if (dragSrc.kind === 'folder') {
+            if (dragSrc.id === tgtFid) return;
+            const mid = header.getBoundingClientRect().top + header.getBoundingClientRect().height / 2;
+            listMoveFolder(dragSrc.id, tgtFid, 'folder', e.clientY < mid);
+          } else {
+            listAddSimToFolder(dragSrc.id, tgtFid);
+          }
           renderSimList();
         });
       });
@@ -2106,41 +2396,76 @@
     }
 
     function deleteSim(id) {
-      let sims = loadSims().filter(s => s.id !== id);
-      if (sims.length === 0) sims = [{ id: genId(), name: 'Ma simulation', data: defaultSimData() }];
-      if (getActiveId() === id) setActiveId(sims[0].id);
-      saveSims(sims);
+      let list = loadSimList().filter(i => i.id !== id);
+      const remaining = list.filter(i => i.kind === 'sim' || !i.kind);
+      if (remaining.length === 0) list.push({ kind: 'sim', id: genId(), name: 'Ma simulation', data: defaultSimData() });
+      const upd = list.filter(i => i.kind === 'sim' || !i.kind);
+      if (getActiveId() === id) setActiveId(upd[0].id);
+      saveSimList(list);
       applyState(loadState());
       renderSimList();
     }
 
     function createNewSim() {
-      const sims = loadSims();
-      const id   = genId();
-      const data = defaultSimData();
-      sims.push({ id, name: 'Simulation ' + (sims.length + 1), data });
-      saveSims(sims); setActiveId(id);
+      const list  = loadSimList();
+      const sims  = list.filter(i => i.kind === 'sim' || !i.kind);
+      const id    = genId();
+      const data  = defaultSimData();
+      list.push({ kind: 'sim', id, name: 'Simulation ' + (sims.length + 1), data });
+      saveSimList(list); setActiveId(id);
       applyState(data);
       renderSimList();
     }
 
     function duplicateSim(sourceId) {
-      const sims = loadSims();
-      const source = sims.find(s => s.id === sourceId);
-      if (!source) return;
+      const list    = loadSimList();
+      const srcIdx  = list.findIndex(i => (i.kind === 'sim' || !i.kind) && i.id === sourceId);
+      if (srcIdx === -1) return;
+      const source  = list[srcIdx];
       const newId   = genId();
-      const newName = source.name + ' (copie)';
-      const newData = JSON.parse(JSON.stringify(source.data)); // deep clone
-      sims.push({ id: newId, name: newName, data: newData });
-      saveSims(sims);
+      const newItem = {
+        kind: 'sim', id: newId,
+        name: source.name + ' (copie)',
+        data: JSON.parse(JSON.stringify(source.data)),
+        folderId: source.folderId || null,
+      };
+      list.splice(srcIdx + 1, 0, newItem); /* insert right after source */
+      saveSimList(list);
       setActiveId(newId);
-      applyState(newData);
+      applyState(newItem.data);
       renderSimList();
-      /* focus le champ nom pour renommer immédiatement */
+      setTimeout(() => { const inp = document.getElementById('simNameInput'); if (inp) { inp.focus(); inp.select(); } }, 50);
+    }
+
+    /* ── FOLDER CRUD ── */
+    function createFolder() {
+      const list = loadSimList();
+      const idx  = list.findIndex(i => (i.kind === 'sim' || !i.kind) && i.id === getActiveId());
+      const newFolder = { kind: 'folder', id: genId(), name: 'Nouveau dossier', open: true };
+      /* insert just before the active sim (or at end) */
+      list.splice(idx !== -1 ? idx : list.length, 0, newFolder);
+      saveSimList(list);
+      renderSimList();
+      /* trigger inline rename immediately */
       setTimeout(() => {
-        const inp = document.getElementById('simNameInput');
-        if (inp) { inp.focus(); inp.select(); }
-      }, 50);
+        const el = document.querySelector(`.sim-folder-name[data-folder-id="${newFolder.id}"]`);
+        if (el) el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      }, 30);
+    }
+
+    function deleteFolder(folderId) {
+      const list     = loadSimList();
+      const children = list.filter(i => i.kind === 'sim' && i.folderId === folderId);
+      const name     = list.find(i => i.kind === 'folder' && i.id === folderId)?.name || 'ce dossier';
+      const msg = children.length > 0
+        ? `Supprimer le dossier "${name}" et ses ${children.length} simulation(s) ?\nLes simulations seront retirées du dossier mais conservées.`
+        : `Supprimer le dossier "${name}" ?`;
+      if (!confirm(msg)) return;
+      const newList = list
+        .filter(i => !(i.kind === 'folder' && i.id === folderId))
+        .map(i => (i.kind === 'sim' && i.folderId === folderId) ? { ...i, folderId: null } : i);
+      saveSimList(newList);
+      renderSimList();
     }
 
     function applyState(saved) {
@@ -3069,9 +3394,10 @@
         }
       });
 
-      /* new sim / dup sim buttons */
+      /* new sim / dup sim / new folder buttons */
       document.getElementById('newSimBtn').addEventListener('click', createNewSim);
       document.getElementById('dupSimBtn').addEventListener('click', () => duplicateSim(getActiveId()));
+      document.getElementById('newFolderBtn').addEventListener('click', createFolder);
 
       /* restore active sim + render list */
       applyState(loadState());
