@@ -1146,6 +1146,64 @@
       transform: translateX(-50%) translateY(0);
     }
 
+    /* ── SHARE MENU ── */
+    .share-menu-wrap { position: relative; }
+    .share-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 230px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06);
+      z-index: 300;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(-6px) scale(0.97);
+      pointer-events: none;
+      transition: opacity 0.14s ease, transform 0.14s ease;
+    }
+    .share-menu.open {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+    .share-menu-section {
+      padding: 6px 0;
+    }
+    .share-menu-section + .share-menu-section {
+      border-top: 1px solid var(--border);
+    }
+    .share-menu-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      padding: 5px 14px 3px;
+    }
+    .share-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      font-size: 13px;
+      color: var(--text-1);
+      cursor: pointer;
+      transition: background 0.1s;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      font-family: inherit;
+    }
+    .share-menu-item:hover { background: var(--bg-input); }
+    .share-menu-item-icon { font-size: 14px; flex-shrink: 0; }
+    .share-menu-item-body { display: flex; flex-direction: column; gap: 1px; }
+    .share-menu-item-title { font-weight: 500; }
+    .share-menu-item-desc  { font-size: 11px; color: var(--text-3); }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 900px) {
       .app-layout {
@@ -1203,12 +1261,35 @@
         <div class="save-dot"></div>
         Auto-sauvegardé
       </div>
-      <button class="theme-btn" id="shareBtn" title="Copier l'URL de partage de cette simulation" aria-label="Partager">
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12.5" cy="2.5" r="1.5"/><circle cx="12.5" cy="13.5" r="1.5"/><circle cx="3.5" cy="8" r="1.5"/>
-          <line x1="5" y1="7.1" x2="11" y2="3.4"/><line x1="5" y1="8.9" x2="11" y2="12.6"/>
-        </svg>
-      </button>
+      <div class="share-menu-wrap" id="shareMenuWrap">
+        <button class="theme-btn" id="shareBtn" title="Partager" aria-label="Partager" aria-haspopup="true" aria-expanded="false">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12.5" cy="2.5" r="1.5"/><circle cx="12.5" cy="13.5" r="1.5"/><circle cx="3.5" cy="8" r="1.5"/>
+            <line x1="5" y1="7.1" x2="11" y2="3.4"/><line x1="5" y1="8.9" x2="11" y2="12.6"/>
+          </svg>
+        </button>
+        <div class="share-menu" id="shareMenu" role="menu">
+          <div class="share-menu-section">
+            <div class="share-menu-label">Partager</div>
+            <button class="share-menu-item" id="shareOneBtn" role="menuitem">
+              <span class="share-menu-item-icon">🔗</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Simulation active</span>
+                <span class="share-menu-item-desc">Partage uniquement la simulation en cours</span>
+              </span>
+            </button>
+          </div>
+          <div class="share-menu-section">
+            <button class="share-menu-item" id="shareAllBtn" role="menuitem">
+              <span class="share-menu-item-icon">🗂</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Toutes les simulations</span>
+                <span class="share-menu-item-desc">Inclut les dossiers et leur structure</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
       <button class="theme-btn" id="themeBtn" title="Basculer thème clair / sombre" aria-label="Basculer thème">🌙</button>
     </div>
   </header>
@@ -2014,45 +2095,100 @@
       el._t = setTimeout(() => el.classList.remove('show'), 2800);
     }
 
+    /* ── SHARE helpers ── */
+    function copyUrl(url, successMsg) {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url)
+          .then(() => showShareToast(successMsg))
+          .catch(() => fallbackShare(url, successMsg));
+      } else {
+        fallbackShare(url, successMsg);
+      }
+    }
+
+    function fallbackShare(url, msg) {
+      const inp = document.createElement('input');
+      inp.value = url; document.body.appendChild(inp);
+      inp.select(); document.execCommand('copy');
+      document.body.removeChild(inp);
+      showShareToast(msg || '🔗 URL copiée dans le presse-papiers');
+    }
+
+    /* Share active simulation only */
     function shareCurrentSim() {
-      const sims = loadSims();
+      const sims   = loadSims();
       const active = sims.find(s => s.id === getActiveId()) || sims[0];
       if (!active) return;
       const b64 = simToB64({ name: active.name, data: active.data });
       if (!b64) return;
       const url = location.origin + location.pathname + '#sim=' + b64;
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(url)
-          .then(() => showShareToast('🔗 URL copiée dans le presse-papiers'))
-          .catch(() => fallbackShare(url));
-      } else {
-        fallbackShare(url);
+      copyUrl(url, '🔗 Simulation copiée dans le presse-papiers');
+    }
+
+    /* Share entire workspace (folders + all sims) */
+    function shareAllSims() {
+      const list = loadSimList();
+      if (list.length === 0) return;
+      const simCount = list.filter(i => i.kind === 'sim').length;
+      const b64 = simToB64({ v: 1, list });
+      if (!b64) return;
+      const url = location.origin + location.pathname + '#pack=' + b64;
+      if (url.length > 20000) {
+        showShareToast('⚠️ Données trop volumineuses pour une URL — essayez de partager les simulations une par une');
+        return;
       }
+      copyUrl(url, `🗂 ${simCount} simulation${simCount > 1 ? 's' : ''} copiée${simCount > 1 ? 's' : ''} dans le presse-papiers`);
     }
 
-    function fallbackShare(url) {
-      const inp = document.createElement('input');
-      inp.value = url;
-      document.body.appendChild(inp);
-      inp.select();
-      document.execCommand('copy');
-      document.body.removeChild(inp);
-      showShareToast('🔗 URL copiée dans le presse-papiers');
-    }
-
+    /* Import single sim: #sim=<b64> */
     function checkUrlImport() {
       const hash = location.hash;
       if (!hash.startsWith('#sim=')) return false;
-      const b64 = hash.slice(5);
-      const imported = b64ToSim(b64);
+      const imported = b64ToSim(hash.slice(5));
       if (!imported || !imported.data) return false;
-      /* push as new sim at root level */
       const list = loadSimList();
       const id   = genId();
-      const name = (imported.name || 'Simulation importée') + ' (importée)';
-      list.push({ kind: 'sim', id, name, data: imported.data });
+      list.push({ kind: 'sim', id, name: (imported.name || 'Simulation importée') + ' (importée)', data: imported.data });
+      saveSimList(list); setActiveId(id);
+      history.replaceState(null, '', location.pathname);
+      return true;
+    }
+
+    /* Import full pack: #pack=<b64> */
+    function checkUrlImportPack() {
+      const hash = location.hash;
+      if (!hash.startsWith('#pack=')) return false;
+      const payload = b64ToSim(hash.slice(6));
+      if (!payload?.list || !Array.isArray(payload.list)) return false;
+
+      const list  = loadSimList();
+      const idMap = {}; /* old folder id → new folder id */
+      let firstSimId = null;
+
+      /* first pass: remap folder IDs */
+      payload.list.forEach(item => {
+        if (item.kind === 'folder') idMap[item.id] = genId();
+      });
+
+      /* second pass: append with new IDs */
+      payload.list.forEach(item => {
+        if (item.kind === 'folder') {
+          list.push({ ...item, id: idMap[item.id], name: item.name + ' (importé)' });
+        } else if (item.kind === 'sim' || !item.kind) {
+          const newId = genId();
+          if (!firstSimId) firstSimId = newId;
+          list.push({
+            ...item,
+            kind: 'sim',
+            id: newId,
+            name: item.name + ' (importée)',
+            folderId: item.folderId ? (idMap[item.folderId] ?? null) : null,
+          });
+        }
+      });
+
       saveSimList(list);
-      setActiveId(id);
+      if (firstSimId) setActiveId(firstSimId);
       history.replaceState(null, '', location.pathname);
       return true;
     }
@@ -3360,16 +3496,38 @@
         })
       );
 
-      /* share button */
-      document.getElementById('shareBtn').addEventListener('click', shareCurrentSim);
+      /* ── SHARE MENU ── */
+      (function initShareMenu() {
+        const wrap    = document.getElementById('shareMenuWrap');
+        const btn     = document.getElementById('shareBtn');
+        const menu    = document.getElementById('shareMenu');
+        const oneBtn  = document.getElementById('shareOneBtn');
+        const allBtn  = document.getElementById('shareAllBtn');
+
+        const openMenu  = () => { menu.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); };
+        const closeMenu = () => { menu.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+        const toggle    = () => menu.classList.contains('open') ? closeMenu() : openMenu();
+
+        btn.addEventListener('click', e => { e.stopPropagation(); toggle(); });
+
+        oneBtn.addEventListener('click', () => { closeMenu(); shareCurrentSim(); });
+        allBtn.addEventListener('click', () => { closeMenu(); shareAllSims(); });
+
+        /* close when clicking outside */
+        document.addEventListener('click', e => {
+          if (!wrap.contains(e.target)) closeMenu();
+        });
+        /* close on Escape */
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+      })();
 
       /* theme toggle button */
       document.getElementById('themeBtn').addEventListener('click', () => {
         applyTheme(!isDarkMode());
       });
 
-      /* check for shared sim in URL hash (must run before initSimStorage) */
-      checkUrlImport();
+      /* check for shared content in URL hash (must run before initSimStorage) */
+      checkUrlImportPack() || checkUrlImport();
 
       /* init multi-sim storage */
       initSimStorage();
