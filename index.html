@@ -604,6 +604,16 @@
     }
     .sim-folder-header:hover .sim-folder-delete-btn { opacity: 1; }
     .sim-folder-delete-btn:hover { color: var(--red); background: var(--red-bg); }
+    .sim-folder-share-btn {
+      flex-shrink: 0; width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-3); border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.12s, background 0.12s;
+      padding: 0;
+    }
+    .sim-folder-header:hover .sim-folder-share-btn { opacity: 1; }
+    .sim-folder-share-btn:hover { color: var(--blue); background: var(--blue-bg); }
     .sim-folder-body { padding-left: 18px; padding-top: 1px; padding-bottom: 2px; }
     .sim-folder-body.sim-folder-collapsed { display: none; }
     /* drag states */
@@ -2125,6 +2135,23 @@
       copyUrl(url, '🔗 Simulation copiée dans le presse-papiers');
     }
 
+    /* Share a single folder (folder item + its sims) */
+    function shareFolder(folderId) {
+      const list       = loadSimList();
+      const folderItem = list.find(i => i.kind === 'folder' && i.id === folderId);
+      if (!folderItem) return;
+      const sims = list.filter(i => i.kind === 'sim' && i.folderId === folderId);
+      const pack = [folderItem, ...sims]; /* folder first, then its children */
+      const b64  = simToB64({ v: 1, list: pack });
+      if (!b64) return;
+      const url  = location.origin + location.pathname + '#pack=' + b64;
+      if (url.length > 20000) {
+        showShareToast('⚠️ Dossier trop volumineux pour une URL');
+        return;
+      }
+      copyUrl(url, `📁 Dossier "${folderItem.name}" (${sims.length} simulation${sims.length > 1 ? 's' : ''}) copié dans le presse-papiers`);
+    }
+
     /* Share entire workspace (folders + all sims) */
     function shareAllSims() {
       const list = loadSimList();
@@ -2388,6 +2415,12 @@
               <span class="sim-folder-toggle">${isOpen ? '▾' : '▸'}</span>
               <span class="sim-folder-icon">📁</span>
               <span class="sim-folder-name" data-folder-id="${item.id}">${escHtml(item.name)}</span>
+              <button class="sim-folder-share-btn" data-folder-id="${item.id}" title="Partager ce dossier">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12.5" cy="2.5" r="1.5"/><circle cx="12.5" cy="13.5" r="1.5"/><circle cx="3.5" cy="8" r="1.5"/>
+                  <line x1="5" y1="7.1" x2="11" y2="3.4"/><line x1="5" y1="8.9" x2="11" y2="12.6"/>
+                </svg>
+              </button>
               <button class="sim-folder-delete-btn" data-folder-id="${item.id}" title="Supprimer le dossier">×</button>
             </div>
             <div class="sim-folder-body${isOpen ? '' : ' sim-folder-collapsed'}">
@@ -2454,6 +2487,11 @@
           if (fi !== -1) { l[fi].open = l[fi].open === false ? true : false; saveSimList(l); renderSimList(); }
         });
       });
+
+      /* ── EVENTS : folder share ── */
+      listEl.querySelectorAll('.sim-folder-share-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); shareFolder(btn.dataset.folderId); })
+      );
 
       /* ── EVENTS : folder delete ── */
       listEl.querySelectorAll('.sim-folder-delete-btn').forEach(btn =>
