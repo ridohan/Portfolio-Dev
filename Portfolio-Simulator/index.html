@@ -1,0 +1,3813 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulateur de Portefeuille</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-page:      #F2F1ED;
+      --bg-card:      #FFFFFF;
+      --bg-input:     #F7F6F2;
+      --border:       rgba(0,0,0,0.08);
+      --border-mid:   rgba(0,0,0,0.12);
+      --text-1:       #1A1A19;
+      --text-2:       #5F5E5A;
+      --text-3:       #9B9A96;
+      --green:        #1D9E75;
+      --green-bg:     rgba(29,158,117,0.09);
+      --blue:         #378ADD;
+      --blue-bg:      rgba(55,138,221,0.07);
+      --red:          #D85A30;
+      --red-bg:       rgba(216,90,48,0.08);
+      --radius-sm:    6px;
+      --radius-md:    10px;
+      --radius-lg:    14px;
+      --accent:       #1D9E75;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg-page:    #141413;
+        --bg-card:    #1E1E1C;
+        --bg-input:   #272725;
+        --border:     rgba(255,255,255,0.07);
+        --border-mid: rgba(255,255,255,0.12);
+        --text-1:     #E8E7E3;
+        --text-2:     #9B9A96;
+        --text-3:     #5F5E5A;
+        --green-bg:   rgba(29,158,117,0.12);
+        --blue-bg:    rgba(55,138,221,0.10);
+        --red-bg:     rgba(216,90,48,0.12);
+      }
+    }
+    [data-theme="dark"] {
+      --bg-page:    #141413;
+      --bg-card:    #1E1E1C;
+      --bg-input:   #272725;
+      --border:     rgba(255,255,255,0.07);
+      --border-mid: rgba(255,255,255,0.12);
+      --text-1:     #E8E7E3;
+      --text-2:     #9B9A96;
+      --text-3:     #5F5E5A;
+      --green-bg:   rgba(29,158,117,0.12);
+      --blue-bg:    rgba(55,138,221,0.10);
+      --red-bg:     rgba(216,90,48,0.12);
+    }
+    [data-theme="light"] {
+      --bg-page:    #F2F1ED;
+      --bg-card:    #FFFFFF;
+      --bg-input:   #F7F6F2;
+      --border:     rgba(0,0,0,0.08);
+      --border-mid: rgba(0,0,0,0.12);
+      --text-1:     #1A1A19;
+      --text-2:     #5F5E5A;
+      --text-3:     #9B9A96;
+      --green-bg:   rgba(29,158,117,0.09);
+      --blue-bg:    rgba(55,138,221,0.07);
+      --red-bg:     rgba(216,90,48,0.08);
+    }
+
+    html { font-size: 15px; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg-page);
+      color: var(--text-1);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── HEADER ── */
+    .site-header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .site-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .site-title-icon {
+      width: 28px; height: 28px;
+      background: var(--green);
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .save-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--text-3);
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    .save-badge.visible { opacity: 1; }
+    .save-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+    .theme-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px; height: 34px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-2);
+      cursor: pointer;
+      font-size: 16px;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .theme-btn:hover { background: var(--border); }
+
+    /* ── LAYOUT ── */
+    .app-layout {
+      display: flex;
+      min-height: calc(100vh - 56px);
+    }
+    /* prevent text selection while resizing */
+    .app-layout.is-resizing * { user-select: none !important; pointer-events: none; }
+    .app-layout.is-resizing .sidebar-resizer { pointer-events: auto; }
+
+    /* ── SIDEBAR RESIZER ── */
+    .sidebar-resizer {
+      flex-shrink: 0;
+      width: 5px;
+      cursor: col-resize;
+      background: transparent;
+      position: relative;
+      transition: background 0.2s;
+      z-index: 10;
+    }
+    .sidebar-resizer::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      left: 2px;
+      width: 1px;
+      background: var(--border);
+      transition: background 0.2s, width 0.2s, left 0.2s;
+    }
+    .sidebar-resizer:hover::after,
+    .sidebar-resizer.is-resizing::after {
+      background: var(--green);
+      width: 3px;
+      left: 1px;
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      background: var(--bg-card);
+      border-right: none; /* handled by resizer pseudo-element */
+      padding: 1.5rem;
+      position: sticky;
+      top: 56px;
+      height: calc(100vh - 56px);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+      /* width driven by CSS custom property */
+      width: var(--sidebar-w, 300px);
+      min-width: 180px;
+      max-width: 560px;
+      flex-shrink: 0;
+    }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .sidebar::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+    /* ── SIDEBAR SECTIONS ── */
+    .sidebar-section {
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-section:first-child { padding-top: 0; }
+    .sidebar-section:last-child { border-bottom: none; padding-bottom: 0; }
+    .sidebar-section > summary {
+      list-style: none; display: flex; align-items: center;
+      justify-content: space-between; cursor: pointer; user-select: none;
+    }
+    .sidebar-section > summary::-webkit-details-marker { display: none; }
+    .sidebar-section[open] > summary { margin-bottom: 0.75rem; }
+    .sidebar-section-chevron {
+      font-size: 10px; color: var(--text-3);
+      transition: transform 0.2s; display: inline-block; flex-shrink: 0;
+    }
+    .sidebar-section[open] .sidebar-section-chevron { transform: rotate(180deg); }
+    .sidebar-section-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+
+    /* ── CONTROL ── */
+    .ctrl {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 1.25rem;
+    }
+    .ctrl:last-child { margin-bottom: 0; }
+    .ctrl-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .ctrl-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-2);
+      white-space: nowrap;
+    }
+    .ctrl-num-input {
+      width: 110px;
+      text-align: right;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 3px 8px;
+      font-variant-numeric: tabular-nums;
+      -moz-appearance: textfield;
+      transition: border-color 0.15s;
+    }
+    .ctrl-num-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .ctrl-num-input::-webkit-outer-spin-button,
+    .ctrl-num-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+    .ctrl-range-wrap { position: relative; }
+    input[type=range] {
+      width: 100%;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--border-mid);
+      border-radius: 2px;
+      cursor: pointer;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg-card);
+      box-shadow: 0 0 0 1px var(--accent), 0 1px 3px rgba(0,0,0,0.15);
+      transition: transform 0.1s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+    input[type=range]::-moz-range-thumb {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg-card);
+      box-shadow: 0 0 0 1px var(--accent);
+      cursor: pointer;
+    }
+    .ctrl-range-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 3px;
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    /* ── PROFILE SELECTOR ── */
+    .profile-selector {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+    .profile-btn {
+      flex: 1;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: inherit;
+      text-align: center;
+      padding: 5px 4px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-2);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .profile-btn:hover { border-color: var(--border-mid); }
+    .profile-btn.active {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+    .profile-breakdown {
+      margin-top: 8px;
+      padding: 10px 11px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .profile-breakdown.visible { display: flex; }
+    .breakdown-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-2);
+    }
+    .breakdown-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .breakdown-inputs { display: flex; align-items: center; gap: 3px; flex-shrink: 0; font-size: 11px; }
+    .breakdown-input {
+      width: 42px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-card);
+      border: 1px solid var(--border-mid);
+      border-radius: 4px;
+      padding: 2px 4px;
+      -moz-appearance: textfield;
+      font-variant-numeric: tabular-nums;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .breakdown-input:focus { outline: none; border-color: var(--accent); }
+    .breakdown-input::-webkit-outer-spin-button,
+    .breakdown-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .rate-fixed { font-weight: 600; color: var(--green); font-variant-numeric: tabular-nums; }
+    .breakdown-sep { color: var(--text-3); }
+    .breakdown-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-2);
+      border-top: 1px solid var(--border);
+      padding-top: 6px;
+      margin-top: 2px;
+    }
+    .breakdown-total.warn { color: var(--red); }
+    .total-rate { font-weight: 700; color: var(--green); }
+    .breakdown-total.warn .total-rate { color: var(--red); }
+    .breakdown-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 2px;
+    }
+    .breakdown-source {
+      font-size: 10px;
+      color: var(--text-3);
+    }
+    .breakdown-reset-btn {
+      font-size: 10px;
+      color: var(--text-3);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 0;
+      text-decoration: underline;
+      flex-shrink: 0;
+    }
+    .breakdown-reset-btn:hover { color: var(--text-1); }
+    .breakdown-name-input {
+      flex: 1;
+      min-width: 0;
+      font-size: 11px;
+      color: var(--text-2);
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid transparent;
+      padding: 0 2px;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .breakdown-name-input:hover { border-color: var(--border-mid); }
+    .breakdown-name-input:focus { outline: none; border-color: var(--accent); }
+    .breakdown-del-btn {
+      width: 16px; height: 16px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: transparent;
+      font-size: 13px; line-height: 1;
+      border-radius: 3px;
+      transition: color 0.1s, background 0.1s;
+      flex-shrink: 0;
+    }
+    .breakdown-row:hover .breakdown-del-btn { color: var(--text-3); }
+    .breakdown-del-btn:hover { color: var(--red) !important; background: var(--red-bg); }
+    .breakdown-add-row {
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 4px;
+    }
+    .breakdown-add-btn {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      padding: 2px 0;
+      transition: color 0.15s;
+    }
+    .breakdown-add-btn:hover { color: var(--text-1); }
+    .ctrl.profile-active input[type=range] { opacity: 0.35; pointer-events: none; }
+    .ctrl.profile-active .ctrl-num-input  { opacity: 0.45; pointer-events: none; }
+
+    /* ── MANUAL SUB-TOGGLE ── */
+    .manual-mode-toggle {
+      display: none;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .manual-mode-toggle.visible { display: flex; }
+    .manual-mode-btn {
+      flex: 1;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: inherit;
+      text-align: center;
+      padding: 5px 4px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--bg-input);
+      color: var(--text-3);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .manual-mode-btn:hover { border-color: var(--border-mid); color: var(--text-2); }
+    .manual-mode-btn.active {
+      background: var(--bg-card);
+      border-color: var(--border-mid);
+      color: var(--text-1);
+    }
+
+    /* ── SIM LIST ── */
+    .sim-section { display: flex; flex-direction: column; gap: 8px; }
+    .sim-name-input {
+      width: 100%;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .sim-name-input:focus { outline: none; border-color: var(--accent); }
+    .sim-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 148px;
+      overflow-y: auto;
+    }
+    .sim-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      border-radius: var(--radius-sm);
+      padding: 2px 2px 2px 6px;
+    }
+    .sim-item:hover { background: var(--bg-input); }
+    .sim-item.active { background: var(--green-bg); }
+    .sim-item-btn {
+      flex: 1; min-width: 0;
+      text-align: left;
+      font-size: 12px;
+      font-family: inherit;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-1);
+      padding: 4px 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sim-item.active .sim-item-btn { font-weight: 600; color: var(--green); }
+    .sim-delete-btn {
+      flex-shrink: 0;
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none;
+      cursor: pointer;
+      color: var(--text-3);
+      font-size: 15px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-item:hover .sim-delete-btn { opacity: 1; }
+    .sim-delete-btn:hover { color: var(--red); background: var(--red-bg); }
+    .sim-delete-btn[disabled] { opacity: 0 !important; pointer-events: none; }
+    .sim-dup-btn {
+      flex-shrink: 0;
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none;
+      cursor: pointer;
+      color: var(--text-3);
+      font-size: 12px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-item:hover .sim-dup-btn { opacity: 1; }
+    .sim-dup-btn:hover { color: var(--blue); background: var(--blue-bg); }
+
+    /* ── FOLDERS ── */
+    .sim-folder { margin: 1px 0; }
+    .sim-folder-header {
+      display: flex; align-items: center; gap: 3px;
+      border-radius: var(--radius-sm); padding: 2px 2px 2px 4px;
+      cursor: default; user-select: none; transition: background 0.12s;
+    }
+    .sim-folder-header:hover { background: var(--bg-input); }
+    .sim-folder-drag-handle {
+      flex-shrink: 0; width: 18px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; padding: 0;
+      cursor: grab; color: var(--text-3); font-size: 11px;
+      opacity: 0; transition: opacity 0.15s; user-select: none;
+    }
+    .sim-folder-header:hover .sim-folder-drag-handle { opacity: 1; }
+    .sim-folder-toggle {
+      flex-shrink: 0; width: 14px; font-size: 9px; color: var(--text-3);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .sim-folder-icon { font-size: 12px; flex-shrink: 0; cursor: pointer; }
+    .sim-folder-name {
+      flex: 1; min-width: 0; font-size: 12px; font-weight: 500; color: var(--text-1);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    }
+    .sim-folder-name-input {
+      flex: 1; min-width: 0; font-size: 12px; font-weight: 500; font-family: inherit;
+      background: var(--bg-input); border: 1px solid var(--border-mid);
+      border-radius: 4px; padding: 1px 5px; color: var(--text-1); outline: none;
+    }
+    .sim-folder-name-input:focus { border-color: var(--green); }
+    .sim-folder-delete-btn {
+      flex-shrink: 0; width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-3); font-size: 15px; border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-folder-header:hover .sim-folder-delete-btn { opacity: 1; }
+    .sim-folder-delete-btn:hover { color: var(--red); background: var(--red-bg); }
+    .sim-folder-share-btn {
+      flex-shrink: 0; width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-3); border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.12s, background 0.12s;
+      padding: 0;
+    }
+    .sim-folder-header:hover .sim-folder-share-btn { opacity: 1; }
+    .sim-folder-share-btn:hover { color: var(--blue); background: var(--blue-bg); }
+    .sim-folder-dup-btn {
+      flex-shrink: 0; width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-3); font-size: 12px; border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.12s, background 0.12s;
+    }
+    .sim-folder-header:hover .sim-folder-dup-btn { opacity: 1; }
+    .sim-folder-dup-btn:hover { color: var(--blue); background: var(--blue-bg); }
+    .sim-folder-body { padding-left: 18px; padding-top: 1px; padding-bottom: 2px; }
+    .sim-folder-body.sim-folder-collapsed { display: none; }
+    /* drag states */
+    .sim-folder.sim-dragging { opacity: 0.35; }
+    .sim-folder-header.sim-drag-folder-over {
+      background: var(--green-bg); outline: 1px solid var(--green); border-radius: var(--radius-sm);
+    }
+    /* new-folder button */
+    .new-folder-btn {
+      flex-shrink: 0; padding: 5px 8px;
+      font-size: 12px; font-family: inherit; font-weight: 500;
+      background: var(--bg-input); border: 1px solid var(--border-mid);
+      border-radius: var(--radius-sm); cursor: pointer; color: var(--text-2);
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+    .new-folder-btn:hover { background: var(--bg-page); border-color: var(--text-3); color: var(--text-1); }
+    .sim-drag-handle {
+      flex-shrink: 0;
+      width: 18px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none; padding: 0;
+      cursor: grab; color: var(--text-3);
+      font-size: 11px; letter-spacing: 1px;
+      opacity: 0;
+      transition: opacity 0.15s;
+      user-select: none;
+    }
+    .sim-item:hover .sim-drag-handle { opacity: 1; }
+    .sim-drag-handle:active { cursor: grabbing; }
+    .sim-item.sim-dragging { opacity: 0.35; }
+    .sim-item.sim-drag-over-top    { box-shadow: 0 -2px 0 var(--green); }
+    .sim-item.sim-drag-over-bottom { box-shadow: 0  2px 0 var(--green); }
+    .sim-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .sim-actions .new-sim-btn { flex: 1; }
+    .new-sim-btn {
+      width: 100%;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--text-2);
+      background: none;
+      border: 1px dashed var(--border-mid);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .new-sim-btn:hover { background: var(--bg-input); color: var(--text-1); }
+
+    /* ── DIVIDER ── */
+    .sidebar-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 0 -1.5rem;
+    }
+
+    /* ── FLUX ── */
+    .flow-ctrl {}
+    .flow-number {
+      flex: 1;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      -moz-appearance: textfield;
+      transition: border-color 0.15s;
+    }
+    .flow-number:focus { outline: none; border-color: var(--accent); }
+    .flow-number::-webkit-outer-spin-button,
+    .flow-number::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .flow-hint {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 5px;
+    }
+
+    /* ── FLOW PERIODS ── */
+    .flow-periods-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .flow-empty {
+      font-size: 12px;
+      color: var(--text-3);
+      padding: 8px 0 4px;
+      text-align: center;
+    }
+    .flow-period-row {
+      display: grid;
+      grid-template-columns: auto 44px auto 44px 62px auto 20px;
+      align-items: center;
+      gap: 3px;
+      padding: 4px 2px;
+      border-radius: var(--radius-sm);
+    }
+    .flow-period-row:hover { background: var(--bg-input); }
+    .fp-label {
+      font-size: 11px;
+      color: var(--text-3);
+      white-space: nowrap;
+      padding: 0 2px;
+    }
+    .fp-input {
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-1);
+      background: var(--bg-card);
+      border: 1px solid var(--border-mid);
+      border-radius: 4px;
+      padding: 3px 2px;
+      font-family: inherit;
+      font-variant-numeric: tabular-nums;
+      -moz-appearance: textfield;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    .fp-input:focus { outline: none; border-color: var(--accent); }
+    .fp-input::-webkit-inner-spin-button,
+    .fp-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+    .fp-amount { font-size: 12px; }
+    .fp-amount.pos { color: var(--green); }
+    .fp-amount.neg { color: var(--red); }
+    .fp-del {
+      width: 20px; height: 20px;
+      display: flex; align-items: center; justify-content: center;
+      background: none; border: none;
+      cursor: pointer;
+      color: var(--text-3);
+      font-size: 14px;
+      line-height: 1;
+      border-radius: 4px;
+      transition: color 0.12s, background 0.12s;
+    }
+    .fp-del:hover { color: var(--red); background: var(--red-bg); }
+    .add-period-btn {
+      width: 100%;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--text-2);
+      background: none;
+      border: 1px dashed var(--border-mid);
+      border-radius: var(--radius-sm);
+      padding: 5px 10px;
+      cursor: pointer;
+      text-align: left;
+      margin-top: 4px;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .add-period-btn:hover { background: var(--bg-input); color: var(--text-1); }
+    .depart-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .depart-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-2);
+      margin-bottom: 4px;
+    }
+    .depart-field .flow-number { width: 100%; }
+
+    /* ── MAIN ── */
+    .main {
+      flex: 1;
+      min-width: 0;
+      padding: 1.75rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* ── METRICS ── */
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .metric {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+    }
+    .metric-lbl {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+    .metric-val {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-1);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.2;
+    }
+    .metric-val.pos { color: var(--green); }
+    .metric-val.neg { color: var(--red); }
+    .metric-sub {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 3px;
+    }
+
+    /* ── CHART PANEL ── */
+    .chart-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1.5rem 1.5rem;
+    }
+    .chart-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .chart-panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+    }
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .series-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-family: inherit;
+      font-weight: 500;
+      color: var(--text-2);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 11px 4px 8px;
+      cursor: pointer;
+      transition: opacity 0.2s, background 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+    .series-toggle:hover { background: var(--border); }
+    .series-toggle.off {
+      opacity: 0.45;
+      background: transparent;
+    }
+    .series-toggle.off .toggle-swatch { opacity: 0.3; }
+    .toggle-swatch {
+      width: 20px;
+      height: 2.5px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .toggle-swatch.dashed {
+      background: none !important;
+      height: 0;
+      border-top: 2px dashed currentColor;
+    }
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 420px;
+    }
+
+    /* ── TABLE ── */
+    .tbl-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: clip;
+    }
+    .tbl-panel > summary {
+      list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid transparent; transition: border-color 0.15s;
+    }
+    .tbl-panel[open] > summary { border-bottom-color: var(--border); }
+    .tbl-panel > summary::-webkit-details-marker { display: none; }
+    .tbl-panel-head {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .tbl-panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color:#1D9E75
+      
+    }
+    .tbl-rows-count {
+      font-size: 11px;
+      color: var(--text-3);
+    }
+    .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table {
+      width: 100%;
+      table-layout: fixed;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    colgroup col:nth-child(1) { width: 72px; }
+    colgroup col:nth-child(n+2) { width: 132px; }
+    thead th {
+      text-align: right;
+      padding: 9px 16px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      background: var(--bg-input);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    thead th:first-child { text-align: left; }
+    tbody td {
+      text-align: right;
+      padding: 9px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-1);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      position: relative;
+    }
+    tbody td:first-child {
+      text-align: left;
+      font-weight: 500;
+      color: var(--text-2);
+      background: var(--bg-input);
+      border-right: 1px solid var(--border);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--bg-input); }
+    tbody tr:hover td:first-child { background: var(--bg-input); }
+    .td-pos { color: var(--green); font-weight: 500; }
+    .td-neg { color: var(--red); font-weight: 500; }
+    .td-bar {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: var(--green);
+      opacity: 0.07;
+      pointer-events: none;
+    }
+    .row-negative td { background: var(--red-bg) !important; }
+    .row-negative .td-bar { background: var(--red); }
+    .row-negative td:first-child { color: var(--red); font-weight: 600; }
+
+    /* ── FIRE SIDEBAR ── */
+    .fire-mode-toggle { display: flex; gap: 4px; margin-bottom: 10px; }
+    .fire-mode-btn {
+      flex: 1; font-size: 10px; font-weight: 600; font-family: inherit;
+      text-align: center; padding: 5px 4px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--bg-input); color: var(--text-3); cursor: pointer;
+      transition: all 0.15s;
+    }
+    .fire-mode-btn.active { background: #D97706; border-color: #D97706; color: #fff; }
+    .fire-ctrl label { font-size: 11px; font-weight: 500; color: var(--text-2); display: block; margin-bottom: 3px; }
+    .fire-field { margin-top: 8px; }
+    .fire-field .ctrl-top { align-items: center; }
+    .fire-info {
+      margin-top: 10px; padding: 9px 11px;
+      background: rgba(217,119,6,0.09); border: 1px solid rgba(217,119,6,0.2);
+      border-radius: var(--radius-sm); display: none; flex-direction: column; gap: 5px;
+    }
+    .fire-info.visible { display: flex; }
+    .fire-info-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 11px; color: var(--text-2);
+    }
+    .fire-info-val { font-weight: 700; color: #D97706; font-variant-numeric: tabular-nums; }
+    .fire-year-note { font-size: 11px; color: var(--text-3); margin-top: 6px; }
+    .fire-year-note strong { color: #D97706; }
+
+    /* ── FIRE TABLE ── */
+    .fire-tbl-panel {
+      background: var(--bg-card); border: 1px solid rgba(217,119,6,0.3);
+      border-radius: var(--radius-lg); overflow: clip;
+    }
+    .fire-tbl-panel > summary {
+      list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid transparent; transition: border-color 0.15s;
+    }
+    .fire-tbl-panel[open] > summary { border-bottom-color: rgba(217,119,6,0.2); }
+    .fire-tbl-panel > summary::-webkit-details-marker { display: none; }
+    .fire-tbl-head-left { display: flex; align-items: center; gap: 8px; }
+    .fire-tbl-title {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #D97706;
+    }
+    .fire-tbl-chevron {
+      font-size: 10px; color: var(--text-3);
+      transition: transform 0.2s; display: inline-block;
+    }
+    .fire-tbl-panel[open] .fire-tbl-chevron { transform: rotate(180deg); }
+    .fire-achieved-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 9px;
+      border-radius: 12px; background: rgba(217,119,6,0.12); color: #D97706;
+      white-space: nowrap;
+
+    }
+    tbody tr.row-fire-achieved td { background: rgba(217,119,6,0.07) !important; }
+    tbody tr.row-fire-achieved td:first-child { color: #D97706; font-weight: 700; }
+    .td-fire { color: #D97706; font-weight: 500; }
+
+    /* ── DWZ ── */
+    .dwz-profile-btns { display: flex; gap: 4px; margin-top: 6px; }
+    .dwz-profile-btn {
+      flex: 1; padding: 5px 4px;
+      font-size: 10px; font-weight: 600; font-family: inherit;
+      border: 1px solid var(--border-mid); border-radius: var(--radius-sm);
+      background: transparent; color: var(--text-2);
+      cursor: pointer; transition: all 0.15s; text-align: center;
+    }
+    .dwz-profile-btn:hover { background: var(--bg-input); }
+    .dwz-profile-btn.active { background: #0891B2; border-color: #0891B2; color: #fff; }
+    .dwz-info {
+      margin-top: 10px; padding: 9px 11px;
+      background: rgba(8,145,178,0.09); border: 1px solid rgba(8,145,178,0.2);
+      border-radius: var(--radius-sm); display: none; flex-direction: column; gap: 5px;
+    }
+    .dwz-info.visible { display: flex; }
+    .dwz-info-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; color: var(--text-2); }
+    .dwz-info-val { font-weight: 700; color: #0891B2; font-variant-numeric: tabular-nums; }
+    /* DWZ TABLE */
+    .dwz-tbl-panel {
+      background: var(--bg-card); border: 1px solid rgba(8,145,178,0.3);
+      border-radius: var(--radius-lg); overflow: clip;
+    }
+    .dwz-tbl-panel > summary {
+      list-style: none; padding: 14px 20px; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid transparent; transition: border-color 0.15s;
+    }
+    .dwz-tbl-panel[open] > summary { border-bottom-color: rgba(8,145,178,0.2); }
+    .dwz-tbl-panel > summary::-webkit-details-marker { display: none; }
+    .dwz-tbl-head-left { display: flex; align-items: center; gap: 8px; }
+    .dwz-tbl-title { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #0891B2; }
+    .dwz-tbl-chevron { font-size: 10px; color: var(--text-3); transition: transform 0.2s; display: inline-block; }
+    .dwz-tbl-panel[open] .dwz-tbl-chevron { transform: rotate(180deg); }
+    .dwz-profile-badge {
+      font-size: 11px; font-weight: 600; padding: 3px 9px;
+      border-radius: 12px; background: rgba(8,145,178,0.12); color: #0891B2;
+      white-space: nowrap;
+    }
+
+    /* ── COMPARISON PANEL ── */
+    .comparison-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .comparison-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .comparison-header-title {
+      font-size: 12px; font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--text-2);
+    }
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+    }
+    .comparison-col {
+      background: var(--bg-card);
+      padding: 16px 20px;
+    }
+    .comparison-col-title {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .comparison-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%; flex-shrink: 0;
+    }
+    .comparison-row {
+      display: flex; justify-content: space-between;
+      align-items: flex-start; gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .comparison-row:last-child { border-bottom: none; }
+    .comparison-row-label { font-size: 11px; color: var(--text-2); padding-top: 3px; white-space: nowrap; }
+    .comparison-row-val { text-align: right; }
+    .comparison-val-main { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .comparison-val-sub  { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+    /* ── SHARE TOAST ── */
+    .share-toast {
+      position: fixed;
+      bottom: 1.75rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(6px);
+      background: var(--text-1);
+      color: var(--bg-card);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 9px 20px;
+      border-radius: 24px;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      z-index: 9999;
+      white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    }
+    .share-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ── SHARE MENU ── */
+    .share-menu-wrap { position: relative; }
+    .share-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 230px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06);
+      z-index: 300;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(-6px) scale(0.97);
+      pointer-events: none;
+      transition: opacity 0.14s ease, transform 0.14s ease;
+    }
+    .share-menu.open {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+    .share-menu-section {
+      padding: 6px 0;
+    }
+    .share-menu-section + .share-menu-section {
+      border-top: 1px solid var(--border);
+    }
+    .share-menu-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      padding: 5px 14px 3px;
+    }
+    .share-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 14px;
+      font-size: 13px;
+      color: var(--text-1);
+      cursor: pointer;
+      transition: background 0.1s;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      font-family: inherit;
+    }
+    .share-menu-item:hover { background: var(--bg-input); }
+    .share-menu-item-icon { font-size: 14px; flex-shrink: 0; }
+    .share-menu-item-body { display: flex; flex-direction: column; gap: 1px; }
+    .share-menu-item-title { font-weight: 500; }
+    .share-menu-item-desc  { font-size: 11px; color: var(--text-3); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .app-layout {
+        flex-direction: column;
+      }
+      .sidebar {
+        width: 100% !important; /* ignore la custom property */
+        max-width: 100%;
+        position: static;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+      .sidebar-resizer { display: none; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+
+      /* Tables : sur mobile, auto-layout + largeur naturelle pour scroll horizontal fiable */
+      .tbl-scroll table {
+        table-layout: auto;
+        width: max-content;
+        min-width: 100%;
+      }
+
+      /* Comparison : empiler les 3 colonnes */
+      .comparison-grid {
+        grid-template-columns: 1fr;
+      }
+      .comparison-col {
+        border-bottom: 1px solid var(--border);
+      }
+      .comparison-col:last-child { border-bottom: none; }
+    }
+    @media (max-width: 540px) {
+      .main { padding: 1rem; }
+      .site-header { padding: 0 1rem; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+
+      /* Réduire le padding des colonnes de comparaison sur petit écran */
+      .comparison-col { padding: 14px 16px; }
+
+      /* Tables : taille de police réduite sur très petit écran pour cellules lisibles */
+      .tbl-scroll table { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="site-title">
+      <div class="site-title-icon">📈</div>
+      Simulateur de Portefeuille
+    </div>
+    <div class="header-right">
+      <div class="save-badge" id="saveBadge">
+        <div class="save-dot"></div>
+        Auto-sauvegardé
+      </div>
+      <div class="share-menu-wrap" id="shareMenuWrap">
+        <button class="theme-btn" id="shareBtn" title="Partager" aria-label="Partager" aria-haspopup="true" aria-expanded="false">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12.5" cy="2.5" r="1.5"/><circle cx="12.5" cy="13.5" r="1.5"/><circle cx="3.5" cy="8" r="1.5"/>
+            <line x1="5" y1="7.1" x2="11" y2="3.4"/><line x1="5" y1="8.9" x2="11" y2="12.6"/>
+          </svg>
+        </button>
+        <div class="share-menu" id="shareMenu" role="menu">
+          <div class="share-menu-section">
+            <div class="share-menu-label">Partager</div>
+            <button class="share-menu-item" id="shareOneBtn" role="menuitem">
+              <span class="share-menu-item-icon">🔗</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Simulation active</span>
+                <span class="share-menu-item-desc">Partage uniquement la simulation en cours</span>
+              </span>
+            </button>
+          </div>
+          <div class="share-menu-section">
+            <button class="share-menu-item" id="shareAllBtn" role="menuitem">
+              <span class="share-menu-item-icon">🗂</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Toutes les simulations</span>
+                <span class="share-menu-item-desc">Inclut les dossiers et leur structure</span>
+              </span>
+            </button>
+          </div>
+          <div class="share-menu-section">
+            <div class="share-menu-label">Fichier JSON</div>
+            <button class="share-menu-item" id="exportFileBtn" role="menuitem">
+              <span class="share-menu-item-icon">⬇</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Exporter en fichier</span>
+                <span class="share-menu-item-desc">Aucune limite — idéal pour beaucoup de simulations</span>
+              </span>
+            </button>
+            <button class="share-menu-item" id="importFileBtn" role="menuitem">
+              <span class="share-menu-item-icon">⬆</span>
+              <span class="share-menu-item-body">
+                <span class="share-menu-item-title">Importer depuis un fichier</span>
+                <span class="share-menu-item-desc">Fusionne avec les simulations existantes</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <button class="theme-btn" id="themeBtn" title="Basculer thème clair / sombre" aria-label="Basculer thème">🌙</button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+
+      <!-- Simulations -->
+      <details class="sidebar-section" open data-section-id="simulations">
+        <summary>
+          <span class="sidebar-section-title">Simulations</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="sim-section">
+          <input type="text" id="simNameInput" class="sim-name-input" placeholder="Nom de la simulation" maxlength="48">
+          <div class="sim-list" id="simList"></div>
+          <div class="sim-actions">
+            <button class="new-sim-btn" id="newSimBtn">+ Nouvelle</button>
+            <button class="new-sim-btn" id="dupSimBtn" title="Dupliquer la simulation active">⎘ Dupliquer</button>
+            <button class="new-folder-btn" id="newFolderBtn" title="Créer un dossier">📁</button>
+          </div>
+        </div>
+      </details>
+
+     <!-- Départ -->
+      <details class="sidebar-section" open data-section-id="depart">
+        <summary>
+          <span class="sidebar-section-title">Départ</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="depart-grid">
+          <div class="depart-field">
+            <label for="nStartYear">Année de début</label>
+            <input type="number" id="nStartYear" class="flow-number"
+              value="2025" min="1900" max="2100" step="1" placeholder="2025">
+          </div>
+          <div class="depart-field">
+            <label for="nAge">Âge actuel</label>
+            <input type="number" id="nAge" class="flow-number"
+              value="" min="1" max="120" step="1" placeholder="—">
+          </div>
+        </div>
+        <div class="flow-hint">Affichés dans le graphique et le tableau</div>
+      </details>
+
+      <!-- Paramètres -->
+      <details class="sidebar-section" open data-section-id="parametres">
+        <summary>
+          <span class="sidebar-section-title">Paramètres</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+
+        <!-- Portfolio -->
+        <div class="ctrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nPortfolio">Portefeuille initial</label>
+            <input type="text" id="nPortfolio" class="ctrl-num-input"
+              inputmode="numeric" value="500 000" style="width:120px;">
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rPortfolio" min="200000" max="3000000" step="5000" value="500000">
+          </div>
+          <div class="ctrl-range-labels"><span>200 k€</span><span>3 M€</span></div>
+        </div>
+
+        <!-- Rendement -->
+        <div class="ctrl" id="returnCtrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nReturn">Rendement annuel</label>
+            <input type="number" id="nReturn" class="ctrl-num-input"
+              min="0" max="10" step="0.1" value="7">
+          </div>
+          <div class="profile-selector">
+            <button class="profile-btn active" data-profile="manual">Manuel</button>
+            <button class="profile-btn" data-profile="monde">🌍 Monde</button>
+            <button class="profile-btn" data-profile="sp500">🇺🇸 S&P 500</button>
+          </div>
+          <div class="manual-mode-toggle visible" id="manualModeToggle">
+            <button class="manual-mode-btn active" id="manualBtnCursor">Curseur global</button>
+            <button class="manual-mode-btn" id="manualBtnCustom">Répartition</button>
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rReturn" min="0" max="10" step="0.1" value="7">
+          </div>
+          <div class="ctrl-range-labels"><span>0%</span><span>10%</span></div>
+          <div class="profile-breakdown" id="profileBreakdown"></div>
+        </div>
+
+        <!-- Inflation -->
+        <div class="ctrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nInflation">Inflation annuelle</label>
+            <input type="number" id="nInflation" class="ctrl-num-input"
+              min="0" max="10" step="0.1" value="2">
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rInflation" min="0" max="10" step="0.1" value="2">
+          </div>
+          <div class="ctrl-range-labels"><span>0%</span><span>10%</span></div>
+        </div>
+
+        <!-- Durée -->
+        <div class="ctrl">
+          <div class="ctrl-top">
+            <label class="ctrl-label" for="nDuration">Durée</label>
+            <input type="number" id="nDuration" class="ctrl-num-input"
+              min="1" max="60" step="1" value="25">
+          </div>
+          <div class="ctrl-range-wrap">
+            <input type="range" id="rDuration" min="1" max="60" step="1" value="25">
+          </div>
+          <div class="ctrl-range-labels"><span>1 an</span><span>60 ans</span></div>
+        </div>
+      </details>
+
+      <!-- Flux mensuels -->
+      <details class="sidebar-section" open data-section-id="flux">
+        <summary>
+          <span class="sidebar-section-title">Flux mensuels</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="flow-periods-list" id="flowPeriodsList"></div>
+        <button class="add-period-btn" id="addFlowPeriodBtn">+ Ajouter une période</button>
+        <div class="flow-hint">Positif = versement · Négatif = retrait</div>
+      </details>
+
+      <!-- FIRE -->
+      <details class="sidebar-section" data-section-id="fire">
+        <summary>
+          <span class="sidebar-section-title">🔥 FIRE</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="fire-ctrl">
+
+          <!-- Dépenses minimales -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nFireSpendingMin" style="margin:0;">Dépenses min. /mois</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nFireSpendingMin" class="ctrl-num-input"
+                  min="0" step="100" value="3500" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Seuil FIRE — déclenche le retrait automatiquement</div>
+          </div>
+
+          <!-- Dépenses maximales -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nFireSpendingMax" style="margin:0;">Dépenses max. /mois</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nFireSpendingMax" class="ctrl-num-input"
+                  min="0" step="100" placeholder="auto" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Optionnel — Utilise le SWR si vide</div>
+          </div>
+
+          <!-- SWR -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nFireSWR" style="margin:0;">Taux de retrait (SWR)</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nFireSWR" class="ctrl-num-input"
+                  min="0.5" max="20" step="0.1" value="4" style="width:56px;">
+                <span style="font-size:11px;color:var(--text-3);">%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Départ FIRE -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nFireStartYear" style="margin:0;">Départ FIRE</label>
+              <input type="number" id="nFireStartYear" class="ctrl-num-input"
+                min="1900" max="2200" step="1" placeholder="auto" style="width:72px;">
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Auto = dès que les dépenses min sont couvertes</div>
+          </div>
+
+          <!-- Résumé -->
+          <div class="fire-info" id="fireInfo"></div>
+
+        </div>
+      </details>
+
+      <!-- DIE WITH ZERO -->
+      <details class="sidebar-section" data-section-id="dwz">
+        <summary>
+          <span class="sidebar-section-title">⏳ Die With Zero</span>
+          <span class="sidebar-section-chevron">▾</span>
+        </summary>
+        <div class="fire-ctrl">
+
+          <!-- Profil -->
+          <div class="fire-field">
+            <label style="margin:0;font-size:11px;font-weight:500;color:var(--text-2);">Profil de dépenses</label>
+            <div class="dwz-profile-btns">
+              <button class="dwz-profile-btn active" data-profile="conservateur">Conservateur</button>
+              <button class="dwz-profile-btn" data-profile="modere">Modéré</button>
+              <button class="dwz-profile-btn" data-profile="agressif">Agressif</button>
+            </div>
+            <div class="flow-hint" style="margin-top:4px;">Conservateur = plat · Modéré = légère décroissance · Agressif = forte décroissance</div>
+          </div>
+
+          <!-- Dépenses min. -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nDwzSpendingMin" style="margin:0;">Dépenses min. /mois</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nDwzSpendingMin" class="ctrl-num-input"
+                  min="0" step="100" placeholder="0" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Plancher vital — le retrait ne descend jamais en dessous</div>
+          </div>
+
+          <!-- Réserve finale -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nDwzReserve" style="margin:0;">Réserve finale</label>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <input type="number" id="nDwzReserve" class="ctrl-num-input"
+                  min="0" step="5000" placeholder="0" style="width:90px;">
+                <span style="font-size:11px;color:var(--text-3);">€</span>
+              </div>
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Montant conservé à la fin — legs, sécurité (défaut : 0)</div>
+          </div>
+
+          <!-- Départ DWZ -->
+          <div class="fire-field">
+            <div class="ctrl-top">
+              <label for="nDwzStartYear" style="margin:0;">Départ DWZ</label>
+              <input type="number" id="nDwzStartYear" class="ctrl-num-input"
+                min="1900" max="2200" step="1" placeholder="auto" style="width:72px;">
+            </div>
+            <div class="flow-hint" style="margin-top:3px;">Auto = dès le début · sinon capitalisation pure jusqu'à cette année</div>
+          </div>
+
+          <!-- Résumé -->
+          <div class="dwz-info" id="dwzInfo"></div>
+
+        </div>
+      </details>
+
+    </aside>
+
+    <!-- RESIZE HANDLE -->
+    <div class="sidebar-resizer" id="sidebarResizer" title="Glisser pour redimensionner · Double-clic pour réinitialiser"></div>
+
+    <!-- MAIN -->
+    <main class="main">
+
+      <!-- METRICS -->
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-lbl">Valeur finale</div>
+          <div class="metric-val" id="mFinal">—</div>
+          <div class="metric-sub" id="mFinalSub"></div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Valeur réelle</div>
+          <div class="metric-val" id="mReal">—</div>
+          <div class="metric-sub">après inflation</div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Plus-value totale</div>
+          <div class="metric-val" id="mGain">—</div>
+          <div class="metric-sub" id="mGainSub"></div>
+        </div>
+        <div class="metric">
+          <div class="metric-lbl">Versements cumulés</div>
+          <div class="metric-val" id="mContrib">—</div>
+          <div class="metric-sub" id="mContribSub"></div>
+        </div>
+      </div>
+
+      <!-- CHART -->
+      <div class="chart-panel">
+        <div class="chart-panel-head">
+          <div class="chart-panel-title">Projection sur la durée</div>
+          <div class="legend">
+            <button class="series-toggle" id="toggleBrut" aria-pressed="true">
+              <span class="toggle-swatch" style="background:var(--green);"></span>
+              Valeur brute
+            </button>
+            <button class="series-toggle" id="toggleReal" aria-pressed="true" title="Valeur nette d'inflation — pouvoir d'achat constant">
+              <span class="toggle-swatch dashed" style="color:rgba(29,158,117,0.6);border-color:rgba(29,158,117,0.6);"></span>
+              Valeur réelle après inflation
+            </button>
+            <button class="series-toggle" id="toggleContrib" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:var(--text-3);border-color:var(--text-3);"></span>
+              Capital investi
+            </button>
+            <button class="series-toggle" id="toggleFire" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:#D97706;border-color:#D97706;"></span>
+              FIRE
+            </button>
+            <button class="series-toggle" id="toggleFireReal" aria-pressed="true" title="Valeur FIRE nette d'inflation — pouvoir d'achat constant">
+              <span class="toggle-swatch dashed" style="color:rgba(217,119,6,0.55);border-color:rgba(217,119,6,0.55);"></span>
+              FIRE · net d'inflation
+            </button>
+            <button class="series-toggle" id="toggleFireTarget" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:#9333EA;border-color:#9333EA;"></span>
+              Objectif FIRE
+            </button>
+            <button class="series-toggle" id="toggleDwz" aria-pressed="true">
+              <span class="toggle-swatch dashed" style="color:#0891B2;border-color:#0891B2;"></span>
+              DWZ
+            </button>
+            <button class="series-toggle" id="toggleDwzReal" aria-pressed="true" title="Valeur DWZ nette d'inflation">
+              <span class="toggle-swatch dashed" style="color:rgba(8,145,178,0.55);border-color:rgba(8,145,178,0.55);"></span>
+              DWZ · net d'inflation
+            </button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="simChart" role="img" aria-label="Projection du portefeuille par année"></canvas>
+        </div>
+      </div>
+
+      <!-- COMPARISON PANEL -->
+      <div class="comparison-panel" id="comparisonPanel">
+        <div class="comparison-header">
+          <span class="comparison-header-title">Comparaison des simulations</span>
+        </div>
+        <div class="comparison-grid">
+          <div class="comparison-col" id="compNormal"></div>
+          <div class="comparison-col" id="compFire"></div>
+          <div class="comparison-col" id="compDwz"></div>
+        </div>
+      </div>
+
+      <!-- TABLE DETAIL ANNUEL -->
+      <details class="tbl-panel" open>
+        <summary>
+          <div class="fire-tbl-head-left">
+            <span class="tbl-panel-title">Détail annuel</span>
+            <span class="fire-tbl-chevron">▾</span>
+          </div>
+          <span class="tbl-rows-count" id="tblCount"></span>
+        </summary>
+        <div class="tbl-scroll">
+          <table>
+            <colgroup>
+              <col style="width:6%"><col style="width:5%"><col style="width:13%">
+              <col style="width:14%"><col style="width:10%"><col style="width:11%">
+              <col style="width:11%"><col style="width:11%"><col style="width:11%">
+              <col style="width:8%">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Année</th>
+                <th>Âge</th>
+                <th>Valeur brute</th>
+                <th>Valeur réelle · net d'inflation</span></th>
+                <th>Intérêts</th>
+                <th>Ajout / Retrait /an</th>
+                <th>Ajout / Retrait /mois</th>
+                <th>Capital investi</th>
+                <th>Plus-value</th>
+                <th>Perf. %</th>
+              </tr>
+            </thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- FIRE TABLE -->
+      <details class="fire-tbl-panel" id="fireTblPanel">
+        <summary>
+          <div class="fire-tbl-head-left">
+            <span class="fire-tbl-title">🔥 Détail FIRE annuel</span>
+            <span class="fire-tbl-chevron">▾</span>
+          </div>
+          <span class="fire-achieved-badge" id="fireAchievedBadge"></span>
+        </summary>
+        <div class="tbl-scroll">
+          <table>
+            <colgroup>
+              <col style="width:6%"><col style="width:5%"><col style="width:13%">
+              <col style="width:14%"><col style="width:10%"><col style="width:11%">
+              <col style="width:11%"><col style="width:11%"><col style="width:11%">
+              <col style="width:8%">
+            </colgroup>
+            <thead id="fireTblHead"></thead>
+            <tbody id="fireTblBody"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- DWZ TABLE -->
+      <details class="dwz-tbl-panel" id="dwzTblPanel">
+        <summary>
+          <div class="dwz-tbl-head-left">
+            <span class="dwz-tbl-title">⏳ Détail Die With Zero annuel</span>
+            <span class="dwz-tbl-chevron">▾</span>
+          </div>
+          <span class="dwz-profile-badge" id="dwzProfileBadge"></span>
+        </summary>
+        <div class="tbl-scroll">
+          <table>
+            <colgroup>
+              <col style="width:6%"><col style="width:5%"><col style="width:13%">
+              <col style="width:14%"><col style="width:10%"><col style="width:11%">
+              <col style="width:11%"><col style="width:11%"><col style="width:11%">
+              <col style="width:8%">
+            </colgroup>
+            <thead id="dwzTblHead"></thead>
+            <tbody id="dwzTblBody"></tbody>
+          </table>
+        </div>
+      </details>
+
+      
+
+    </main>
+  </div>
+
+  <div class="share-toast" id="shareToast"></div>
+
+  <script>
+    /* ── FORMATTERS ── */
+    const fmtEur = v => new Intl.NumberFormat('fr-FR', {
+      style: 'currency', currency: 'EUR', maximumFractionDigits: 0
+    }).format(v);
+
+    const fmtK = v => {
+      const a = Math.abs(v), s = v < 0 ? '−' : '';
+      if (a >= 1e6) return s + (a / 1e6).toFixed(2).replace('.', ',') + ' M€';
+      if (a >= 1e3) return s + Math.round(a / 1e3) + ' k€';
+      return s + Math.round(a) + ' €';
+    };
+
+    const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + '%';
+
+    /* ── FIRE STATE ── */
+    let fireSpendingMin  = 3500;  // dépenses mensuelles minimales (seuil FIRE)
+    let fireSpendingMax  = 0;    // dépenses mensuelles maximales (0 = illimité via SWR)
+    let fireSWR          = 4;     // taux de retrait (SWR) %
+    let fireYearOverride = null;  // départ FIRE manuel (null = auto)
+
+    /* ── DWZ STATE ── */
+    let dwzProfile      = 'conservateur'; // 'conservateur' | 'modere' | 'agressif'
+    let dwzSpendingMin  = 0;              // dépenses minimales mensuelles (plancher vital)
+    let dwzReserve      = 0;              // montant à conserver à la fin
+    let dwzYearOverride = null;           // année de départ DWZ (null = dès l'an 1)
+
+    /* ── FLOW PERIODS ── */
+    let flowPeriods = []; // [{ from: 1, to: N, flow: monthly€ }]
+
+    function renderFlowPeriods() {
+      const el = document.getElementById('flowPeriodsList');
+      if (!el) return;
+      if (flowPeriods.length === 0) {
+        el.innerHTML = '<div class="flow-empty">Aucune période — aucun flux appliqué</div>';
+        return;
+      }
+      el.innerHTML = flowPeriods.map((p, i) => {
+        const amtCls = p.flow < 0 ? ' neg' : p.flow > 0 ? ' pos' : '';
+        return `<div class="flow-period-row">
+          <span class="fp-label">An</span>
+          <input class="fp-input" type="number" data-idx="${i}" data-field="from"
+            value="${p.from}" min="1" max="9999" step="1">
+          <span class="fp-label" style="text-align:center;">→</span>
+          <input class="fp-input" type="number" data-idx="${i}" data-field="to"
+            value="${p.to}" min="1" max="9999" step="1">
+          <input class="fp-input fp-amount${amtCls}" type="number" data-idx="${i}" data-field="flow"
+            value="${p.flow}" step="100" placeholder="€/m">
+          <span class="fp-label">€/m</span>
+          <button class="fp-del" data-idx="${i}" title="Supprimer">×</button>
+        </div>`;
+      }).join('');
+
+      el.querySelectorAll('.fp-input').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const idx = +inp.dataset.idx;
+          const v = parseFloat(inp.value);
+          if (!isNaN(v)) flowPeriods[idx][inp.dataset.field] = v;
+          if (inp.dataset.field === 'flow') {
+            inp.className = `fp-input fp-amount${v < 0 ? ' neg' : v > 0 ? ' pos' : ''}`;
+          }
+          compute();
+        });
+      });
+      el.querySelectorAll('.fp-del').forEach(btn => {
+        btn.addEventListener('click', () => {
+          flowPeriods.splice(+btn.dataset.idx, 1);
+          renderFlowPeriods();
+          compute();
+        });
+      });
+    }
+
+    function addFlowPeriod() {
+      const years = parseInt(document.getElementById('rDuration').value) || 25;
+      const lastTo = flowPeriods.length > 0 ? flowPeriods[flowPeriods.length - 1].to : 0;
+      const from = lastTo + 1;
+      const to = Math.max(from, years);
+      flowPeriods.push({ from, to, flow: 0 });
+      renderFlowPeriods();
+      compute();
+    }
+
+    /* ── DWZ WEIGHT PROFILES ── */
+    function dwzWeights(n, profile) {
+      if (n <= 0) return [];
+      const raw = [];
+      for (let y = 1; y <= n; y++) {
+        const t = n > 1 ? (n - y) / (n - 1) : 0; // 1.0 (y=1) → 0.0 (y=n)
+        if (profile === 'agressif')    raw.push(0.4 + 1.6 * t); // 2.0 → 0.4 : forte décroissance
+        else if (profile === 'modere') raw.push(0.65 + 0.7 * t); // 1.35 → 0.65 : légère décroissance
+        else                           raw.push(1.0);             // conservateur : plat
+      }
+      const sum = raw.reduce((a, b) => a + b, 0);
+      return raw.map(w => (w / sum) * n); // normalise : moyenne = 1
+    }
+
+    /* ── DWZ SOLVER (binary search) ── */
+    // Trouve le scalaire b tel que la simulation réelle (avec plancher) finisse à `reserve`.
+    // 60 itérations de bisection → précision < 1 centime.
+    function solveDwzBase(P, r, n, weights, minAnnual, reserve) {
+      if (n <= 0) return 0;
+      // Si même sans retrait le portefeuille ne dépasse pas la réserve → pas de retrait
+      if (P * Math.pow(1 + r, n) <= reserve) return 0;
+
+      const simulate = b => {
+        let v = P;
+        for (let y = 1; y <= n; y++) {
+          const w = Math.max(b * (weights[y - 1] || 0), minAnnual);
+          v = Math.max(0, v * (1 + r) - w);
+        }
+        return v; // valeur finale du portefeuille
+      };
+
+      // Borne supérieure : b tel que le premier retrait vidange tout le portefeuille
+      let lo = 0, hi = P * (1 + r) * 2;
+      for (let i = 0; i < 60; i++) {
+        const mid = (lo + hi) / 2;
+        simulate(mid) > reserve ? lo = mid : hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
+    /* ── SERIES VISIBILITY ── */
+    const seriesVisible = { brut: true, real: true, contrib: true, fire: true, fireReal: true, fireTarget: true, dwz: true, dwzReal: true };
+
+    /* ── RETURN PROFILES ── */
+    const PROFILE_DEFAULTS = {
+      monde: {
+        source: 'MSCI World NTR · ~1970–2024 (USD)',
+        allowAddDelete: true,
+        breakdown: [
+          { name: 'ETF Monde (MSCI World)', alloc: 80, rate: 8.5,  rateEditable: false, nameEditable: false },
+          { name: 'Obligations',            alloc: 15, rate: 4.0,  rateEditable: true,  nameEditable: false },
+          { name: 'Cash',                   alloc:  5, rate: 2.5,  rateEditable: true,  nameEditable: false },
+        ],
+      },
+      sp500: {
+        source: 'S&P 500 TR · ~1928–2024 (USD)',
+        allowAddDelete: true,
+        breakdown: [
+          { name: 'ETF S&P 500', alloc: 80, rate: 10, rateEditable: false, nameEditable: false },
+          { name: 'Obligations', alloc: 15, rate:  4.0, rateEditable: true,  nameEditable: false },
+          { name: 'Cash',        alloc:  5, rate:  2.5, rateEditable: true,  nameEditable: false },
+        ],
+      },
+      manual_custom: {
+        source: 'Répartition personnalisée',
+        allowAddDelete: true,
+        breakdown: [
+          { name: 'Actions',     alloc: 70, rate: 8.0, rateEditable: true, nameEditable: true },
+          { name: 'Obligations', alloc: 20, rate: 4.0, rateEditable: true, nameEditable: true },
+          { name: 'Cash',        alloc: 10, rate: 2.5, rateEditable: true, nameEditable: true },
+        ],
+      },
+    };
+
+    /* mutable working copy — spread preserves allowAddDelete */
+    const PROFILES = {
+      manual: null,
+      monde:         { ...PROFILE_DEFAULTS.monde,         breakdown: PROFILE_DEFAULTS.monde.breakdown.map(r => ({...r})) },
+      sp500:         { ...PROFILE_DEFAULTS.sp500,         breakdown: PROFILE_DEFAULTS.sp500.breakdown.map(r => ({...r})) },
+      manual_custom: { ...PROFILE_DEFAULTS.manual_custom, breakdown: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({...r})) },
+    };
+
+    let activeProfile = 'manual';
+
+    function calcProfileRate(key) {
+      return PROFILES[key].breakdown.reduce((s, r) => s + (r.alloc / 100) * r.rate, 0);
+    }
+
+    function updateBreakdownTotal(key) {
+      const el = document.getElementById('breakdownTotal');
+      if (!el) return;
+      const total = PROFILES[key].breakdown.reduce((s, r) => s + r.alloc, 0);
+      const rate  = calcProfileRate(key);
+      const warn  = Math.abs(total - 100) > 0.5;
+      el.className = 'breakdown-total' + (warn ? ' warn' : '');
+      el.innerHTML = `<span>Total&nbsp;: <strong>${total.toFixed(0)} %</strong>${warn ? '&nbsp;⚠ doit être 100 %' : ''}</span>`
+                   + `<span>Rendement&nbsp;: <strong class="total-rate">${rate.toFixed(2).replace('.', ',')} %</strong></span>`;
+    }
+
+    function renderBreakdown(key) {
+      const profile = PROFILES[key];
+      const el = document.getElementById('profileBreakdown');
+      const canAddDel = !!profile.allowAddDelete;
+
+      el.innerHTML = profile.breakdown.map((r, i) => `
+        <div class="breakdown-row">
+          ${r.nameEditable
+            ? `<input class="breakdown-name-input" type="text" data-idx="${i}" data-field="name"
+                 value="${escHtml(r.name)}" maxlength="24" placeholder="Actif">`
+            : `<span class="breakdown-name" title="${r.name}">${r.name}</span>`
+          }
+          <div class="breakdown-inputs">
+            <input class="breakdown-input" type="number" min="0" max="100" step="1"
+              data-idx="${i}" data-field="alloc" value="${r.alloc}">
+            <span class="breakdown-sep">%&nbsp;×</span>
+            ${r.rateEditable
+              ? `<input class="breakdown-input" type="number" min="0" max="30" step="0.1"
+                   data-idx="${i}" data-field="rate" value="${r.rate.toFixed(1)}">`
+              : `<span class="rate-fixed">${r.rate.toFixed(1)}</span>`
+            }
+            <span class="breakdown-sep">%</span>
+          </div>
+          ${canAddDel && r.rateEditable !== false
+            ? `<button class="breakdown-del-btn" data-idx="${i}" title="Supprimer">×</button>`
+            : canAddDel ? `<span style="width:16px;flex-shrink:0;"></span>` : ''
+          }
+        </div>`).join('')
+        + (canAddDel
+            ? `<div class="breakdown-add-row">
+                 <button class="breakdown-add-btn" id="breakdownAddBtn">+ Ajouter un actif</button>
+               </div>`
+            : '')
+        + `<div class="breakdown-total" id="breakdownTotal"></div>`
+        + `<div class="breakdown-footer">
+             <span class="breakdown-source">${profile.source}</span>
+             <button class="breakdown-reset-btn" id="breakdownResetBtn">Réinitialiser</button>
+           </div>`;
+
+      updateBreakdownTotal(key);
+
+      /* wire number inputs (alloc / rate) */
+      el.querySelectorAll('.breakdown-input').forEach(input => {
+        input.addEventListener('input', () => {
+          const idx = parseInt(input.dataset.idx);
+          const val = parseFloat(input.value);
+          if (!isNaN(val) && val >= 0) PROFILES[key].breakdown[idx][input.dataset.field] = val;
+          const rate = Math.min(10, Math.max(0, +calcProfileRate(key).toFixed(2)));
+          document.getElementById('rReturn').value = rate;
+          document.getElementById('nReturn').value = rate;
+          updateBreakdownTotal(key);
+          compute();
+        });
+      });
+
+      /* wire name inputs (manual_custom only) */
+      el.querySelectorAll('.breakdown-name-input').forEach(input => {
+        input.addEventListener('input', () => {
+          const idx = parseInt(input.dataset.idx);
+          PROFILES[key].breakdown[idx].name = input.value;
+        });
+      });
+
+      /* wire delete buttons */
+      if (canAddDel) {
+        el.querySelectorAll('.breakdown-del-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (PROFILES[key].breakdown.length <= 1) return;
+            PROFILES[key].breakdown.splice(parseInt(btn.dataset.idx), 1);
+            renderBreakdown(key);
+            const rate = Math.min(10, Math.max(0, +calcProfileRate(key).toFixed(2)));
+            document.getElementById('rReturn').value = rate;
+            document.getElementById('nReturn').value = rate;
+            compute();
+          });
+        });
+
+        document.getElementById('breakdownAddBtn').addEventListener('click', () => {
+          PROFILES[key].breakdown.push({ name: 'Nouvel actif', alloc: 0, rate: 5.0, rateEditable: true, nameEditable: true });
+          renderBreakdown(key);
+          compute();
+        });
+      }
+
+      document.getElementById('breakdownResetBtn').addEventListener('click', () => {
+        PROFILES[key].breakdown = PROFILE_DEFAULTS[key].breakdown.map(r => ({...r}));
+        applyProfile(key);
+      });
+    }
+
+    function updateManualModeToggle() {
+      const toggle = document.getElementById('manualModeToggle');
+      if (!toggle) return;
+      const isManual = activeProfile === 'manual' || activeProfile === 'manual_custom';
+      toggle.classList.toggle('visible', isManual);
+      document.getElementById('manualBtnCursor')?.classList.toggle('active', activeProfile === 'manual');
+      document.getElementById('manualBtnCustom')?.classList.toggle('active', activeProfile === 'manual_custom');
+    }
+
+    function applyProfile(key) {
+      activeProfile = key;
+      const profile = PROFILES[key];
+      const ctrl    = document.getElementById('returnCtrl');
+      const bdEl    = document.getElementById('profileBreakdown');
+
+      /* highlight the correct profile button (manual_custom → highlight 'manual' btn) */
+      const btnKey = key === 'manual_custom' ? 'manual' : key;
+      document.querySelectorAll('.profile-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.profile === btnKey)
+      );
+
+      updateManualModeToggle();
+
+      if (profile) {
+        ctrl.classList.add('profile-active');
+        const rate = Math.min(10, Math.max(0, +calcProfileRate(key).toFixed(2)));
+        document.getElementById('rReturn').value = rate;
+        document.getElementById('nReturn').value = rate;
+        renderBreakdown(key);
+        bdEl.classList.add('visible');
+      } else {
+        ctrl.classList.remove('profile-active');
+        bdEl.classList.remove('visible');
+        bdEl.innerHTML = '';
+      }
+
+      compute();
+    }
+
+    /* ── THEME ── */
+    const THEME_KEY    = 'sim_v3_theme';
+
+    /* ── SIDEBAR SECTION STATES ── */
+    const SECTIONS_KEY = 'sim_v3_sections';
+    // Valeurs par défaut : FIRE et DWZ fermés, les autres ouverts
+    const SECTION_DEFAULTS = { simulations: true, depart: true, parametres: true, flux: true, fire: false, dwz: false };
+
+    function saveSectionStates() {
+      const state = {};
+      document.querySelectorAll('.sidebar-section[data-section-id]').forEach(el => {
+        state[el.dataset.sectionId] = el.open;
+      });
+      try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function restoreSectionStates() {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(SECTIONS_KEY)) || {}; } catch {}
+      document.querySelectorAll('.sidebar-section[data-section-id]').forEach(el => {
+        const id = el.dataset.sectionId;
+        // Priorité : état sauvegardé > défaut défini > attribut HTML
+        if (id in saved) el.open = saved[id];
+        else if (id in SECTION_DEFAULTS) el.open = SECTION_DEFAULTS[id];
+      });
+    }
+
+    function isDarkMode() {
+      const t = document.documentElement.dataset.theme;
+      if (t === 'dark') return true;
+      if (t === 'light') return false;
+      return matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    function applyTheme(dark) {
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      document.getElementById('themeBtn').textContent = dark ? '☀️' : '🌙';
+      localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
+      if (chart) compute();
+    }
+
+    /* ── MULTI-SIM STORAGE ── */
+    const SIMS_KEY      = 'sim_v3_sims';     /* legacy – kept for migration */
+    const LIST_KEY      = 'sim_v3_list';     /* unified list: folders + sims */
+    const SIDEBAR_W_KEY = 'sim_v3_sidebar_w'; /* sidebar width in px */
+    const ACTIVE_KEY = 'sim_v3_active';
+
+    const genId = () => 'sim_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    /* ── URL SHARE / IMPORT ── */
+    function simToB64(payload) {
+      try { return btoa(encodeURIComponent(JSON.stringify(payload))); } catch { return null; }
+    }
+    function b64ToSim(b64) {
+      try { return JSON.parse(decodeURIComponent(atob(b64))); } catch { return null; }
+    }
+
+    function showShareToast(msg) {
+      const el = document.getElementById('shareToast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.remove('show'), 2800);
+    }
+
+    /* ── SHARE helpers ── */
+    function copyUrl(url, successMsg) {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url)
+          .then(() => showShareToast(successMsg))
+          .catch(() => fallbackShare(url, successMsg));
+      } else {
+        fallbackShare(url, successMsg);
+      }
+    }
+
+    function fallbackShare(url, msg) {
+      const inp = document.createElement('input');
+      inp.value = url; document.body.appendChild(inp);
+      inp.select(); document.execCommand('copy');
+      document.body.removeChild(inp);
+      showShareToast(msg || '🔗 URL copiée dans le presse-papiers');
+    }
+
+    /* Share active simulation only */
+    function shareCurrentSim() {
+      const sims   = loadSims();
+      const active = sims.find(s => s.id === getActiveId()) || sims[0];
+      if (!active) return;
+      const b64 = simToB64({ name: active.name, data: active.data });
+      if (!b64) return;
+      const url = location.origin + location.pathname + '#sim=' + b64;
+      copyUrl(url, '🔗 Simulation copiée dans le presse-papiers');
+    }
+
+    /* Share a single folder (folder item + its sims) */
+    function shareFolder(folderId) {
+      const list       = loadSimList();
+      const folderItem = list.find(i => i.kind === 'folder' && i.id === folderId);
+      if (!folderItem) return;
+      const sims = list.filter(i => i.kind === 'sim' && i.folderId === folderId);
+      const pack = [folderItem, ...sims]; /* folder first, then its children */
+      const b64  = simToB64({ v: 1, list: pack });
+      if (!b64) return;
+      const url  = location.origin + location.pathname + '#pack=' + b64;
+      if (url.length > 20000) {
+        showShareToast('⚠️ Dossier trop volumineux pour une URL');
+        return;
+      }
+      copyUrl(url, `📁 Dossier "${folderItem.name}" (${sims.length} simulation${sims.length > 1 ? 's' : ''}) copié dans le presse-papiers`);
+    }
+
+    /* Share entire workspace (folders + all sims) */
+    function shareAllSims() {
+      const list = loadSimList();
+      if (list.length === 0) return;
+      const simCount = list.filter(i => i.kind === 'sim').length;
+      const b64 = simToB64({ v: 1, list });
+      if (!b64) return;
+      const url = location.origin + location.pathname + '#pack=' + b64;
+      if (url.length > 20000) {
+        showShareToast('⚠️ Trop de données pour une URL — utilisez « Exporter en fichier »');
+        return;
+      }
+      copyUrl(url, `🗂 ${simCount} simulation${simCount > 1 ? 's' : ''} copiée${simCount > 1 ? 's' : ''} dans le presse-papiers`);
+    }
+
+    /* Import single sim: #sim=<b64> */
+    function checkUrlImport() {
+      const hash = location.hash;
+      if (!hash.startsWith('#sim=')) return false;
+      const imported = b64ToSim(hash.slice(5));
+      if (!imported || !imported.data) return false;
+      const list = loadSimList();
+      const id   = genId();
+      list.push({ kind: 'sim', id, name: (imported.name || 'Simulation importée') + ' (importée)', data: imported.data });
+      saveSimList(list); setActiveId(id);
+      history.replaceState(null, '', location.pathname);
+      return true;
+    }
+
+    /* Core import logic — appends a raw list of items (folders + sims) with fresh IDs */
+    function importPackList(rawList) {
+      const list     = loadSimList();
+      const idMap    = {};
+      let firstSimId = null;
+
+      rawList.forEach(item => {
+        if (item.kind === 'folder') idMap[item.id] = genId();
+      });
+      rawList.forEach(item => {
+        if (item.kind === 'folder') {
+          list.push({ ...item, id: idMap[item.id], name: item.name + ' (importé)' });
+        } else if (item.kind === 'sim' || !item.kind) {
+          const newId = genId();
+          if (!firstSimId) firstSimId = newId;
+          list.push({
+            ...item, kind: 'sim', id: newId,
+            name: item.name + ' (importée)',
+            folderId: item.folderId ? (idMap[item.folderId] ?? null) : null,
+          });
+        }
+      });
+      saveSimList(list);
+      if (firstSimId) setActiveId(firstSimId);
+      return firstSimId;
+    }
+
+    /* Import full pack: #pack=<b64> */
+    function checkUrlImportPack() {
+      const hash = location.hash;
+      if (!hash.startsWith('#pack=')) return false;
+      const payload = b64ToSim(hash.slice(6));
+      if (!payload?.list || !Array.isArray(payload.list)) return false;
+      importPackList(payload.list);
+      history.replaceState(null, '', location.pathname);
+      return true;
+    }
+
+    /* Export all simulations as a .json file */
+    function exportAllToFile() {
+      const list    = loadSimList();
+      const payload = JSON.stringify({ v: 1, list }, null, 2);
+      const blob    = new Blob([payload], { type: 'application/json' });
+      const url     = URL.createObjectURL(blob);
+      const a       = document.createElement('a');
+      a.href        = url;
+      a.download    = `simulations-portefeuille-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      const simCount = list.filter(i => i.kind === 'sim').length;
+      showShareToast(`⬇ ${simCount} simulation${simCount > 1 ? 's' : ''} exportée${simCount > 1 ? 's' : ''}`);
+    }
+
+    /* Import simulations from a .json file */
+    function importFromFile() {
+      const input  = document.createElement('input');
+      input.type   = 'file';
+      input.accept = '.json,application/json';
+      input.addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const payload = JSON.parse(ev.target.result);
+            if (!payload?.list || !Array.isArray(payload.list)) throw new Error();
+            const firstId  = importPackList(payload.list);
+            const simCount = payload.list.filter(i => i.kind === 'sim').length;
+            if (firstId) { applyState(loadState()); renderSimList(); }
+            showShareToast(`✅ ${simCount} simulation${simCount > 1 ? 's' : ''} importée${simCount > 1 ? 's' : ''}`);
+          } catch {
+            showShareToast('⚠️ Fichier invalide ou corrompu');
+          }
+        };
+        reader.readAsText(file);
+      });
+      input.click();
+    }
+
+    /* ── LIST (folders + sims) ── */
+    function loadSimList() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(LIST_KEY));
+        if (Array.isArray(stored)) return stored;
+      } catch {}
+      /* migrate from legacy SIMS_KEY */
+      try {
+        const old = JSON.parse(localStorage.getItem(SIMS_KEY)) || [];
+        return old.map(s => ({ kind: 'sim', id: s.id, name: s.name, data: s.data }));
+      } catch { return []; }
+    }
+    function saveSimList(list) { localStorage.setItem(LIST_KEY, JSON.stringify(list)); }
+
+    /* helpers */
+    function loadSims() {
+      return loadSimList().filter(i => i.kind === 'sim' || !i.kind);
+    }
+    /* saveSims: merges sim array back into list (preserves folder structure).
+       New sims not yet in the list are appended at root level. */
+    function saveSims(sims) {
+      const list = loadSimList();
+      const inList = new Set(list.filter(i => i.kind === 'sim' || !i.kind).map(i => i.id));
+      const keep   = new Set(sims.map(s => s.id));
+      /* update / remove */
+      let newList = list
+        .filter(item => item.kind === 'folder' || keep.has(item.id))
+        .map(item => {
+          if (item.kind === 'folder') return item;
+          const u = sims.find(s => s.id === item.id);
+          return u ? { ...item, name: u.name, data: u.data } : item;
+        });
+      /* append brand-new sims */
+      for (const s of sims) {
+        if (!inList.has(s.id)) newList.push({ kind: 'sim', id: s.id, name: s.name, data: s.data });
+      }
+      saveSimList(newList);
+    }
+
+    function getActiveId()    { return localStorage.getItem(ACTIVE_KEY) || ''; }
+    function setActiveId(id)  { localStorage.setItem(ACTIVE_KEY, id); }
+
+    function defaultSimData() {
+      return {
+        portfolio: 500000, return: 7, inflation: 2, duration: 25,
+        flowPeriods: [],
+        startYear: new Date().getFullYear(), startAge: 0,
+        series: { brut: true, real: true, contrib: true, fire: false, fireReal: false, fireTarget: false, dwz: false, dwzReal: false },
+        profile: 'manual',
+        profileBreakdowns: {
+          monde:         PROFILE_DEFAULTS.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+          sp500:         PROFILE_DEFAULTS.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+          manual_custom: PROFILE_DEFAULTS.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
+        },
+        fire: { spendingMin: 3500, spendingMax: 0, swr: 4, yearOverride: null },
+        dwz:  { profile: 'conservateur', spendingMin: 0, reserve: 0, yearOverride: null },
+      };
+    }
+
+    function initSimStorage() {
+      let list = loadSimList();
+      const sims = list.filter(i => i.kind === 'sim' || !i.kind);
+      if (sims.length === 0) {
+        let data = null;
+        try { data = JSON.parse(localStorage.getItem('sim_v3')); } catch {}
+        const id = genId();
+        list = [{ kind: 'sim', id, name: 'Ma simulation', data: data || defaultSimData() }];
+        saveSimList(list); setActiveId(id);
+      } else if (!sims.find(s => s.id === getActiveId())) {
+        setActiveId(sims[0].id);
+      }
+    }
+
+    function loadState() {
+      const sims = loadSims();
+      const sim  = sims.find(s => s.id === getActiveId()) || sims[0];
+      return sim?.data || null;
+    }
+
+    function saveState(state) {
+      try {
+        const list = loadSimList();
+        const idx  = list.findIndex(i => (i.kind === 'sim' || !i.kind) && i.id === getActiveId());
+        if (idx !== -1) { list[idx].data = state; saveSimList(list); }
+        const badge = document.getElementById('saveBadge');
+        badge.classList.add('visible');
+        clearTimeout(badge._t);
+        badge._t = setTimeout(() => badge.classList.remove('visible'), 2000);
+      } catch {}
+    }
+
+    /* ── SIM ITEM HTML helper ── */
+    function simItemHTML(sim, activeId, simCount) {
+      return `<div class="sim-item${sim.id === activeId ? ' active' : ''}" data-id="${sim.id}" data-folder-id="${sim.folderId || ''}" draggable="true">
+        <span class="sim-drag-handle" title="Déplacer">⠿</span>
+        <button class="sim-item-btn" data-id="${sim.id}">${escHtml(sim.name)}</button>
+        <button class="sim-dup-btn"  data-id="${sim.id}" title="Dupliquer">⎘</button>
+        <button class="sim-delete-btn" data-id="${sim.id}" ${simCount === 1 ? 'disabled' : ''} title="Supprimer">×</button>
+      </div>`;
+    }
+
+    /* ── LIST MANIPULATION helpers ── */
+
+    /* Move sim before/after another sim; inherit target's folderId */
+    function listMoveSim(srcId, tgtId, before) {
+      const list = loadSimList();
+      const srcIdx = list.findIndex(i => i.id === srcId && i.kind === 'sim');
+      const tgtIdx = list.findIndex(i => i.id === tgtId && i.kind === 'sim');
+      if (srcIdx === -1 || tgtIdx === -1 || srcIdx === tgtIdx) return;
+      const newFolderId = list[tgtIdx].folderId || null;
+      const [moved] = list.splice(srcIdx, 1);
+      moved.folderId = newFolderId;
+      const newTgt = list.findIndex(i => i.id === tgtId && i.kind === 'sim');
+      list.splice(before ? newTgt : newTgt + 1, 0, moved);
+      saveSimList(list);
+    }
+
+    /* Add sim to end of folder */
+    function listAddSimToFolder(srcId, folderId) {
+      const list = loadSimList();
+      const srcIdx = list.findIndex(i => i.id === srcId && i.kind === 'sim');
+      if (srcIdx === -1) return;
+      const [moved] = list.splice(srcIdx, 1);
+      moved.folderId = folderId;
+      /* find insertion point: after last child of this folder */
+      let ins = list.findIndex(i => i.kind === 'folder' && i.id === folderId);
+      if (ins === -1) { list.push(moved); saveSimList(list); return; }
+      ins++;
+      while (ins < list.length && list[ins].kind === 'sim' && list[ins].folderId === folderId) ins++;
+      list.splice(ins, 0, moved);
+      saveSimList(list);
+    }
+
+    /* Extract a folder block (header + all its children) from the list */
+    function extractFolderBlock(list, folderId) {
+      const start = list.findIndex(i => i.kind === 'folder' && i.id === folderId);
+      if (start === -1) return null;
+      let end = start + 1;
+      while (end < list.length && list[end].kind === 'sim' && list[end].folderId === folderId) end++;
+      return { start, end, block: list.splice(start, end - start) };
+    }
+
+    /* Move folder block before/after a sim or another folder header */
+    function listMoveFolder(srcFolderId, tgtId, tgtKind, before) {
+      const list = loadSimList();
+      const extracted = extractFolderBlock(list, srcFolderId);
+      if (!extracted) return;
+      const { block } = extracted;
+      let ins;
+      if (tgtKind === 'sim') {
+        ins = list.findIndex(i => i.id === tgtId && i.kind === 'sim');
+        if (ins === -1) { list.push(...block); saveSimList(list); return; }
+        if (!before) ins++;
+      } else { /* folder */
+        ins = list.findIndex(i => i.id === tgtId && i.kind === 'folder');
+        if (ins === -1) { list.push(...block); saveSimList(list); return; }
+        if (!before) {
+          ins++;
+          while (ins < list.length && list[ins].kind === 'sim' && list[ins].folderId === tgtId) ins++;
+        }
+      }
+      list.splice(ins, 0, ...block);
+      saveSimList(list);
+    }
+
+    /* ── RENDER SIM LIST ── */
+    function renderSimList() {
+      const list     = loadSimList();
+      const activeId = getActiveId();
+      const simCount = list.filter(i => i.kind === 'sim' || !i.kind).length;
+      const active   = list.find(i => (i.kind === 'sim' || !i.kind) && i.id === activeId);
+      document.getElementById('simNameInput').value = active?.name || '';
+
+      const folderIds = new Set(list.filter(i => i.kind === 'folder').map(i => i.id));
+      const listEl    = document.getElementById('simList');
+
+      /* Build HTML */
+      let html = '';
+      let i = 0;
+      while (i < list.length) {
+        const item = list[i];
+        if (item.kind === 'folder') {
+          /* collect children */
+          const children = [];
+          let j = i + 1;
+          while (j < list.length && list[j].kind === 'sim' && list[j].folderId === item.id) {
+            children.push(list[j]); j++;
+          }
+          const isOpen = item.open !== false;
+          html += `<div class="sim-folder" data-folder-id="${item.id}">
+            <div class="sim-folder-header" data-folder-id="${item.id}" draggable="true">
+              <span class="sim-folder-drag-handle" title="Déplacer le dossier">⠿</span>
+              <span class="sim-folder-toggle">${isOpen ? '▾' : '▸'}</span>
+              <span class="sim-folder-icon">📁</span>
+              <span class="sim-folder-name" data-folder-id="${item.id}">${escHtml(item.name)}</span>
+              <button class="sim-folder-dup-btn"   data-folder-id="${item.id}" title="Dupliquer le dossier">⎘</button>
+              <button class="sim-folder-share-btn" data-folder-id="${item.id}" title="Partager ce dossier">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12.5" cy="2.5" r="1.5"/><circle cx="12.5" cy="13.5" r="1.5"/><circle cx="3.5" cy="8" r="1.5"/>
+                  <line x1="5" y1="7.1" x2="11" y2="3.4"/><line x1="5" y1="8.9" x2="11" y2="12.6"/>
+                </svg>
+              </button>
+              <button class="sim-folder-delete-btn" data-folder-id="${item.id}" title="Supprimer le dossier">×</button>
+            </div>
+            <div class="sim-folder-body${isOpen ? '' : ' sim-folder-collapsed'}">
+              ${children.map(s => simItemHTML(s, activeId, simCount)).join('')}
+            </div>
+          </div>`;
+          i = j;
+        } else if (item.kind === 'sim' || !item.kind) {
+          /* only render root-level sims here (folder sims rendered above) */
+          if (!item.folderId || !folderIds.has(item.folderId)) {
+            html += simItemHTML({ ...item, folderId: null }, activeId, simCount);
+          }
+          i++;
+        } else { i++; }
+      }
+      listEl.innerHTML = html;
+
+      /* ── EVENTS : sim ── */
+      listEl.querySelectorAll('.sim-item-btn').forEach(btn =>
+        btn.addEventListener('click', () => { if (btn.dataset.id !== activeId) switchToSim(btn.dataset.id); })
+      );
+      listEl.querySelectorAll('.sim-dup-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); duplicateSim(btn.dataset.id); })
+      );
+      listEl.querySelectorAll('.sim-delete-btn:not([disabled])').forEach(btn =>
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          const s = loadSimList().find(i => i.id === btn.dataset.id);
+          if (confirm('Supprimer "' + (s?.name || 'cette simulation') + '" ?')) deleteSim(btn.dataset.id);
+        })
+      );
+
+      /* ── EVENTS : folder toggle + rename ── */
+      listEl.querySelectorAll('.sim-folder-toggle, .sim-folder-icon, .sim-folder-name').forEach(el => {
+        if (el.classList.contains('sim-folder-name')) {
+          /* double-click → inline rename */
+          el.addEventListener('dblclick', e => {
+            e.stopPropagation();
+            const fid  = el.dataset.folderId;
+            const inp  = document.createElement('input');
+            inp.type   = 'text';
+            inp.className = 'sim-folder-name-input';
+            inp.value  = el.textContent;
+            el.replaceWith(inp);
+            inp.focus(); inp.select();
+            const commit = () => {
+              const newName = inp.value.trim() || 'Dossier';
+              const l = loadSimList();
+              const fi = l.findIndex(i => i.kind === 'folder' && i.id === fid);
+              if (fi !== -1) { l[fi].name = newName; saveSimList(l); }
+              renderSimList();
+            };
+            inp.addEventListener('blur',    commit);
+            inp.addEventListener('keydown', e2 => { if (e2.key === 'Enter') { e2.preventDefault(); inp.blur(); } if (e2.key === 'Escape') renderSimList(); });
+          });
+        }
+        /* single click → toggle open/closed */
+        el.addEventListener('click', e => {
+          if (el.classList.contains('sim-folder-name') && e.detail > 1) return; /* dblclick handled */
+          const fid = el.closest('[data-folder-id]')?.dataset.folderId;
+          if (!fid) return;
+          const l  = loadSimList();
+          const fi = l.findIndex(i => i.kind === 'folder' && i.id === fid);
+          if (fi !== -1) { l[fi].open = l[fi].open === false ? true : false; saveSimList(l); renderSimList(); }
+        });
+      });
+
+      /* ── EVENTS : folder dup ── */
+      listEl.querySelectorAll('.sim-folder-dup-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); duplicateFolder(btn.dataset.folderId); })
+      );
+
+      /* ── EVENTS : folder share ── */
+      listEl.querySelectorAll('.sim-folder-share-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); shareFolder(btn.dataset.folderId); })
+      );
+
+      /* ── EVENTS : folder delete ── */
+      listEl.querySelectorAll('.sim-folder-delete-btn').forEach(btn =>
+        btn.addEventListener('click', e => { e.stopPropagation(); deleteFolder(btn.dataset.folderId); })
+      );
+
+      /* ── DRAG-AND-DROP ── */
+      let dragSrc = null; /* { kind:'sim'|'folder', id, folderId } */
+
+      const clearDrag = () => {
+        listEl.querySelectorAll('.sim-drag-over-top, .sim-drag-over-bottom').forEach(el =>
+          el.classList.remove('sim-drag-over-top', 'sim-drag-over-bottom'));
+        listEl.querySelectorAll('.sim-drag-folder-over').forEach(el =>
+          el.classList.remove('sim-drag-folder-over'));
+      };
+
+      /* SIM drag */
+      listEl.querySelectorAll('.sim-item').forEach(item => {
+        item.addEventListener('mousedown', e => {
+          item.draggable = !!e.target.closest('.sim-drag-handle');
+        });
+        item.addEventListener('dragstart', e => {
+          if (!item.draggable) { e.preventDefault(); return; }
+          dragSrc = { kind: 'sim', id: item.dataset.id, folderId: item.dataset.folderId || null };
+          item.classList.add('sim-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', item.dataset.id);
+        });
+        item.addEventListener('dragend', () => {
+          item.classList.remove('sim-dragging');
+          clearDrag(); item.draggable = true;
+        });
+        item.addEventListener('dragover', e => {
+          e.preventDefault(); if (!dragSrc) return;
+          clearDrag();
+          if (dragSrc.kind === 'sim') {
+            if (item.dataset.id === dragSrc.id) return;
+            const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+            item.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+          } else { /* folder dragged over a root sim */
+            if (!item.dataset.folderId) {
+              const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+              item.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+            }
+          }
+        });
+        item.addEventListener('dragleave', () => clearDrag());
+        item.addEventListener('drop', e => {
+          e.preventDefault(); clearDrag();
+          if (!dragSrc) return;
+          if (dragSrc.kind === 'sim') {
+            if (dragSrc.id === item.dataset.id) return;
+            const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+            listMoveSim(dragSrc.id, item.dataset.id, e.clientY < mid);
+          } else {
+            if (!item.dataset.folderId) {
+              const mid = item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2;
+              listMoveFolder(dragSrc.id, item.dataset.id, 'sim', e.clientY < mid);
+            }
+          }
+          renderSimList();
+        });
+      });
+
+      /* FOLDER HEADER drag */
+      listEl.querySelectorAll('.sim-folder-header').forEach(header => {
+        header.addEventListener('mousedown', e => {
+          header.draggable = !!e.target.closest('.sim-folder-drag-handle');
+        });
+        header.addEventListener('dragstart', e => {
+          if (!header.draggable) { e.preventDefault(); return; }
+          const fid = header.dataset.folderId;
+          dragSrc = { kind: 'folder', id: fid };
+          header.closest('.sim-folder')?.classList.add('sim-dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', fid);
+        });
+        header.addEventListener('dragend', () => {
+          header.closest('.sim-folder')?.classList.remove('sim-dragging');
+          clearDrag(); header.draggable = true;
+        });
+        /* FOLDER over FOLDER */
+        header.addEventListener('dragover', e => {
+          e.preventDefault(); if (!dragSrc) return;
+          clearDrag();
+          const tgtFid = header.dataset.folderId;
+          if (dragSrc.kind === 'folder') {
+            if (dragSrc.id === tgtFid) return;
+            const mid = header.getBoundingClientRect().top + header.getBoundingClientRect().height / 2;
+            header.classList.add(e.clientY < mid ? 'sim-drag-over-top' : 'sim-drag-over-bottom');
+          } else { /* sim dragged over folder header → add to folder */
+            header.classList.add('sim-drag-folder-over');
+          }
+        });
+        header.addEventListener('dragleave', () => clearDrag());
+        header.addEventListener('drop', e => {
+          e.preventDefault(); clearDrag();
+          if (!dragSrc) return;
+          const tgtFid = header.dataset.folderId;
+          if (dragSrc.kind === 'folder') {
+            if (dragSrc.id === tgtFid) return;
+            const mid = header.getBoundingClientRect().top + header.getBoundingClientRect().height / 2;
+            listMoveFolder(dragSrc.id, tgtFid, 'folder', e.clientY < mid);
+          } else {
+            listAddSimToFolder(dragSrc.id, tgtFid);
+          }
+          renderSimList();
+        });
+      });
+    }
+
+    function switchToSim(id) {
+      setActiveId(id);
+      applyState(loadState());
+      renderSimList();
+    }
+
+    function deleteSim(id) {
+      let list = loadSimList().filter(i => i.id !== id);
+      const remaining = list.filter(i => i.kind === 'sim' || !i.kind);
+      if (remaining.length === 0) list.push({ kind: 'sim', id: genId(), name: 'Ma simulation', data: defaultSimData() });
+      const upd = list.filter(i => i.kind === 'sim' || !i.kind);
+      if (getActiveId() === id) setActiveId(upd[0].id);
+      saveSimList(list);
+      applyState(loadState());
+      renderSimList();
+    }
+
+    function createNewSim() {
+      const list  = loadSimList();
+      const sims  = list.filter(i => i.kind === 'sim' || !i.kind);
+      const id    = genId();
+      const data  = defaultSimData();
+      list.push({ kind: 'sim', id, name: 'Simulation ' + (sims.length + 1), data });
+      saveSimList(list); setActiveId(id);
+      applyState(data);
+      renderSimList();
+    }
+
+    function duplicateSim(sourceId) {
+      const list    = loadSimList();
+      const srcIdx  = list.findIndex(i => (i.kind === 'sim' || !i.kind) && i.id === sourceId);
+      if (srcIdx === -1) return;
+      const source  = list[srcIdx];
+      const newId   = genId();
+      const newItem = {
+        kind: 'sim', id: newId,
+        name: source.name + ' (copie)',
+        data: JSON.parse(JSON.stringify(source.data)),
+        folderId: source.folderId || null,
+      };
+      list.splice(srcIdx + 1, 0, newItem); /* insert right after source */
+      saveSimList(list);
+      setActiveId(newId);
+      applyState(newItem.data);
+      renderSimList();
+      setTimeout(() => { const inp = document.getElementById('simNameInput'); if (inp) { inp.focus(); inp.select(); } }, 50);
+    }
+
+    /* ── FOLDER CRUD ── */
+    function createFolder() {
+      const list = loadSimList();
+      const idx  = list.findIndex(i => (i.kind === 'sim' || !i.kind) && i.id === getActiveId());
+      const newFolder = { kind: 'folder', id: genId(), name: 'Nouveau dossier', open: true };
+      /* insert just before the active sim (or at end) */
+      list.splice(idx !== -1 ? idx : list.length, 0, newFolder);
+      saveSimList(list);
+      renderSimList();
+      /* trigger inline rename immediately */
+      setTimeout(() => {
+        const el = document.querySelector(`.sim-folder-name[data-folder-id="${newFolder.id}"]`);
+        if (el) el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      }, 30);
+    }
+
+    function duplicateFolder(folderId) {
+      const list       = loadSimList();
+      const folderIdx  = list.findIndex(i => i.kind === 'folder' && i.id === folderId);
+      if (folderIdx === -1) return;
+      const folder     = list[folderIdx];
+      /* collect children in order */
+      const children   = [];
+      let end = folderIdx + 1;
+      while (end < list.length && list[end].kind === 'sim' && list[end].folderId === folderId) {
+        children.push(list[end]); end++;
+      }
+      /* build duplicates with fresh IDs */
+      const newFolderId = genId();
+      const newFolder   = { ...folder, id: newFolderId, name: folder.name + ' (copie)' };
+      const newChildren = children.map(s => ({
+        ...s,
+        id:       genId(),
+        name:     s.name,
+        folderId: newFolderId,
+        data:     JSON.parse(JSON.stringify(s.data)),
+      }));
+      /* insert the block right after the original block */
+      list.splice(end, 0, newFolder, ...newChildren);
+      saveSimList(list);
+      renderSimList();
+    }
+
+    function deleteFolder(folderId) {
+      const list     = loadSimList();
+      const children = list.filter(i => i.kind === 'sim' && i.folderId === folderId);
+      const name     = list.find(i => i.kind === 'folder' && i.id === folderId)?.name || 'ce dossier';
+      const msg = children.length > 0
+        ? `Supprimer le dossier "${name}" et ses ${children.length} simulation(s) ?\nLes simulations seront retirées du dossier mais conservées.`
+        : `Supprimer le dossier "${name}" ?`;
+      if (!confirm(msg)) return;
+      const newList = list
+        .filter(i => !(i.kind === 'folder' && i.id === folderId))
+        .map(i => (i.kind === 'sim' && i.folderId === folderId) ? { ...i, folderId: null } : i);
+      saveSimList(newList);
+      renderSimList();
+    }
+
+    function applyState(saved) {
+      if (!saved) return;
+      /* reset toggles */
+      seriesVisible.brut = seriesVisible.real = seriesVisible.contrib = seriesVisible.fire = seriesVisible.fireReal = seriesVisible.fireTarget = seriesVisible.dwz = seriesVisible.dwzReal = true;
+      ['toggleBrut','toggleReal','toggleContrib','toggleFire','toggleFireReal','toggleFireTarget','toggleDwz','toggleDwzReal'].forEach(id => {
+        document.getElementById(id)?.classList.remove('off');
+        document.getElementById(id)?.setAttribute('aria-pressed', 'true');
+      });
+      /* reset profile breakdowns */
+      ['monde','sp500','manual_custom'].forEach(key =>
+        PROFILES[key].breakdown = PROFILE_DEFAULTS[key].breakdown.map(r => ({...r}))
+      );
+      const set = (rId, nId, v) => {
+        const rounded = +parseFloat(v).toFixed(2);
+        document.getElementById(rId).value = rounded;
+        document.getElementById(nId).value = rounded;
+      };
+      if (saved.portfolio !== undefined) {
+        document.getElementById('rPortfolio').value = saved.portfolio;
+        document.getElementById('nPortfolio').value = fmtPortfolio(saved.portfolio);
+      }
+      if (saved.return    !== undefined) set('rReturn',    'nReturn',    saved.return);
+      if (saved.inflation !== undefined) set('rInflation', 'nInflation', saved.inflation);
+      if (saved.duration  !== undefined) set('rDuration',  'nDuration',  saved.duration);
+      if (saved.flowPeriods !== undefined) {
+        flowPeriods = saved.flowPeriods.map(p => ({ ...p }));
+      } else if (saved.flow !== undefined && saved.flow !== 0) {
+        flowPeriods = [{ from: 1, to: saved.duration || 25, flow: saved.flow }];
+      } else {
+        flowPeriods = [];
+      }
+      renderFlowPeriods();
+      if (saved.startYear !== undefined) document.getElementById('nStartYear').value = saved.startYear;
+      document.getElementById('nAge').value = saved.startAge > 0 ? saved.startAge : '';
+      if (saved.profileBreakdowns) {
+        ['monde','sp500'].forEach(key => {
+          const saved_bd = saved.profileBreakdowns[key];
+          if (!saved_bd) return;
+          const defaultLen = PROFILE_DEFAULTS[key].breakdown.length;
+          /* update default rows (alloc + rate only, keep fixed name/flags) */
+          saved_bd.slice(0, defaultLen).forEach((item, i) => {
+            if (PROFILES[key].breakdown[i]) {
+              PROFILES[key].breakdown[i].alloc = item.alloc ?? PROFILES[key].breakdown[i].alloc;
+              PROFILES[key].breakdown[i].rate  = item.rate  ?? PROFILES[key].breakdown[i].rate;
+            }
+          });
+          /* re-append any extra rows the user added */
+          saved_bd.slice(defaultLen).forEach(item => {
+            PROFILES[key].breakdown.push({
+              name: item.name || 'Actif',
+              alloc: item.alloc ?? 0,
+              rate:  item.rate  ?? 5.0,
+              rateEditable: true,
+              nameEditable: true,
+            });
+          });
+        });
+        /* manual_custom: rows can be added/deleted so we replace the array */
+        if (Array.isArray(saved.profileBreakdowns.manual_custom)) {
+          PROFILES.manual_custom.breakdown = saved.profileBreakdowns.manual_custom.map(r => ({
+            name: r.name || 'Actif',
+            alloc: r.alloc ?? 0,
+            rate:  r.rate  ?? 5.0,
+            rateEditable: true,
+            nameEditable: true,
+          }));
+        }
+      }
+      if (saved.series) {
+        const idMap = { brut:'toggleBrut', real:'toggleReal', contrib:'toggleContrib', fire:'toggleFire', fireReal:'toggleFireReal', fireTarget:'toggleFireTarget', dwz:'toggleDwz', dwzReal:'toggleDwzReal' };
+        ['brut','real','contrib','fire','fireReal','fireTarget','dwz','dwzReal'].forEach(key => {
+          if (saved.series[key] === false) {
+            seriesVisible[key] = false;
+            document.getElementById(idMap[key])?.classList.add('off');
+            document.getElementById(idMap[key])?.setAttribute('aria-pressed','false');
+          }
+        });
+      }
+      /* FIRE */
+      if (saved.fire) {
+        fireSpendingMin  = saved.fire.spendingMin  ?? saved.fire.spending ?? 3500;
+        fireSpendingMax  = saved.fire.spendingMax  ?? 0;
+        fireSWR          = saved.fire.swr          ?? 4;
+        fireYearOverride = saved.fire.yearOverride ?? null;
+      } else {
+        fireSpendingMin = 3500; fireSpendingMax = 0; fireSWR = 4; fireYearOverride = null;
+      }
+      document.getElementById('nFireSpendingMin')?.setAttribute('value', fireSpendingMin);
+      const nFireSpendingMinEl = document.getElementById('nFireSpendingMin');
+      if (nFireSpendingMinEl) nFireSpendingMinEl.value = fireSpendingMin;
+      const nFireSpendingMaxEl = document.getElementById('nFireSpendingMax');
+      if (nFireSpendingMaxEl) nFireSpendingMaxEl.value = fireSpendingMax > 0 ? fireSpendingMax : '';
+      const nFireSWREl = document.getElementById('nFireSWR');
+      if (nFireSWREl) nFireSWREl.value = fireSWR;
+      const nFireStartYearEl = document.getElementById('nFireStartYear');
+      if (nFireStartYearEl) nFireStartYearEl.value = fireYearOverride ?? '';
+
+      /* DWZ */
+      if (saved.dwz) {
+        dwzProfile      = saved.dwz.profile      ?? 'conservateur';
+        dwzSpendingMin  = saved.dwz.spendingMin  ?? 0;
+        dwzReserve      = saved.dwz.reserve      ?? 0;
+        dwzYearOverride = saved.dwz.yearOverride ?? null;
+      } else {
+        dwzProfile = 'conservateur'; dwzSpendingMin = 0; dwzReserve = 0; dwzYearOverride = null;
+      }
+      document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.profile === dwzProfile)
+      );
+      const nDwzSpendingMinEl = document.getElementById('nDwzSpendingMin');
+      if (nDwzSpendingMinEl) nDwzSpendingMinEl.value = dwzSpendingMin > 0 ? dwzSpendingMin : '';
+      const nDwzReserveEl = document.getElementById('nDwzReserve');
+      if (nDwzReserveEl) nDwzReserveEl.value = dwzReserve > 0 ? dwzReserve : '';
+      const nDwzStartYearEl = document.getElementById('nDwzStartYear');
+      if (nDwzStartYearEl) nDwzStartYearEl.value = dwzYearOverride ?? '';
+
+      activeProfile = saved.profile || 'manual';
+      applyProfile(activeProfile);
+    }
+
+
+    /* ── PORTFOLIO INPUT FORMATTER ── */
+    const fmtPortfolio = v => new Intl.NumberFormat('fr-FR').format(Math.round(v));
+    const parsePortfolio = s => parseInt(String(s).replace(/\s/g, '').replace(/\u202F/g, '').replace(/\u00A0/g, ''), 10);
+
+    function wirePortfolioInput() {
+      const range = document.getElementById('rPortfolio');
+      const num   = document.getElementById('nPortfolio');
+
+      range.addEventListener('input', () => {
+        num.value = fmtPortfolio(parseFloat(range.value));
+        compute();
+      });
+
+      num.addEventListener('focus', () => {
+        const raw = parsePortfolio(num.value);
+        if (!isNaN(raw)) num.value = raw;
+        num.select();
+      });
+
+      num.addEventListener('blur', () => {
+        let v = parsePortfolio(num.value);
+        if (isNaN(v)) v = parseFloat(range.value);
+        v = Math.min(3000000, Math.max(200000, v));
+        range.value = v;
+        num.value = fmtPortfolio(v);
+        compute();
+      });
+    }
+
+    /* ── SYNC SLIDER ↔ INPUT ── */
+    function linkSliderInput(rangeId, numId) {
+      const range = document.getElementById(rangeId);
+      const num   = document.getElementById(numId);
+
+      range.addEventListener('input', () => {
+        num.value = parseFloat(range.value);
+        compute();
+      });
+
+      num.addEventListener('change', () => {
+        let v = parseFloat(num.value);
+        if (isNaN(v)) v = parseFloat(range.value);
+        v = Math.min(parseFloat(range.max), Math.max(parseFloat(range.min), v));
+        num.value = v;
+        range.value = v;
+        compute();
+      });
+    }
+
+    /* ── COMPARISON PANEL ── */
+    function renderComparisonCol(colId, color, title, finalVal, withdrawals) {
+      const el = document.getElementById(colId);
+      if (!el) return;
+      const min = withdrawals.length > 0 ? Math.min(...withdrawals) : null;
+      const max = withdrawals.length > 0 ? Math.max(...withdrawals) : null;
+      const avg = withdrawals.length > 0
+        ? withdrawals.reduce((a, b) => a + b, 0) / withdrawals.length : null;
+
+      const fmtAmt = v => v !== null
+        ? `<div class="comparison-val-main" style="color:${color}">${fmtEur(Math.round(v / 12))}/mois</div>
+           <div class="comparison-val-sub">${fmtEur(Math.round(v))}/an</div>`
+        : `<div class="comparison-val-main" style="color:var(--text-3)">—</div>`;
+
+      el.innerHTML = `
+        <div class="comparison-col-title">
+          <span class="comparison-dot" style="background:${color}"></span>
+          <span style="color:${color}">${title}</span>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Portefeuille final</span>
+          <div class="comparison-row-val">
+            <div class="comparison-val-main" style="color:${color}">${fmtK(finalVal)}</div>
+          </div>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Retrait min.</span>
+          <div class="comparison-row-val">${fmtAmt(min)}</div>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Retrait max.</span>
+          <div class="comparison-row-val">${fmtAmt(max)}</div>
+        </div>
+        <div class="comparison-row">
+          <span class="comparison-row-label">Retrait moyen</span>
+          <div class="comparison-row-val">${fmtAmt(avg)}</div>
+        </div>`;
+    }
+
+    /* ── CHART ── */
+    let chart = null;
+
+    function buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, dataDwzPortfolio, dataDwzPortfolioReal, years, crossIdx, startAge) {
+      const dark = isDarkMode();
+      const textColor = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.28)';
+      const gridColor = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+      const maxTicks = years <= 20 ? years : 12;
+      const ptR = years > 30 ? 0 : years > 15 ? 2 : 3;
+
+      /* per-point styling on brut line */
+      const ptColors = dataBrut.map(v => v <= 0 ? '#D85A30' : '#1D9E75');
+      const ptSizes  = dataBrut.map((v, i) => {
+        if (v <= 0 && (i === 0 || dataBrut[i - 1] > 0)) return 6;
+        return ptR;
+      });
+
+      /* inline plugin: vertical dashed line + label at crossing point */
+      const crossLinePlugin = crossIdx !== -1 ? {
+        id: 'crossLine',
+        afterDraw(ch) {
+          const { ctx, chartArea, scales } = ch;
+          const x = scales.x.getPixelForValue(crossIdx);
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(x, chartArea.top);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.strokeStyle = 'rgba(216,90,48,0.55)';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          /* badge */
+          const lbl = labels[crossIdx];
+          ctx.font = '600 11px system-ui,sans-serif';
+          const tw = ctx.measureText(lbl).width;
+          const bx = Math.min(x + 5, chartArea.right - tw - 10);
+          ctx.fillStyle = 'rgba(216,90,48,0.12)';
+          ctx.beginPath();
+          ctx.roundRect(bx - 3, chartArea.top + 5, tw + 8, 18, 4);
+          ctx.fill();
+          ctx.fillStyle = '#D85A30';
+          ctx.fillText(lbl, bx + 1, chartArea.top + 17);
+          ctx.restore();
+        }
+      } : null;
+
+      if (chart) chart.destroy();
+      chart = new Chart(document.getElementById('simChart'), {
+        type: 'line',
+        plugins: crossLinePlugin ? [crossLinePlugin] : [],
+        data: {
+          labels,
+          datasets: [
+            /* FIRE portfolio curve — actual portfolio with withdrawals (brut) */
+            {
+              label: 'Portefeuille FIRE',
+              data: dataFirePortfolio,
+              hidden: !seriesVisible.fire,
+              borderColor: '#D97706',
+              backgroundColor: 'rgba(217,119,6,0.07)',
+              borderWidth: 2,
+              pointRadius: ptR,
+              pointBackgroundColor: '#D97706',
+              fill: true,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 1
+            },
+            /* FIRE portfolio — real value net d'inflation */
+            {
+              label: 'FIRE · net d\'inflation',
+              data: dataFirePortfolioReal,
+              hidden: !seriesVisible.fireReal,
+              borderColor: 'rgba(217,119,6,0.55)',
+              backgroundColor: 'rgba(217,119,6,0.04)',
+              borderWidth: 1.5,
+              borderDash: [3, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 2
+            },
+            /* FIRE target horizontal line — left axis (€ mode only) */
+            {
+              label: 'Objectif FIRE',
+              data: dataFireTarget,
+              hidden: !seriesVisible.fireTarget || !dataFireTarget[0],
+              borderColor: '#9333EA',
+              backgroundColor: 'rgba(147,51,234,0.05)',
+              borderWidth: 2,
+              borderDash: [8, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+              yAxisID: 'y',
+              order: 0
+            },
+            {
+              label: 'Zéro',
+              data: Array(years).fill(0),
+              borderColor: 'rgba(216,90,48,0.35)',
+              borderWidth: 1,
+              borderDash: [4, 3],
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+              order: 5
+            },
+            {
+              label: 'Capital investi',
+              data: dataContrib,
+              hidden: !seriesVisible.contrib,
+              borderColor: dark ? '#5F5E5A' : '#B4B2A9',
+              borderWidth: 1.5,
+              borderDash: [4, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0,
+              order: 3
+            },
+            {
+              label: 'Valeur réelle · net d\'inflation',
+              data: dataReal,
+              hidden: !seriesVisible.real,
+              borderColor: 'rgba(29,158,117,0.55)',
+              backgroundColor: 'rgba(29,158,117,0.04)',
+              borderWidth: 1.5,
+              borderDash: [5, 4],
+              pointRadius: ptR,
+              pointBackgroundColor: 'rgba(29,158,117,0.55)',
+              fill: false,
+              tension: 0.3,
+              order: 2
+            },
+            {
+              label: 'Valeur brute',
+              data: dataBrut,
+              hidden: !seriesVisible.brut,
+              borderColor: '#1D9E75',
+              backgroundColor: 'rgba(29,158,117,0.09)',
+              borderWidth: 2,
+              pointRadius: ptSizes,
+              pointBackgroundColor: ptColors,
+              fill: true,
+              tension: 0.3,
+              order: 1
+            },
+            /* ── DWZ datasets (indices 7 & 8) ── */
+            {
+              label: 'Portefeuille DWZ',
+              data: dataDwzPortfolio,
+              hidden: !seriesVisible.dwz,
+              borderColor: '#0891B2',
+              backgroundColor: 'rgba(8,145,178,0.07)',
+              borderWidth: 2,
+              pointRadius: ptR,
+              pointBackgroundColor: '#0891B2',
+              fill: true,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 1
+            },
+            {
+              label: 'DWZ · net d\'inflation',
+              data: dataDwzPortfolioReal,
+              hidden: !seriesVisible.dwzReal,
+              borderColor: 'rgba(8,145,178,0.55)',
+              backgroundColor: 'rgba(8,145,178,0.04)',
+              borderWidth: 1.5,
+              borderDash: [3, 4],
+              pointRadius: 0,
+              fill: false,
+              tension: 0.3,
+              yAxisID: 'y',
+              order: 2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: dark ? '#2A2A28' : '#fff',
+              borderColor: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+              borderWidth: 1,
+              titleColor: dark ? '#E8E7E3' : '#1A1A19',
+              bodyColor: dark ? '#9B9A96' : '#5F5E5A',
+              padding: 12,
+              filter: item => item.dataset.label !== 'Zéro',
+              callbacks: {
+                title: items => {
+                  const yr = items[0]?.label || '';
+                  if (startAge > 0) return yr + '  ·  ' + (startAge + (items[0]?.dataIndex ?? 0)) + ' ans';
+                  return yr;
+                },
+                label: ctx => {
+                  return '  ' + ctx.dataset.label + ' : ' + fmtEur(ctx.parsed.y);
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: textColor,
+                font: { size: 11 },
+                maxTicksLimit: maxTicks,
+                autoSkip: true,
+                maxRotation: 0
+              },
+              grid: { color: gridColor },
+              border: { color: gridColor }
+            },
+            y: {
+              ticks: {
+                color: textColor,
+                font: { size: 11 },
+                maxTicksLimit: 8,
+                callback: v => {
+                  if (v >= 1e6) return (v / 1e6).toFixed(1) + ' M€';
+                  if (v >= 1e3) return (v / 1e3).toFixed(0) + ' k€';
+                  return v + ' €';
+                }
+              },
+              grid: { color: gridColor },
+              border: { color: gridColor }
+            }
+          }
+        }
+      });
+    }
+
+    /* ── COMPUTE ── */
+    function compute() {
+      const P         = parseFloat(document.getElementById('rPortfolio').value);
+      const r         = parseFloat(document.getElementById('rReturn').value) / 100;
+      const inf       = parseFloat(document.getElementById('rInflation').value) / 100;
+      const years     = parseInt(document.getElementById('rDuration').value);
+      const startYear = parseInt(document.getElementById('nStartYear').value) || new Date().getFullYear();
+      const startAge  = parseInt(document.getElementById('nAge').value) || 0;
+
+      /* FIRE inputs */
+      fireSWR         = parseFloat(document.getElementById('nFireSWR').value) || 4;
+      fireSpendingMin = parseFloat(document.getElementById('nFireSpendingMin').value) || 0;
+      fireSpendingMax = parseFloat(document.getElementById('nFireSpendingMax').value) || 0;
+      const fireYearInput = parseInt(document.getElementById('nFireStartYear').value);
+      fireYearOverride = isNaN(fireYearInput) ? null : fireYearInput;
+
+      /* DWZ inputs */
+      dwzSpendingMin = parseFloat(document.getElementById('nDwzSpendingMin')?.value) || 0;
+      dwzReserve     = parseFloat(document.getElementById('nDwzReserve')?.value) || 0;
+      const dwzStartYearInput = parseInt(document.getElementById('nDwzStartYear')?.value);
+      dwzYearOverride = isNaN(dwzStartYearInput) ? null : dwzStartYearInput;
+
+      /* save */
+      saveState({ portfolio: P, return: r * 100, inflation: inf * 100, duration: years,
+                  flowPeriods: flowPeriods.map(p => ({ ...p })),
+                  startYear, startAge,
+                  series: { brut: seriesVisible.brut, real: seriesVisible.real, contrib: seriesVisible.contrib, fire: seriesVisible.fire, fireTarget: seriesVisible.fireTarget, dwz: seriesVisible.dwz, dwzReal: seriesVisible.dwzReal },
+                  profile: activeProfile,
+                  profileBreakdowns: {
+                    monde:         PROFILES.monde.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+                    sp500:         PROFILES.sp500.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate, rateEditable: r.rateEditable, nameEditable: r.nameEditable })),
+                    manual_custom: PROFILES.manual_custom.breakdown.map(r => ({ name: r.name, alloc: r.alloc, rate: r.rate })),
+                  },
+                  fire: { spendingMin: fireSpendingMin, spendingMax: fireSpendingMax, swr: fireSWR, yearOverride: fireYearOverride },
+                  dwz:  { profile: dwzProfile, spendingMin: dwzSpendingMin, reserve: dwzReserve, yearOverride: dwzYearOverride } });
+
+      /* FIRE pre-calc */
+      const fireSWRDecimal = fireSWR / 100;
+      // Les inputs sont mensuels → convertir en annuel pour les calculs
+      const fireAnnualMin = fireSpendingMin * 12;
+      const fireAnnualMax = fireSpendingMax * 12;
+      // Cible min = portefeuille nécessaire pour couvrir les dépenses minimales au taux SWR
+      const fireTarget    = fireAnnualMin > 0 ? Math.round(fireAnnualMin / fireSWRDecimal) : null;
+      // Cible max = portefeuille nécessaire pour couvrir les dépenses maximales (optionnel)
+      const fireMaxTarget = fireAnnualMax > 0 ? Math.round(fireAnnualMax / fireSWRDecimal) : null;
+
+      /* DWZ pre-calc — avec départ différé et binary search */
+      // Année de simulation (1-based) où DWZ commence ; 1 = immédiatement
+      const dwzStartY          = dwzYearOverride !== null ? Math.max(1, dwzYearOverride - startYear + 1) : 1;
+      const dwzRemainingYears  = Math.max(0, years - dwzStartY + 1);
+      // Valeur du portefeuille au moment où DWZ commence (capitalisation pure jusqu'alors)
+      const dwzPortfolioAtStart = dwzStartY > 1 ? P * Math.pow(1 + r, dwzStartY - 1) : P;
+      const dwzWeightsArr      = dwzWeights(dwzRemainingYears, dwzProfile);
+      const dwzMinAnnual       = dwzSpendingMin * 12;
+      const dwzBase            = solveDwzBase(dwzPortfolioAtStart, r, dwzRemainingYears, dwzWeightsArr, dwzMinAnnual, dwzReserve);
+
+      /* simulation */
+      const labels = [], dataBrut = [], dataReal = [], dataContrib = [],
+            dataFireTarget = [], dataFirePortfolio = [], dataFirePortfolioReal = [],
+            dataDwzPortfolio = [], dataDwzPortfolioReal = [], rows = [];
+      let val = P, totalContrib = P;
+      let valFire = P, fireStartedY = null;
+      let valDwz = P;
+
+      for (let y = 1; y <= years; y++) {
+        const period = flowPeriods.find(p => y >= p.from && y <= p.to);
+        const monthlyFlow = period ? period.flow : 0;
+        const annualFlow = Math.round(monthlyFlow * 12);
+        const interest = val * r;
+        val = val * (1 + r) + monthlyFlow * 12;
+        totalContrib += monthlyFlow * 12;
+        const realVal = val / Math.pow(1 + inf, y);
+        const gain = val - totalContrib;
+        const gainPct = totalContrib !== 0 ? ((val / totalContrib) - 1) * 100 : 0;
+        const curYear = startYear + y - 1;
+        const yearLabel = String(curYear);
+
+        /* FIRE portfolio simulation (parallel to brut) */
+        const fireInterest = Math.round(valFire * r);
+        if (fireStartedY === null) {
+          let triggered;
+          if (fireYearOverride !== null) {
+            // Départ manuel : démarre exactement à l'année choisie
+            triggered = curYear >= fireYearOverride;
+          } else if (fireTarget !== null) {
+            // Auto : déclenche quand le portefeuille FIRE couvre les dépenses min au SWR
+            triggered = valFire >= fireTarget;
+          } else {
+            // Pas de cible définie : pas de retraits (courbe FIRE suit la brute)
+            triggered = false;
+          }
+          if (triggered) fireStartedY = y;
+        }
+        const fireActive = fireStartedY !== null && y >= fireStartedY;
+        let fireWithdrawal = 0;
+        if (fireActive) {
+          // Phase FIRE : retrait = SWR% du portefeuille, plafonné aux dépenses max annuelles si définies
+          const baseWithdrawal = Math.round(valFire * fireSWRDecimal);
+          fireWithdrawal = fireAnnualMax > 0 ? Math.min(baseWithdrawal, fireAnnualMax) : baseWithdrawal;
+          valFire = Math.max(0, valFire * (1 + r) - fireWithdrawal);
+        } else {
+          // Phase accumulation FIRE : capitalisation pure, sans aucun flux mensuel
+          valFire = valFire * (1 + r);
+        }
+        const realValFire = valFire / Math.pow(1 + inf, y);
+        const fireGain = valFire - P;  // capital de référence = portefeuille initial uniquement
+        const fireGainPct = P !== 0 ? ((valFire / P) - 1) * 100 : 0;
+        const fireAnnualFlow  = fireActive ? -fireWithdrawal : 0;
+        const fireMonthlyFlow = fireActive ? -Math.round(fireWithdrawal / 12) : 0;
+
+        /* DWZ portfolio simulation */
+        const dwzInterest = Math.round(valDwz * r);
+        const dwzActive   = y >= dwzStartY && dwzRemainingYears > 0;
+        let dwzWithdrawal = 0;
+        if (dwzActive) {
+          const wy = y - dwzStartY; // indice 0-based dans les poids DWZ
+          const dwzWeighted    = dwzBase * (dwzWeightsArr[wy] || 0);
+          const dwzMaxPossible = valDwz * (1 + r);
+          dwzWithdrawal = Math.round(Math.min(Math.max(dwzWeighted, dwzMinAnnual), dwzMaxPossible));
+        }
+        valDwz = Math.max(0, valDwz * (1 + r) - dwzWithdrawal);
+        const realValDwz   = valDwz / Math.pow(1 + inf, y);
+        const dwzGain      = valDwz - P;
+        const dwzGainPct   = P !== 0 ? ((valDwz / P) - 1) * 100 : 0;
+
+        labels.push(yearLabel);
+        dataBrut.push(Math.round(val));
+        dataReal.push(Math.round(realVal));
+        dataContrib.push(Math.round(totalContrib));
+        dataFireTarget.push(fireTarget);
+        dataFirePortfolio.push(Math.round(valFire));
+        dataFirePortfolioReal.push(Math.round(realValFire));
+        dataDwzPortfolio.push(Math.round(valDwz));
+        dataDwzPortfolioReal.push(Math.round(realValDwz));
+        rows.push({
+          year: curYear,
+          age: startAge > 0 ? startAge + (y - 1) : null,
+          val: Math.round(val),
+          realVal: Math.round(realVal),
+          interest: Math.round(interest),
+          annualFlow,
+          monthlyFlow,
+          totalContrib: Math.round(totalContrib),
+          gain: Math.round(gain),
+          gainPct,
+          valFire: Math.round(valFire),
+          realValFire: Math.round(realValFire),
+          fireInterest,
+          fireGain: Math.round(fireGain),
+          fireGainPct,
+          fireAnnualFlow,
+          fireMonthlyFlow,
+          fireActive,
+          fireWithdrawal,
+          fireProgress: fireTarget ? (Math.round(valFire) / fireTarget * 100) : null,
+          fireDelta: fireTarget ? Math.round(valFire - fireTarget) : null,
+          valDwz: Math.round(valDwz),
+          realValDwz: Math.round(realValDwz),
+          dwzInterest,
+          dwzActive,
+          dwzWithdrawal,
+          dwzMonthlyWithdrawal: Math.round(dwzWithdrawal / 12),
+          dwzGain: Math.round(dwzGain),
+          dwzGainPct,
+        });
+      }
+
+      /* metrics */
+      const last = rows[rows.length - 1];
+      const gc   = last.gain >= 0 ? 'pos' : 'neg';
+
+      document.getElementById('mFinal').textContent = fmtK(last.val);
+      document.getElementById('mFinal').className = 'metric-val';
+      document.getElementById('mFinalSub').textContent = fmtPct(((last.val / P) - 1) * 100) + ' vs initial';
+
+      document.getElementById('mReal').textContent = fmtK(last.realVal);
+      document.getElementById('mReal').className = 'metric-val';
+
+      document.getElementById('mGain').textContent = fmtK(last.gain);
+      document.getElementById('mGain').className = 'metric-val ' + gc;
+      document.getElementById('mGainSub').textContent = fmtPct(last.gainPct);
+
+      document.getElementById('mContrib').textContent = fmtK(last.totalContrib);
+      document.getElementById('mContrib').className = 'metric-val';
+      const netFlow = last.totalContrib - P;
+      document.getElementById('mContribSub').textContent =
+        netFlow !== 0 ? (netFlow > 0 ? '+' : '') + fmtK(netFlow) + ' flux net' : 'sans flux';
+
+      /* detect first crossing below zero */
+      const crossIdx = dataBrut.findIndex(v => v <= 0);
+
+      /* table */
+      const maxVal = Math.max(...dataBrut, 1);
+      document.getElementById('tblCount').textContent = years + ' années · ' + startYear + '–' + (startYear + years - 1)
+        + (startAge > 0 ? ' · ' + startAge + '→' + (startAge + years - 1) + ' ans' : '');
+      document.getElementById('tblBody').innerHTML = rows.map(row => {
+        const neg  = row.val <= 0;
+        const c    = neg ? 'td-neg' : (row.gain >= 0 ? 'td-pos' : 'td-neg');
+        const fc   = row.annualFlow > 0 ? 'td-pos' : row.annualFlow < 0 ? 'td-neg' : '';
+        const barW = row.val > 0 ? Math.round((row.val / maxVal) * 100) : 0;
+        return `<tr${neg ? ' class="row-negative"' : ''}>
+          <td>${row.year}</td>
+          <td>${row.age !== null ? row.age + ' ans' : '—'}</td>
+          <td style="position:relative;">
+            <div class="td-bar" style="width:${barW}%"></div>
+            ${fmtEur(row.val)}
+          </td>
+          <td>${fmtEur(row.realVal)}</td>
+          <td class="${c}">${fmtEur(row.interest)}</td>
+          <td class="${fc}">${row.annualFlow === 0 ? '—' : fmtEur(row.annualFlow)}</td>
+          <td class="${fc}">${row.monthlyFlow === 0 ? '—' : fmtEur(row.monthlyFlow)}</td>
+          <td>${fmtEur(row.totalContrib)}</td>
+          <td class="${c}">${fmtEur(row.gain)}</td>
+          <td class="${c}">${fmtPct(row.gainPct)}</td>
+        </tr>`;
+      }).join('');
+
+      /* ── FIRE UI ── */
+      const fireDisplayYear = fireStartedY !== null ? (startYear + fireStartedY - 1) : null;
+      const fireDisplayAge  = fireDisplayYear && startAge > 0
+        ? startAge + (fireDisplayYear - startYear) : null;
+
+      /* sidebar info badge */
+      const fireInfoEl = document.getElementById('fireInfo');
+      if (fireInfoEl) {
+        const lastRow = rows[rows.length - 1];
+        const finalFirePortfolio = lastRow.valFire;
+        if (fireTarget || fireYearOverride) {
+          const lastWithdrawal = lastRow.fireWithdrawal;
+          fireInfoEl.className = 'fire-info visible';
+          let html = '';
+          if (fireTarget)
+            html += `<div class="fire-info-row"><span>Objectif FIRE</span><span class="fire-info-val">${fmtEur(fireTarget)}</span></div>`;
+          if (fireMaxTarget)
+            html += `<div class="fire-info-row"><span>Objectif confort</span><span class="fire-info-val">${fmtEur(fireMaxTarget)}</span></div>`;
+          if (fireDisplayYear)
+            html += `<div class="fire-info-row"><span>FIRE atteint</span><span class="fire-info-val">${fireDisplayYear}${fireDisplayAge ? ' · ' + fireDisplayAge + ' ans' : ''}</span></div>`;
+          else if (fireTarget && !fireYearOverride)
+            html += `<div class="fire-year-note">FIRE non atteint sur la période</div>`;
+          
+          html += `<div class="fire-info-row"><span>Portefeuille final</span><span class="fire-info-val">${fmtEur(finalFirePortfolio)}</span></div>`;
+          fireInfoEl.innerHTML = html;
+        } else {
+          fireInfoEl.className = 'fire-info';
+        }
+      }
+
+      /* FIRE achieved badge in table header */
+      const fireAchievedBadge = document.getElementById('fireAchievedBadge');
+      if (fireAchievedBadge) {
+        fireAchievedBadge.textContent = fireDisplayYear
+          ? (fireYearOverride ? 'FIRE départ ' : 'FIRE atteint ') + fireDisplayYear
+          : '';
+      }
+
+      /* FIRE table */
+      const fireTblHead = document.getElementById('fireTblHead');
+      const fireTblBody = document.getElementById('fireTblBody');
+      if (fireTblHead && fireTblBody) {
+        const hasTarget = !!fireTarget;
+        fireTblHead.innerHTML = `<tr>
+          <th style="text-align:left;">Année</th>
+          <th style="text-align:right;">Âge</th>
+          <th style="text-align:right;">Valeur brute</th>
+          <th style="text-align:right;">Valeur réelle · net d'inflation</th>
+          <th style="text-align:right;">Intérêts</th>
+          <th style="text-align:right;">Retrait FIRE /an</th>
+          <th style="text-align:right;">Retrait FIRE /mois</th>
+          <th style="text-align:right;">Capital initial</th>
+          <th style="text-align:right;">Plus-value</th>
+          <th style="text-align:right;">Perf. %</th>
+        </tr>`;
+        const fireRowClass = (row) => row.year === fireDisplayYear ? ' class="row-fire-achieved"' : '';
+        fireTblBody.innerHTML = rows.map(row => {
+          const fc = row.fireAnnualFlow > 0 ? 'td-pos' : row.fireAnnualFlow < 0 ? 'td-neg' : '';
+          const c  = row.fireGain >= 0 ? 'td-pos' : 'td-neg';
+          const barW = row.valFire > 0 ? Math.round((row.valFire / Math.max(...rows.map(r => r.valFire), 1)) * 100) : 0;
+          return `<tr${fireRowClass(row)}>
+            <td>${row.year}</td>
+            <td>${row.age !== null ? row.age + ' ans' : '—'}</td>
+            <td style="position:relative;">
+              <div class="td-bar" style="width:${barW}%"></div>
+              ${fmtEur(row.valFire)}
+            </td>
+            <td>${fmtEur(row.realValFire)}</td>
+            <td class="${c}">${fmtEur(row.fireInterest)}</td>
+            <td class="${row.fireActive ? 'td-neg' : ''}">${row.fireAnnualFlow === 0 ? '—' : fmtEur(row.fireAnnualFlow)}</td>
+            <td class="${row.fireActive ? 'td-neg' : ''}">${row.fireMonthlyFlow === 0 ? '—' : fmtEur(row.fireMonthlyFlow)}</td>
+            <td>${fmtEur(P)}</td>
+            <td class="${c}">${fmtEur(row.fireGain)}</td>
+            <td class="${c}">${fmtPct(row.fireGainPct)}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      /* DWZ info badge */
+      const dwzInfoEl = document.getElementById('dwzInfo');
+      if (dwzInfoEl && rows.length > 0) {
+        const firstRow = rows[0], lastRow = rows[rows.length - 1];
+        const profileLabels = { conservateur: 'Conservateur', modere: 'Modéré', agressif: 'Agressif' };
+        dwzInfoEl.className = 'dwz-info visible';
+        let dwzHtml = '';
+        dwzHtml += `<div class="dwz-info-row"><span>Profil</span><span class="dwz-info-val">${profileLabels[dwzProfile] || dwzProfile}</span></div>`;
+        if (dwzYearOverride) dwzHtml += `<div class="dwz-info-row"><span>Départ DWZ</span><span class="dwz-info-val">${dwzYearOverride}</span></div>`;
+        const firstActiveRow = rows.find(r => r.dwzActive) || firstRow;
+        dwzHtml += `<div class="dwz-info-row"><span>Retrait initial</span><span class="dwz-info-val">${fmtEur(firstActiveRow.dwzMonthlyWithdrawal)}/mois</span></div>`;
+        dwzHtml += `<div class="dwz-info-row"><span>Retrait final</span><span class="dwz-info-val">${fmtEur(lastRow.dwzMonthlyWithdrawal)}/mois</span></div>`;
+        dwzHtml += `<div class="dwz-info-row"><span>Portefeuille final</span><span class="dwz-info-val">${fmtEur(lastRow.valDwz)}</span></div>`;
+        if (dwzReserve > 0) dwzHtml += `<div class="dwz-info-row"><span>Réserve cible</span><span class="dwz-info-val">${fmtEur(dwzReserve)}</span></div>`;
+        dwzInfoEl.innerHTML = dwzHtml;
+      }
+
+      /* DWZ table */
+      const dwzTblHead = document.getElementById('dwzTblHead');
+      const dwzTblBody = document.getElementById('dwzTblBody');
+      if (dwzTblHead && dwzTblBody) {
+        const profileLabels = { conservateur: 'Conservateur', modere: 'Modéré', agressif: 'Agressif' };
+        const dwzProfileBadge = document.getElementById('dwzProfileBadge');
+        if (dwzProfileBadge) dwzProfileBadge.textContent = profileLabels[dwzProfile] || dwzProfile;
+        dwzTblHead.innerHTML = `<tr>
+          <th style="text-align:left;">Année</th>
+          <th style="text-align:right;">Âge</th>
+          <th style="text-align:right;">Valeur brute</th>
+          <th style="text-align:right;">Valeur réelle · net d'inflation</th>
+          <th style="text-align:right;">Intérêts</th>
+          <th style="text-align:right;">Retrait DWZ /an</th>
+          <th style="text-align:right;">Retrait DWZ /mois</th>
+          <th style="text-align:right;">Capital initial</th>
+          <th style="text-align:right;">Plus-value</th>
+          <th style="text-align:right;">Perf. %</th>
+        </tr>`;
+        const maxDwzVal = Math.max(...rows.map(r => r.valDwz), 1);
+        dwzTblBody.innerHTML = rows.map(row => {
+          const barW = row.valDwz > 0 ? Math.round((row.valDwz / maxDwzVal) * 100) : 0;
+          const ci   = row.dwzInterest >= 0 ? 'td-pos' : 'td-neg'; // intérêts : signe propre
+          const c    = row.dwzGain    >= 0 ? 'td-pos' : 'td-neg';  // plus-value / perf : vs capital initial
+          return `<tr>
+            <td>${row.year}</td>
+            <td>${row.age !== null ? row.age + ' ans' : '—'}</td>
+            <td style="position:relative;">
+              <div class="td-bar" style="width:${barW}%;background:rgba(8,145,178,0.12);"></div>
+              ${fmtEur(row.valDwz)}
+            </td>
+            <td>${fmtEur(row.realValDwz)}</td>
+            <td class="${ci}">${fmtEur(row.dwzInterest)}</td>
+            <td class="${row.dwzActive ? 'td-neg' : ''}">${!row.dwzActive ? '—' : fmtEur(-row.dwzWithdrawal)}</td>
+            <td class="${row.dwzActive ? 'td-neg' : ''}">${!row.dwzActive ? '—' : fmtEur(-row.dwzMonthlyWithdrawal)}</td>
+            <td>${fmtEur(P)}</td>
+            <td class="${c}">${fmtEur(row.dwzGain)}</td>
+            <td class="${c}">${fmtPct(row.dwzGainPct)}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      /* comparison panel */
+      const normalWithdrawals = rows.filter(r => r.annualFlow < 0).map(r => Math.abs(r.annualFlow));
+      const fireWithdrawals   = rows.filter(r => r.fireActive && r.fireWithdrawal > 0).map(r => r.fireWithdrawal);
+      const dwzWithdrawals    = rows.filter(r => r.dwzActive  && r.dwzWithdrawal  > 0).map(r => r.dwzWithdrawal);
+      renderComparisonCol('compNormal', '#1D9E75', 'Simulation normale', last ? last.val    : 0, normalWithdrawals);
+      renderComparisonCol('compFire',   '#D97706', '🔥 FIRE',            last ? last.valFire : 0, fireWithdrawals);
+      renderComparisonCol('compDwz',    '#0891B2', '⏳ Die With Zero',   last ? last.valDwz  : 0, dwzWithdrawals);
+
+      /* chart */
+      buildChart(labels, dataBrut, dataReal, dataContrib, dataFireTarget, dataFirePortfolio, dataFirePortfolioReal, dataDwzPortfolio, dataDwzPortfolioReal, years, crossIdx, startAge);
+    }
+
+    /* ── INIT ── */
+    document.addEventListener('DOMContentLoaded', () => {
+      /* restore sidebar section states */
+      restoreSectionStates();
+      document.querySelectorAll('.sidebar-section[data-section-id]').forEach(el => {
+        el.addEventListener('toggle', saveSectionStates);
+      });
+
+      /* restore theme */
+      const savedTheme = localStorage.getItem(THEME_KEY);
+      if (savedTheme) {
+        document.documentElement.dataset.theme = savedTheme;
+        document.getElementById('themeBtn').textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+      } else {
+        /* mirror system preference into data-theme so CSS explicit selectors work */
+        const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.dataset.theme = sysDark ? 'dark' : 'light';
+        document.getElementById('themeBtn').textContent = sysDark ? '☀️' : '🌙';
+      }
+
+      /* FIRE inputs */
+      document.getElementById('nFireSpendingMin').addEventListener('input', compute);
+      document.getElementById('nFireSpendingMax').addEventListener('input', compute);
+      document.getElementById('nFireSWR').addEventListener('input', compute);
+      document.getElementById('nFireStartYear').addEventListener('change', compute);
+
+      /* DWZ inputs */
+      document.getElementById('nDwzSpendingMin')?.addEventListener('input', compute);
+      document.getElementById('nDwzReserve')?.addEventListener('input', compute);
+      document.getElementById('nDwzStartYear')?.addEventListener('change', compute);
+      document.querySelectorAll('.dwz-profile-btn').forEach(btn =>
+        btn.addEventListener('click', () => {
+          dwzProfile = btn.dataset.profile;
+          document.querySelectorAll('.dwz-profile-btn').forEach(b =>
+            b.classList.toggle('active', b === btn)
+          );
+          compute();
+        })
+      );
+
+      /* ── SHARE MENU ── */
+      (function initShareMenu() {
+        const wrap    = document.getElementById('shareMenuWrap');
+        const btn     = document.getElementById('shareBtn');
+        const menu    = document.getElementById('shareMenu');
+        const oneBtn    = document.getElementById('shareOneBtn');
+        const allBtn    = document.getElementById('shareAllBtn');
+        const exportBtn = document.getElementById('exportFileBtn');
+        const importBtn = document.getElementById('importFileBtn');
+
+        const openMenu  = () => { menu.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); };
+        const closeMenu = () => { menu.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+        const toggle    = () => menu.classList.contains('open') ? closeMenu() : openMenu();
+
+        btn.addEventListener('click', e => { e.stopPropagation(); toggle(); });
+
+        oneBtn.addEventListener('click',    () => { closeMenu(); shareCurrentSim(); });
+        allBtn.addEventListener('click',    () => { closeMenu(); shareAllSims(); });
+        exportBtn.addEventListener('click', () => { closeMenu(); exportAllToFile(); });
+        importBtn.addEventListener('click', () => { closeMenu(); importFromFile(); });
+
+        /* close when clicking outside */
+        document.addEventListener('click', e => {
+          if (!wrap.contains(e.target)) closeMenu();
+        });
+        /* close on Escape */
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+      })();
+
+      /* theme toggle button */
+      document.getElementById('themeBtn').addEventListener('click', () => {
+        applyTheme(!isDarkMode());
+      });
+
+      /* check for shared content in URL hash (must run before initSimStorage) */
+      checkUrlImportPack() || checkUrlImport();
+
+      /* init multi-sim storage */
+      initSimStorage();
+
+      /* wire bidirectional controls */
+      wirePortfolioInput();
+      linkSliderInput('rReturn',    'nReturn');
+      linkSliderInput('rInflation', 'nInflation');
+      linkSliderInput('rDuration',  'nDuration');
+
+      /* profile buttons */
+      document.querySelectorAll('.profile-btn').forEach(btn =>
+        btn.addEventListener('click', () => {
+          /* clicking "Manuel" always goes back to cursor sub-mode */
+          if (btn.dataset.profile === 'manual') applyProfile('manual');
+          else applyProfile(btn.dataset.profile);
+        })
+      );
+      document.getElementById('manualBtnCursor').addEventListener('click', () => applyProfile('manual'));
+      document.getElementById('manualBtnCustom').addEventListener('click', () => applyProfile('manual_custom'));
+      document.getElementById('rReturn').addEventListener('mousedown', () => {
+        if (activeProfile !== 'manual' && activeProfile !== 'manual_custom') applyProfile('manual');
+      });
+      document.getElementById('nReturn').addEventListener('focus', () => {
+        if (activeProfile !== 'manual' && activeProfile !== 'manual_custom') applyProfile('manual');
+      });
+
+      document.getElementById('addFlowPeriodBtn').addEventListener('click', addFlowPeriod);
+      document.getElementById('nStartYear').addEventListener('change', compute);
+      document.getElementById('nAge').addEventListener('change', compute);
+
+      /* series toggles — dataset order: 0=firePortfolio, 1=firePortfolioReal, 2=fireTarget, 3=zero, 4=contrib, 5=real, 6=brut, 7=dwzPortfolio, 8=dwzPortfolioReal */
+      [
+        { id: 'toggleBrut',        key: 'brut',        dsIdx: 6 },
+        { id: 'toggleReal',        key: 'real',        dsIdx: 5 },
+        { id: 'toggleContrib',     key: 'contrib',     dsIdx: 4 },
+        { id: 'toggleFire',        key: 'fire',        dsIdx: null }, // rebuilt on compute
+        { id: 'toggleFireReal',    key: 'fireReal',    dsIdx: null }, // rebuilt on compute
+        { id: 'toggleFireTarget',  key: 'fireTarget',  dsIdx: null }, // rebuilt on compute
+        { id: 'toggleDwz',         key: 'dwz',         dsIdx: null }, // rebuilt on compute
+        { id: 'toggleDwzReal',     key: 'dwzReal',     dsIdx: null }, // rebuilt on compute
+      ].forEach(({ id, key, dsIdx }) => {
+        document.getElementById(id)?.addEventListener('click', () => {
+          seriesVisible[key] = !seriesVisible[key];
+          const btn = document.getElementById(id);
+          btn.classList.toggle('off', !seriesVisible[key]);
+          btn.setAttribute('aria-pressed', seriesVisible[key]);
+          if (dsIdx !== null && chart) { chart.data.datasets[dsIdx].hidden = !seriesVisible[key]; chart.update(); }
+          else if (dsIdx === null) compute(); // rebuild chart with correct hidden flags
+          const s = loadState() || {}; s.series = { ...seriesVisible }; saveState(s);
+        });
+      });
+
+      /* sim name rename */
+      document.getElementById('simNameInput').addEventListener('change', () => {
+        const sims = loadSims();
+        const idx  = sims.findIndex(s => s.id === getActiveId());
+        if (idx !== -1) {
+          sims[idx].name = document.getElementById('simNameInput').value.trim() || 'Sans titre';
+          saveSims(sims);
+          renderSimList();
+        }
+      });
+
+      /* new sim / dup sim / new folder buttons */
+      document.getElementById('newSimBtn').addEventListener('click', createNewSim);
+      document.getElementById('dupSimBtn').addEventListener('click', () => duplicateSim(getActiveId()));
+      document.getElementById('newFolderBtn').addEventListener('click', createFolder);
+
+      /* restore active sim + render list */
+      applyState(loadState());
+      renderSimList();
+
+      /* ── SIDEBAR RESIZE ── */
+      (function initSidebarResize() {
+        const MIN_W    = 180;
+        const MAX_W    = 560;
+        const DEFAULT  = 300;
+        const resizer  = document.getElementById('sidebarResizer');
+        const sidebar  = document.querySelector('.sidebar');
+        const layout   = document.querySelector('.app-layout');
+        if (!resizer || !sidebar || !layout) return;
+
+        /* restore saved width */
+        const saved = parseInt(localStorage.getItem(SIDEBAR_W_KEY));
+        if (saved >= MIN_W && saved <= MAX_W) {
+          document.documentElement.style.setProperty('--sidebar-w', saved + 'px');
+        }
+
+        let dragging   = false;
+        let startX     = 0;
+        let startW     = 0;
+
+        resizer.addEventListener('pointerdown', e => {
+          dragging = true;
+          startX   = e.clientX;
+          startW   = sidebar.getBoundingClientRect().width;
+          resizer.setPointerCapture(e.pointerId);
+          resizer.classList.add('is-resizing');
+          layout.classList.add('is-resizing');
+          e.preventDefault();
+        });
+
+        resizer.addEventListener('pointermove', e => {
+          if (!dragging) return;
+          const delta = e.clientX - startX;
+          const newW  = Math.min(MAX_W, Math.max(MIN_W, startW + delta));
+          document.documentElement.style.setProperty('--sidebar-w', newW + 'px');
+        });
+
+        const stopResize = e => {
+          if (!dragging) return;
+          dragging = false;
+          resizer.classList.remove('is-resizing');
+          layout.classList.remove('is-resizing');
+          const finalW = Math.round(sidebar.getBoundingClientRect().width);
+          localStorage.setItem(SIDEBAR_W_KEY, finalW);
+        };
+        resizer.addEventListener('pointerup',     stopResize);
+        resizer.addEventListener('pointercancel', stopResize);
+
+        /* double-click → reset to default */
+        resizer.addEventListener('dblclick', () => {
+          document.documentElement.style.setProperty('--sidebar-w', DEFAULT + 'px');
+          localStorage.setItem(SIDEBAR_W_KEY, DEFAULT);
+        });
+      })();
+    });
+
+    /* sync theme button when system preference changes (if no manual override saved) */
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      if (!localStorage.getItem(THEME_KEY)) {
+        document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
+        document.getElementById('themeBtn').textContent = e.matches ? '☀️' : '🌙';
+        compute();
+      }
+    });
+  </script>
+</body>
+</html>
