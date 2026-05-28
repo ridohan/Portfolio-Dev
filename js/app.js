@@ -12,11 +12,17 @@ async function render() {
   const app = document.getElementById('app');
   if (!API.isConfigured()) return renderSetup(app);
 
-  app.innerHTML = `<div class="flex items-center justify-center h-64 text-slate-400">Chargement…</div>`;
-  try {
-    STATE = await API.getData();
-  } catch (e) {
-    app.innerHTML = errorBanner(e.message); return;
+  const cached = API._getCache();
+  if (cached) {
+    // Affichage immédiat depuis le cache, pas de spinner
+    STATE = cached;
+  } else {
+    app.innerHTML = `<div class="flex items-center justify-center h-64 text-slate-400">Chargement…</div>`;
+    try {
+      STATE = await API.getData();
+    } catch (e) {
+      app.innerHTML = errorBanner(e.message); return;
+    }
   }
 
   const hash = location.hash || '#dashboard';
@@ -26,6 +32,17 @@ async function render() {
   if (route === 'portfolio')  return renderPortfolio(app, id);
   if (route === 'envelope')   return renderEnvelope(app, id);
   renderDashboard(app);
+}
+
+async function forceRefresh() {
+  const app = document.getElementById('app');
+  app.innerHTML = `<div class="flex items-center justify-center h-64 text-slate-400">Actualisation…</div>`;
+  try {
+    STATE = await API.getData(true);
+  } catch (e) {
+    app.innerHTML = errorBanner(e.message); return;
+  }
+  render();
 }
 
 // ─── SETUP ───────────────────────────────────────────────────────────────────
@@ -596,13 +613,22 @@ function rebalancingSuggestions(portfolioId) {
 // ─── COMPOSANTS UI ───────────────────────────────────────────────────────────
 
 function navbar(left = '') {
+  const age     = API.cacheAge();
+  const ageLabel = age === null ? 'aucun cache'
+    : age < 60  ? `il y a ${age}s`
+    : `il y a ${Math.floor(age / 60)}min`;
+
   return `
     <nav class="bg-slate-900 border-b border-slate-700 px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-4">
         ${left}
         <span class="text-white font-bold text-sm">Portfolio Manager</span>
       </div>
-      <button onclick="localStorage.clear();location.reload()" class="text-slate-500 hover:text-white text-xs transition">Déconnexion</button>
+      <div class="flex items-center gap-4">
+        <span class="text-slate-500 text-xs">Cache : ${ageLabel}</span>
+        <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition">↻ Actualiser</button>
+        <button onclick="localStorage.clear();location.reload()" class="text-slate-500 hover:text-white text-xs transition">Déconnexion</button>
+      </div>
     </nav>`;
 }
 
