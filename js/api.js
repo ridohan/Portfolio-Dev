@@ -79,6 +79,7 @@ const API = {
   deleteSubPortfolio(id)    { return this.post('deleteSubPortfolio', { id }); },
 
   createEnvelope(data)      { return this.post('createEnvelope', data); },
+  updateEnvelope(data)      { return this.post('updateEnvelope', data); },
   deleteEnvelope(id)        { return this.post('deleteEnvelope', { id }); },
 
   addPosition(data)         { return this.post('addPosition', data); },

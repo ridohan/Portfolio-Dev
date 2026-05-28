@@ -24,7 +24,7 @@ function setup() {
     portfolios:     ['id', 'nom', 'cible_actions', 'cible_obligations', 'cible_cash'],
     sub_portfolios: ['id', 'nom', 'portfolio_id'],
     envelopes:      ['id', 'nom', 'type', 'portfolio_id', 'sub_portfolio_id'],
-    positions:      ['id', 'envelope_id', 'identifiant', 'nom', 'quantite', 'prix_achat', 'date_achat'],
+    positions:      ['id', 'envelope_id', 'identifiant', 'quantite', 'prix_achat', 'date_achat'],
     prices:         ['isin', 'nom', 'type', 'prix_actuel', 'derniere_maj'],
     crypto_prices:  ['symbole', 'nom', 'prix_actuel', 'derniere_maj'],
     history:        ['date', 'envelope_id', 'valeur_investie', 'valeur_actuelle', 'pv_euros', 'pv_pct'],

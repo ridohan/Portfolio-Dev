@@ -150,6 +150,7 @@ function renderPortfolio(app, portfolioId) {
           <p class="text-slate-400 text-sm mt-1">Cible : ${p.cible_actions}% actions · ${p.cible_obligations}% obligations · ${p.cible_cash}% cash</p>
         </div>
         <div class="flex gap-2">
+          <button onclick='openEditPortfolio(${JSON.stringify(p)})' class="btn-secondary text-sm">✏ Modifier</button>
           <button onclick="openModal('envelope','${portfolioId}')" class="btn-primary text-sm">+ Enveloppe</button>
           <button onclick="confirmDelete('portfolio','${p.id}')" class="btn-danger text-sm">Supprimer</button>
         </div>
@@ -162,7 +163,8 @@ function renderPortfolio(app, portfolioId) {
         ${envs.map(e => envelopeCard(e)).join('') || empty('Aucune enveloppe.')}
       </div>
     </div>
-    ${modalEnvelope()}`;
+    ${modalEnvelope()}
+    ${modalEditPortfolio()}`;
 }
 
 function envelopeCard(e) {
@@ -202,6 +204,7 @@ function renderEnvelope(app, envelopeId) {
           <p class="text-slate-400 text-sm capitalize">${e.type}</p>
         </div>
         <div class="flex gap-2">
+          <button onclick='openEditEnvelope(${JSON.stringify(e)})' class="btn-secondary text-sm">✏ Renommer</button>
           <button onclick="openModal('position','${envelopeId}','${e.type}')" class="btn-primary text-sm">+ Position</button>
           <button onclick="confirmDelete('envelope','${e.id}')" class="btn-danger text-sm">Supprimer</button>
         </div>
@@ -211,7 +214,8 @@ function renderEnvelope(app, envelopeId) {
       ${positionsTable(positions, e.type)}
     </div>
     ${modalPosition(envelopeId, e.type)}
-    ${modalEditPosition(e.type)}`;
+    ${modalEditPosition(e.type)}
+    ${modalEditEnvelope()}`;
 }
 
 function positionsTable(positions, type) {
@@ -245,14 +249,12 @@ function positionsTable(positions, type) {
       : etfType === 'bond'
         ? `<span class="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">bond</span>`
         : '';
-    const label      = pos.nom || etfNom || pos.identifiant;
-    const sublabel   = pos.nom && etfNom ? etfNom : null;
+    const label = etfNom || pos.identifiant;
 
     return `
       <tr class="border-t border-slate-700 hover:bg-slate-750">
         <td class="py-3 px-4">
           <p class="text-white font-medium">${esc(label)}</p>
-          ${sublabel ? `<p class="text-slate-400 text-xs">${esc(sublabel)}</p>` : ''}
           <p class="text-slate-500 text-xs">${esc(pos.identifiant)}</p>
         </td>
         ${type === 'bourse' ? `<td class="py-3 px-4">${typeBadge}</td>` : ''}
@@ -373,10 +375,6 @@ function modalPosition(envelopeId, type) {
             <label class="label">${isEpargne ? 'Nom du compte' : isCrypto ? 'Symbole (ex: BTC)' : 'ISIN'}</label>
             <input name="identifiant" placeholder="${isEpargne ? 'Livret A BNP' : isCrypto ? 'BTC' : 'LU0274208692'}" required class="input" />
           </div>
-          <div>
-            <label class="label">Nom affiché (optionnel)</label>
-            <input name="nom" placeholder="Ex: Mon ETF World" class="input" />
-          </div>
           ${isEpargne
             ? `<div><label class="label">Montant actuel (€)</label><input name="prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
                <div><label class="label">Taux annuel (%)</label><input name="quantite" type="number" step="0.01" min="0" required class="input" /></div>`
@@ -394,6 +392,51 @@ function modalPosition(envelopeId, type) {
     </div>`;
 }
 
+function modalEditPortfolio() {
+  return `
+    <div id="modal-edit-portfolio" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <h2 class="text-white font-semibold mb-4">Modifier le portfolio</h2>
+        <form id="form-edit-portfolio" class="space-y-3">
+          <div>
+            <label class="label">Nom</label>
+            <input name="nom" id="edit-portfolio-nom" required class="input" />
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div><label class="label">Actions %</label><input name="cible_actions" id="edit-portfolio-actions" type="number" min="0" max="100" required class="input" /></div>
+            <div><label class="label">Obligations %</label><input name="cible_obligations" id="edit-portfolio-oblig" type="number" min="0" max="100" required class="input" /></div>
+            <div><label class="label">Cash %</label><input name="cible_cash" id="edit-portfolio-cash" type="number" min="0" max="100" required class="input" /></div>
+          </div>
+          <p id="err-edit-portfolio" class="text-red-400 text-xs hidden"></p>
+          <div class="flex gap-2 pt-1">
+            <button type="submit" class="btn-primary flex-1">Enregistrer</button>
+            <button type="button" onclick="closeModal('edit-portfolio')" class="btn-secondary flex-1">Annuler</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+}
+
+function modalEditEnvelope() {
+  return `
+    <div id="modal-edit-envelope" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <h2 class="text-white font-semibold mb-4">Renommer l'enveloppe</h2>
+        <form id="form-edit-envelope" class="space-y-3">
+          <div>
+            <label class="label">Nom</label>
+            <input name="nom" id="edit-envelope-nom" required class="input" />
+          </div>
+          <p id="err-edit-envelope" class="text-red-400 text-xs hidden"></p>
+          <div class="flex gap-2 pt-1">
+            <button type="submit" class="btn-primary flex-1">Enregistrer</button>
+            <button type="button" onclick="closeModal('edit-envelope')" class="btn-secondary flex-1">Annuler</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+}
+
 function modalEditPosition(type) {
   const isEpargne = type === 'épargne';
   return `
@@ -401,10 +444,6 @@ function modalEditPosition(type) {
       <div class="modal-box">
         <h2 class="text-white font-semibold mb-4">Modifier la position</h2>
         <form id="form-edit-position" class="space-y-3">
-          <div>
-            <label class="label">Nom affiché</label>
-            <input name="nom" id="edit-nom" class="input" />
-          </div>
           ${isEpargne
             ? `<div><label class="label">Montant actuel (€)</label><input name="prix_achat" id="edit-prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
                <div><label class="label">Taux annuel (%)</label><input name="quantite" id="edit-quantite" type="number" step="0.01" min="0" required class="input" /></div>`
@@ -461,7 +500,7 @@ function openModal(type, ...args) {
       setLoading(btn, true);
       const d = Object.fromEntries(new FormData(e.target));
       const envelopeType = args[1];
-      const payload = { envelope_id: args[0], identifiant: d.identifiant, nom: d.nom || '', prix_achat: d.prix_achat, quantite: d.quantite };
+      const payload = { envelope_id: args[0], identifiant: d.identifiant, prix_achat: d.prix_achat, quantite: d.quantite };
       try {
         if (envelopeType === 'bourse') await API.addPrice({ isin: d.identifiant });
         if (envelopeType === 'crypto') await API.addCryptoPrice({ symbole: d.identifiant });
@@ -476,9 +515,45 @@ function closeModal(type) {
   document.getElementById(`modal-${type}`)?.classList.add('hidden');
 }
 
+function openEditPortfolio(p) {
+  document.getElementById('modal-edit-portfolio')?.classList.remove('hidden');
+  document.getElementById('edit-portfolio-nom').value     = p.nom || '';
+  document.getElementById('edit-portfolio-actions').value = p.cible_actions ?? 0;
+  document.getElementById('edit-portfolio-oblig').value   = p.cible_obligations ?? 0;
+  document.getElementById('edit-portfolio-cash').value    = p.cible_cash ?? 0;
+
+  document.getElementById('form-edit-portfolio').onsubmit = async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector('[type=submit]');
+    setLoading(btn, true);
+    const d = Object.fromEntries(new FormData(e.target));
+    try {
+      await withErr('edit-portfolio', () => API.updatePortfolio({ id: p.id, ...d }));
+      closeModal('edit-portfolio');
+      render();
+    } finally { setLoading(btn, false); }
+  };
+}
+
+function openEditEnvelope(e) {
+  document.getElementById('modal-edit-envelope')?.classList.remove('hidden');
+  document.getElementById('edit-envelope-nom').value = e.nom || '';
+
+  document.getElementById('form-edit-envelope').onsubmit = async ev => {
+    ev.preventDefault();
+    const btn = ev.target.querySelector('[type=submit]');
+    setLoading(btn, true);
+    const d = Object.fromEntries(new FormData(ev.target));
+    try {
+      await withErr('edit-envelope', () => API.updateEnvelope({ id: e.id, nom: d.nom, type: e.type }));
+      closeModal('edit-envelope');
+      render();
+    } finally { setLoading(btn, false); }
+  };
+}
+
 function openEditPosition(pos) {
   document.getElementById('modal-edit-position')?.classList.remove('hidden');
-  document.getElementById('edit-nom').value        = pos.nom || '';
   document.getElementById('edit-prix_achat').value = pos.prix_achat || '';
   document.getElementById('edit-quantite').value   = pos.quantite || '';
 
