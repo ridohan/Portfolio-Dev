@@ -51,8 +51,8 @@ function doPost(e) {
     const { action } = payload;
 
     const handlers = {
-      createPortfolio:    () => createRow('portfolios',     { id: newId('p'), nom: payload.nom, cible_actions: payload.cible_actions, cible_obligations: payload.cible_obligations, cible_cash: payload.cible_cash }),
-      updatePortfolio:    () => updateRow('portfolios',     payload.id, { nom: payload.nom, cible_actions: payload.cible_actions, cible_obligations: payload.cible_obligations, cible_cash: payload.cible_cash }),
+      createPortfolio:    () => createRow('portfolios',     { id: newId('p'), nom: payload.nom, cible_actions: Number(payload.cible_actions), cible_obligations: Number(payload.cible_obligations), cible_cash: Number(payload.cible_cash) }),
+      updatePortfolio:    () => updateRow('portfolios',     payload.id, { nom: payload.nom, cible_actions: Number(payload.cible_actions), cible_obligations: Number(payload.cible_obligations), cible_cash: Number(payload.cible_cash) }),
       deletePortfolio:    () => deleteRow('portfolios',     payload.id),
 
       createSubPortfolio: () => createRow('sub_portfolios', { id: newId('sp'), nom: payload.nom, portfolio_id: payload.portfolio_id }),
@@ -63,8 +63,8 @@ function doPost(e) {
       updateEnvelope:     () => updateRow('envelopes',      payload.id, { nom: payload.nom, type: payload.type }),
       deleteEnvelope:     () => deleteRow('envelopes',      payload.id),
 
-      addPosition:        () => createRow('positions',      { id: newId('pos'), envelope_id: payload.envelope_id, identifiant: payload.identifiant, nom: payload.nom || '', quantite: payload.quantite, prix_achat: payload.prix_achat, date_achat: payload.date_achat || new Date().toISOString().slice(0, 10) }),
-      updatePosition:     () => updateRow('positions',      payload.id, { nom: payload.nom, quantite: payload.quantite, prix_achat: payload.prix_achat }),
+      addPosition:        () => createRow('positions',      { id: newId('pos'), envelope_id: payload.envelope_id, identifiant: payload.identifiant, nom: payload.nom || '', quantite: Number(payload.quantite), prix_achat: Number(payload.prix_achat), date_achat: payload.date_achat || new Date().toISOString().slice(0, 10) }),
+      updatePosition:     () => updateRow('positions',      payload.id, { nom: payload.nom, quantite: Number(payload.quantite), prix_achat: Number(payload.prix_achat) }),
       deletePosition:     () => deleteRow('positions',      payload.id),
 
       addPrice:           () => upsertPrice(payload),
@@ -145,7 +145,7 @@ function upsertPrice(payload) {
     const newRow = sheet.getLastRow();
     const prix = fetchJustETFPrice(payload.isin);
     if (prix !== null) {
-      sheet.getRange(newRow, prixCol + 1).setValue(prix);
+      sheet.getRange(newRow, prixCol + 1).setValue(Number(prix));
       sheet.getRange(newRow, majCol  + 1).setValue(new Date().toISOString());
     }
   }

@@ -23,7 +23,7 @@ function updateETFPrices() {
     try {
       const prix = fetchJustETFPrice(isin);
       if (prix !== null) {
-        sheet.getRange(i + 1, prixCol + 1).setValue(prix);
+        sheet.getRange(i + 1, prixCol + 1).setValue(Number(prix));
         sheet.getRange(i + 1, majCol + 1).setValue(new Date().toISOString());
       }
     } catch (err) {
@@ -110,7 +110,7 @@ function updateCryptoPrices() {
       Logger.log(`Symbole introuvable dans le top 500 CMC : ${symbole}`);
       continue;
     }
-    sheet.getRange(i + 1, prixCol + 1).setValue(entry.prix);
+    sheet.getRange(i + 1, prixCol + 1).setValue(Number(entry.prix));
     sheet.getRange(i + 1, nomCol  + 1).setValue(entry.nom);
     sheet.getRange(i + 1, majCol  + 1).setValue(now);
   }
