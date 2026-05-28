@@ -79,7 +79,7 @@ Une Google Sheet sert de source de données pour les cours et les métadonnées 
 | ISIN | Nom | Type | Prix actuel |
 |---|---|---|---|
 | LU0274208692 | Amundi MSCI World | action | 412.50 |
-| FR0010754200 | Lyxor Euro Govt Bond | obligation | 185.30 |
+| FR0010754200 | Lyxor Euro Govt Bond | bond | 185.30 |
 
 L'AppScript Google tourne sur un **déclencheur horaire** pour mettre à jour le `Prix actuel` de chaque ligne. Il est aussi responsable de résoudre le `Nom` et le `Type` à partir de l'ISIN lors de l'ajout d'un nouvel ETF dans la feuille.
 

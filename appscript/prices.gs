@@ -35,9 +35,13 @@ function updateETFPrices() {
 }
 
 function fetchJustETFPrice(isin) {
+
+  const currency = 'EUR';
+  const locale = 'fr';
   // ⚠️ Remplace cette URL par ton endpoint JustETF exact.
   // Exemple de pattern connu : https://www.justetf.com/api/etfs?isin={ISIN}&locale=fr&valuation=EUR
-  const url = `https://www.justetf.com/api/etfs?isin=${isin}&locale=fr&valuation=EUR`;
+  const url = `https://www.justetf.com/api/etfs/${isin}/quote?locale=${locale}&currency=${currency}`;
+
 
   const response = UrlFetchApp.fetch(url, {
     muteHttpExceptions: true,
@@ -50,46 +54,65 @@ function fetchJustETFPrice(isin) {
 
   // ⚠️ Adapte ce chemin selon la structure réelle du JSON retourné par JustETF.
   // Exemple : json.etfs[0].latestPrice ou json.quote.last, etc.
-  return json?.etfs?.[0]?.latestPrice ?? null;
+  return json?.latestQuote?.raw ?? null;
 }
 
-// ─── CRYPTO — CoinGecko ──────────────────────────────────────────────────────
+// ─── CRYPTO — CoinMarketCap ──────────────────────────────────────────────────────
 
 function updateCryptoPrices() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('crypto_prices');
   if (!sheet || sheet.getLastRow() < 2) return;
 
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const geckoIdCol = headers.indexOf('coingecko_id');
-  const prixCol    = headers.indexOf('prix_actuel');
-  const majCol     = headers.indexOf('derniere_maj');
-
-  // Récupère tous les coingecko_ids non vides
-  const ids = data.slice(1)
-    .map(row => row[geckoIdCol])
-    .filter(id => id);
-
-  if (ids.length === 0) return;
-
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=eur`;
-  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-
-  if (response.getResponseCode() !== 200) {
-    Logger.log('Erreur CoinGecko : ' + response.getContentText());
+  const apiKey = PropertiesService.getScriptProperties().getProperty('CMC_API_KEY');
+  if (!apiKey) {
+    Logger.log('CMC_API_KEY manquante — lance setCMCApiKey() pour la définir.');
     return;
   }
 
-  const prices = JSON.parse(response.getContentText());
-  const now = new Date().toISOString();
+  // Récupère les 500 plus grosses cryptos converties en EUR
+  const url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest'
+    + '?aux=cmc_rank&limit=500&convert=EUR';
+
+  const response = UrlFetchApp.fetch(url, {
+    muteHttpExceptions: true,
+    headers: { 'X-CMC_PRO_API_KEY': apiKey, 'Accept': 'application/json' },
+  });
+
+  if (response.getResponseCode() !== 200) {
+    Logger.log('Erreur CoinMarketCap : ' + response.getContentText());
+    return;
+  }
+
+  const listings = JSON.parse(response.getContentText()).data;
+
+  // Index par symbole : { BTC: { prix: 45000, nom: 'Bitcoin' }, ... }
+  const dataBySymbol = {};
+  listings.forEach(coin => {
+    dataBySymbol[coin.symbol.toUpperCase()] = {
+      prix: coin.quote?.EUR?.price ?? null,
+      nom:  coin.name ?? '',
+    };
+  });
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const symCol  = headers.indexOf('symbole');
+  const nomCol  = headers.indexOf('nom');
+  const prixCol = headers.indexOf('prix_actuel');
+  const majCol  = headers.indexOf('derniere_maj');
+  const now     = new Date().toISOString();
 
   for (let i = 1; i < data.length; i++) {
-    const geckoId = data[i][geckoIdCol];
-    if (!geckoId || !prices[geckoId]) continue;
-
-    sheet.getRange(i + 1, prixCol + 1).setValue(prices[geckoId].eur);
-    sheet.getRange(i + 1, majCol + 1).setValue(now);
+    const symbole = String(data[i][symCol]).toUpperCase();
+    const entry = dataBySymbol[symbole];
+    if (!entry || entry.prix === null) {
+      Logger.log(`Symbole introuvable dans le top 500 CMC : ${symbole}`);
+      continue;
+    }
+    sheet.getRange(i + 1, prixCol + 1).setValue(entry.prix);
+    sheet.getRange(i + 1, nomCol  + 1).setValue(entry.nom);
+    sheet.getRange(i + 1, majCol  + 1).setValue(now);
   }
 }
 

@@ -1,15 +1,21 @@
 // setup.gs
 // Lance ces fonctions UNE SEULE FOIS depuis l'éditeur AppScript.
 
-// 1. Définit le token secret stocké côté Google (jamais exposé dans le code source).
-//    Remplace la valeur par un token long et aléatoire de ton choix.
+// 1. Définit le token secret de l'app (protection de la Web App).
 function setSecretToken() {
   PropertiesService.getScriptProperties()
     .setProperty('SECRET_TOKEN', 'remplace-par-un-token-long-et-aleatoire');
   Logger.log('Token défini.');
 }
 
-// 2. Crée tous les onglets de la sheet avec leurs en-têtes.
+// 2. Définit la clé API CoinMarketCap.
+function setCMCApiKey() {
+  PropertiesService.getScriptProperties()
+    .setProperty('CMC_API_KEY', 'remplace-par-ta-cle-cmc');
+  Logger.log('Clé CMC définie.');
+}
+
+// 3. Crée tous les onglets de la sheet avec leurs en-têtes.
 
 function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -18,9 +24,9 @@ function setup() {
     portfolios:     ['id', 'nom', 'cible_actions', 'cible_obligations', 'cible_cash'],
     sub_portfolios: ['id', 'nom', 'portfolio_id'],
     envelopes:      ['id', 'nom', 'type', 'portfolio_id', 'sub_portfolio_id'],
-    positions:      ['id', 'envelope_id', 'identifiant', 'quantite', 'prix_achat', 'date_achat'],
+    positions:      ['id', 'envelope_id', 'identifiant', 'nom', 'quantite', 'prix_achat', 'date_achat'],
     prices:         ['isin', 'nom', 'type', 'prix_actuel', 'derniere_maj'],
-    crypto_prices:  ['symbole', 'coingecko_id', 'nom', 'prix_actuel', 'derniere_maj'],
+    crypto_prices:  ['symbole', 'nom', 'prix_actuel', 'derniere_maj'],
     history:        ['date', 'envelope_id', 'valeur_investie', 'valeur_actuelle', 'pv_euros', 'pv_pct'],
   };
 

@@ -63,8 +63,8 @@ function doPost(e) {
       updateEnvelope:     () => updateRow('envelopes',      payload.id, { nom: payload.nom, type: payload.type }),
       deleteEnvelope:     () => deleteRow('envelopes',      payload.id),
 
-      addPosition:        () => createRow('positions',      { id: newId('pos'), envelope_id: payload.envelope_id, identifiant: payload.identifiant, quantite: payload.quantite, prix_achat: payload.prix_achat, date_achat: payload.date_achat || new Date().toISOString().slice(0, 10) }),
-      updatePosition:     () => updateRow('positions',      payload.id, { quantite: payload.quantite, prix_achat: payload.prix_achat }),
+      addPosition:        () => createRow('positions',      { id: newId('pos'), envelope_id: payload.envelope_id, identifiant: payload.identifiant, nom: payload.nom || '', quantite: payload.quantite, prix_achat: payload.prix_achat, date_achat: payload.date_achat || new Date().toISOString().slice(0, 10) }),
+      updatePosition:     () => updateRow('positions',      payload.id, { nom: payload.nom, quantite: payload.quantite, prix_achat: payload.prix_achat }),
       deletePosition:     () => deleteRow('positions',      payload.id),
 
       addPrice:           () => upsertPrice(payload),
@@ -129,12 +129,25 @@ function deleteRow(tabName, id) {
 }
 
 function upsertPrice(payload) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName('prices');
-  const data = sheet.getDataRange().getValues();
-  const exists = data.some((row, i) => i > 0 && row[0] === payload.isin);
-  if (!exists) {
+  const data  = sheet.getDataRange().getValues();
+  const headers   = data[0];
+  const isinCol   = headers.indexOf('isin');
+  const prixCol   = headers.indexOf('prix_actuel');
+  const majCol    = headers.indexOf('derniere_maj');
+
+  const existingRow = data.findIndex((row, i) => i > 0 && row[isinCol] === payload.isin);
+
+  if (existingRow === -1) {
+    // Nouvel ISIN — on insère et on récupère le prix immédiatement
     sheet.appendRow([payload.isin, payload.nom || '', payload.type || '', '', '']);
+    const newRow = sheet.getLastRow();
+    const prix = fetchJustETFPrice(payload.isin);
+    if (prix !== null) {
+      sheet.getRange(newRow, prixCol + 1).setValue(prix);
+      sheet.getRange(newRow, majCol  + 1).setValue(new Date().toISOString());
+    }
   }
 }
 
@@ -144,7 +157,7 @@ function upsertCryptoPrice(payload) {
   const data = sheet.getDataRange().getValues();
   const exists = data.some((row, i) => i > 0 && row[0] === payload.symbole);
   if (!exists) {
-    sheet.appendRow([payload.symbole, payload.coingecko_id || '', payload.nom || '', '', '']);
+    sheet.appendRow([payload.symbole, payload.nom || '', '', '']);
   }
 }
 

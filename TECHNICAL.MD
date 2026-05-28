@@ -82,7 +82,7 @@ L'app HTML ne connaît que l'URL de l'AppScript Web App. Tout le reste se passe 
 |---|---|---|
 | `isin` | string | Code ISIN |
 | `nom` | string | Nom complet de l'ETF |
-| `type` | string | `action` \| `obligation` |
+| `type` | string | `action` \| `bond` |
 | `prix_actuel` | number | Cours actuel (en €) |
 | `derniere_maj` | datetime | Horodatage de la dernière mise à jour |
 
@@ -148,7 +148,7 @@ Deux déclencheurs tournent côté AppScript sans intervention de l'utilisateur 
 | Déclencheur | Fréquence | Action |
 |---|---|---|
 | Mise à jour des prix ETF | Toutes les heures | Met à jour `prices.prix_actuel` pour chaque ISIN |
-| Mise à jour des prix crypto | Toutes les heures | Met à jour `crypto_prices.prix_actuel` via CoinGecko API |
+| Mise à jour des prix crypto | Toutes les heures | Met à jour `crypto_prices.prix_actuel` via CoinMarketCap (top 500, recherche par symbole) |
 | Snapshot historique | Chaque jour (ex : 18h) | Calcule et écrit une ligne dans `history` par enveloppe |
 
 Le snapshot journalier fonctionne **même si l'utilisateur n'ouvre pas l'app**.
@@ -163,7 +163,12 @@ Aucun secret n'est stocké dans le code source (repo GitHub public). L'accès es
 
 ### Token secret (Script Properties)
 
-Le token est stocké dans les **Script Properties** de l'AppScript — variables d'environnement côté Google, inaccessibles depuis l'extérieur. Il est défini une seule fois en lançant `setSecretToken()` dans l'éditeur AppScript.
+Deux secrets sont stockés dans les **Script Properties** de l'AppScript :
+
+| Clé | Rôle | Fonction pour la définir |
+|---|---|---|
+| `SECRET_TOKEN` | Authentification des requêtes de l'app HTML | `setSecretToken()` |
+| `CMC_API_KEY` | Clé API CoinMarketCap pour les prix crypto | `setCMCApiKey()` |
 
 Chaque requête depuis l'app doit inclure ce token :
 - **GET** : paramètre URL `?token=xxx`
