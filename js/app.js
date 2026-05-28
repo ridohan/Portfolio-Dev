@@ -96,7 +96,7 @@ function renderDashboard(app) {
     ${navbar()}
     <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
       ${statCards(total, invested)}
-      ${allocBar(alloc, 'Allocation globale')}
+      ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">Portfolios</h2>
         <button onclick="openModal('portfolio')" class="btn-primary text-sm">+ Nouveau</button>
@@ -155,7 +155,7 @@ function renderPortfolio(app, portfolioId) {
         </div>
       </div>
       ${statCards(total, invested)}
-      ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash })}
+      ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
       <h2 class="text-lg font-semibold text-white">Enveloppes</h2>
       <div class="grid gap-4 sm:grid-cols-2">
@@ -646,8 +646,9 @@ function statCards(total, invested) {
     </div>`;
 }
 
-function allocBar(alloc, title, size = 'md', cible = null) {
+function allocBar(alloc, title, size = 'md', cible = null, total = null) {
   const h = size === 'sm' ? 'h-2' : 'h-3';
+  const amt = (pct) => total ? ` — ${fmt(total * pct / 100)}` : '';
   const cibleLine = cible ? `
     <div class="flex gap-4 text-xs text-slate-500 mt-1">
       <span>Cible : ${cible.actions}% actions · ${cible.obligations}% obligations · ${cible.cash}% cash</span>
@@ -661,9 +662,9 @@ function allocBar(alloc, title, size = 'md', cible = null) {
         <div class="bg-emerald-500 transition-all" style="width:${alloc.cash}%"></div>
       </div>
       <div class="flex gap-4 text-xs text-slate-400 mt-2">
-        <span><span class="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1"></span>Actions ${alloc.actions}%</span>
-        <span><span class="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1"></span>Obligations ${alloc.obligations}%</span>
-        <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>Cash ${alloc.cash}%</span>
+        <span><span class="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1"></span>Actions ${alloc.actions}%${amt(alloc.actions)}</span>
+        <span><span class="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1"></span>Obligations ${alloc.obligations}%${amt(alloc.obligations)}</span>
+        <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>Cash ${alloc.cash}%${amt(alloc.cash)}</span>
       </div>
       ${cibleLine}
     </div>`;
