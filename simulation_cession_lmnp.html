@@ -1,0 +1,252 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+.section { margin-bottom: 2rem; }
+.section-title { font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 0.5px solid var(--color-border-tertiary); }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.metric { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 12px 14px; }
+.metric-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 4px; }
+.metric-value { font-size: 20px; font-weight: 500; color: var(--color-text-primary); }
+.metric-sub { font-size: 12px; color: var(--color-text-tertiary); margin-top: 2px; }
+.card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; }
+.insight { border-left: 3px solid; padding: 10px 14px; border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0; margin-bottom: 8px; }
+.insight-green { border-color: #3B6D11; background: #EAF3DE; }
+.insight-amber { border-color: #854F0B; background: #FAEEDA; }
+.insight-blue { border-color: #185FA5; background: #E6F1FB; }
+.insight-red { border-color: #A32D2D; background: #FCEBEB; }
+.insight p { font-size: 13px; color: var(--color-text-primary); line-height: 1.5; }
+.insight strong { font-weight: 500; }
+.t { font-size: 13px; }
+.scenario-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.scenario-header h3 { font-size: 15px; font-weight: 500; }
+.badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: var(--border-radius-md); }
+.badge-green { background: #EAF3DE; color: #3B6D11; }
+.badge-blue { background: #E6F1FB; color: #185FA5; }
+.badge-amber { background: #FAEEDA; color: #854F0B; }
+.timeline { position: relative; padding-left: 20px; }
+.timeline::before { content: ''; position: absolute; left: 6px; top: 4px; bottom: 4px; width: 1px; background: var(--color-border-tertiary); }
+.timeline-item { position: relative; padding: 4px 0 8px; }
+.timeline-item::before { content: ''; position: absolute; left: -16px; top: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-border-secondary); }
+.timeline-item.highlight::before { background: #185FA5; }
+.timeline-item p { font-size: 13px; color: var(--color-text-primary); }
+.timeline-item .yr { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
+.row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 13px; }
+.row:last-child { border-bottom: none; }
+.num { font-weight: 500; }
+.num-green { color: #3B6D11; }
+.num-blue { color: #185FA5; }
+.num-amber { color: #854F0B; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 1.5rem; font-size: 13px; }
+.controls label { color: var(--color-text-secondary); }
+</style>
+
+<div style="padding: 1rem 0;">
+
+<div class="section">
+  <div class="section-title">Hypothèses de travail</div>
+  <div class="controls">
+    <label>Revalorisation immo /an : <strong id="lbl-immo">2%</strong></label>
+    <input type="range" min="0" max="4" step="0.5" value="2" id="sl-immo" style="width:100px;">
+    <label style="margin-left:16px;">Rendement ETF /an : <strong id="lbl-etf">7%</strong></label>
+    <input type="range" min="5" max="10" step="0.5" value="7" id="sl-etf" style="width:100px;">
+    <label style="margin-left:16px;">Fiscalité cession : <strong id="lbl-tax">19%</strong></label>
+    <input type="range" min="10" max="30" step="1" value="19" id="sl-tax" style="width:100px;">
+  </div>
+  <div class="grid-3" id="hyp-cards">
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Scénario A — garder jusqu'en 2051 (flux intacts)</div>
+  <div class="card" id="scenA"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Scénario B — cession progressive (1 bien tous les 5 ans à partir de 2035)</div>
+  <div class="card" id="scenB"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Comparatif final à l'horizon 2050</div>
+  <div id="comparatif"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Facteurs qualitatifs</div>
+  <div class="insight insight-blue">
+    <p><strong>Levier bancaire :</strong> Tu as raison sur ce point — tes crédits LMNP tournent autour de 0,95% (taux RP) ou légèrement plus. En termes réels, tu empruntes de l'argent quasi-gratuit pour acheter des actifs à 6,5%+ de rendement. C'est un avantage structurel rare, difficile à reproduire aujourd'hui à des taux similaires.</p>
+  </div>
+  <div class="insight insight-amber">
+    <p><strong>Charge mentale de gestion :</strong> 5 biens avec 4 gestionnaires différents (Residhome, P&V, Odalys, Sowell). Chaque cession réduit la charge. Si tu veux te consacrer à un nouveau projet, alléger progressivement l'immo peut libérer de l'énergie.</p>
+  </div>
+  <div class="insight insight-green">
+    <p><strong>Fiscalité LMNP sur la durée :</strong> L'amortissement comptable réduit la fiscalité sur les loyers. Mais à la cession, la fiscalité sur les plus-values peut être lourde si les amortissements ont réduit le prix de revient comptable (régime LMNP réel). À vérifier avec un expert-comptable avant toute décision.</p>
+  </div>
+  <div class="insight insight-red">
+    <p><strong>Point critique :</strong> Les crédits finissent tous vers 2050-2051. Si tu cèdes avant la fin du crédit, tu dois rembourser le capital restant dû — ce qui réduit le produit net de cession. Calculer le CRD à date de cession envisagée est indispensable.</p>
+  </div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const biens = [
+  { nom: 'Aix-en-Provence', prix: 130000, loyer: 10968, cashflow: 1575.52, rentaPost: 0.0736 },
+  { nom: 'Prévessins-Moens', prix: 115000, loyer: 8617, cashflow: 1193.36, rentaPost: 0.0689 },
+  { nom: 'Isle-sur-la-Sorgue', prix: 88000, loyer: 6199, cashflow: 574.08, rentaPost: 0.0650 },
+  { nom: 'Gex', prix: 93000, loyer: 6456, cashflow: 650.12, rentaPost: 0.0656 },
+  { nom: 'Chamouilles', prix: 95000, loyer: 7443, cashflow: 578.40, rentaPost: 0.0647 },
+];
+
+function fmt(n) { return Math.round(n).toLocaleString('fr-FR') + ' €'; }
+function fmtK(n) { return Math.round(n/1000) + ' K€'; }
+function pct(n) { return (n*100).toFixed(1) + '%'; }
+
+function compute() {
+  const immoRate = parseFloat(document.getElementById('sl-immo').value) / 100;
+  const etfRate = parseFloat(document.getElementById('sl-etf').value) / 100;
+  const taxRate = parseFloat(document.getElementById('sl-tax').value) / 100;
+  const now = 2025;
+
+  document.getElementById('lbl-immo').textContent = (immoRate*100).toFixed(1) + '%';
+  document.getElementById('lbl-etf').textContent = (etfRate*100).toFixed(1) + '%';
+  document.getElementById('lbl-tax').textContent = (taxRate*100).toFixed(0) + '%';
+
+  // Scénario A : garder tous les biens jusqu'en 2051
+  // Valeur en 2050 (25 ans) + revenus post-crédit capitalisés
+  const totalPrix = biens.reduce((s, b) => s + b.prix, 0);
+  const totalLoyer = biens.reduce((s, b) => s + b.loyer, 0);
+  const cashflowAnnuel = 4571.48;
+
+  // Valeur revente 2050
+  const valeur2050 = biens.reduce((s, b) => s + b.prix * Math.pow(1 + immoRate, 25), 0);
+  // Revenus post-crédit à partir de 2051 → revenus des 5 dernières années (2046-2050) en mode post-crédit partiel
+  // simplification : cashflow faible pendant crédit (4571€/an), puis 35449€/an post-crédit (quelques années)
+  // Pour la comparaison 2050, on prend : cashflows cumulés réinvestis en ETF + valeur biens en 2050
+  let cfCumul_A = 0;
+  for (let y = 0; y < 25; y++) {
+    cfCumul_A = (cfCumul_A + cashflowAnnuel) * (1 + etfRate);
+  }
+  const totalA = valeur2050 + cfCumul_A;
+
+  // Scénario B : vendre 1 bien tous les 5 ans à partir de 2035
+  // Ordre de vente : meilleure renta d'abord (Aix, Prévessins, Isle, Gex, Chamouilles)
+  const ordre = [0, 1, 2, 3, 4]; // index dans biens
+  const ventes = [2035, 2040, 2045, 2048, 2051];
+
+  let etfCumul_B = 0;
+  let cashflowRestant = cashflowAnnuel;
+  let biensRestants = [true, true, true, true, true];
+  let proceedsTotal = 0;
+
+  for (let y = 0; y < 25; y++) {
+    const annee = now + y;
+    // Ajouter cashflow des biens encore en portefeuille (approx)
+    const nbRestants = biensRestants.filter(Boolean).length;
+    const cfYear = cashflowAnnuel * nbRestants / 5;
+    etfCumul_B = (etfCumul_B + cfYear) * (1 + etfRate);
+
+    // Vente si année correspond
+    for (let i = 0; i < 5; i++) {
+      if (annee === ventes[i] && biensRestants[ordre[i]]) {
+        const b = biens[ordre[i]];
+        const yearsHeld = annee - now;
+        const valRevente = b.prix * Math.pow(1 + immoRate, yearsHeld);
+        const plusValue = valRevente - b.prix;
+        // Abattement sur PV immobilière (durée de détention) : après 22 ans exonéré IR, après 30 ans exonéré PS
+        // Simplification : 6 ans de détention (depuis ~2019) donc déjà commencé
+        // On détient depuis environ 2019-2025, donc 6 ans. À 2035 = 16 ans, à 2040 = 21 ans, etc.
+        const detentionInitiale = 6;
+        const totalDetention = detentionInitiale + yearsHeld;
+        let abattementIR = 0, abattementPS = 0;
+        if (totalDetention > 5) abattementIR = Math.min(1, (totalDetention - 5) * 0.06 + (totalDetention > 21 ? (totalDetention - 21) * 0.04 : 0));
+        if (totalDetention > 5) abattementPS = Math.min(1, (totalDetention - 5) * 0.0165 + (totalDetention > 22 ? (totalDetention - 22) * 0.09 : 0));
+        abattementIR = Math.min(abattementIR, 1);
+        abattementPS = Math.min(abattementPS, 1);
+        const pvNetteIR = plusValue * (1 - abattementIR);
+        const pvNettePS = plusValue * (1 - abattementPS);
+        const impot = pvNetteIR * 0.19 + pvNettePS * 0.172;
+        const produitNet = valRevente - impot;
+        etfCumul_B = (etfCumul_B + produitNet) * (1 + etfRate);
+        biensRestants[ordre[i]] = false;
+        proceedsTotal += produitNet;
+      }
+    }
+  }
+  const totalB = etfCumul_B;
+
+  // Affichage scénario A
+  document.getElementById('scenA').innerHTML = `
+    <div style="display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:10px; margin-bottom:14px;">
+      <div class="metric"><div class="metric-label">Valeur biens en 2050</div><div class="metric-value">${fmtK(valeur2050)}</div><div class="metric-sub">+${pct(immoRate)}/an sur 25 ans</div></div>
+      <div class="metric"><div class="metric-label">Cashflows réinvestis</div><div class="metric-value">${fmtK(cfCumul_A)}</div><div class="metric-sub">${fmt(cashflowAnnuel)}/an → ETF</div></div>
+      <div class="metric" style="border-left:3px solid #185FA5;"><div class="metric-label">Patrimoine immo total 2050</div><div class="metric-value" style="color:#185FA5;">${fmtK(totalA)}</div><div class="metric-sub">Biens + cashflows capitalisés</div></div>
+    </div>
+    <div class="row"><span>Revenus locatifs post-crédit (à partir de 2051)</span><span class="num num-green">~35 449 €/an</span></div>
+    <div class="row"><span>Loyer mensuel brut post-crédit</span><span class="num num-green">~2 954 €/mois</span></div>
+    <div class="row"><span>Contrainte</span><span style="font-size:13px; color:var(--color-text-secondary);">Gestion 5 biens / 4 gestionnaires pendant 25 ans</span></div>
+  `;
+
+  // Affichage scénario B
+  const bienOrder = ['Aix-en-Provence', 'Prévessins-Moens', 'Isle-sur-la-Sorgue', 'Gex', 'Chamouilles'];
+  let rows = '';
+  for (let i = 0; i < 5; i++) {
+    const b = biens[ordre[i]];
+    const yr = ventes[i];
+    const yh = yr - now;
+    const val = b.prix * Math.pow(1 + immoRate, yh);
+    const pv = val - b.prix;
+    const det = 6 + yh;
+    let abIR = 0;
+    if (det > 5) abIR = Math.min(1, (det - 5) * 0.06 + (det > 21 ? (det - 21) * 0.04 : 0));
+    abIR = Math.min(abIR, 1);
+    const pvN = pv * (1 - abIR);
+    rows += `<div class="row"><span>${b.nom} (${yr})</span><span style="font-size:12px; color:var(--color-text-secondary);">Revente ~${fmtK(val)} · PV ${fmtK(pv)} · net ~${fmtK(val - pvN * 0.19 - pv*(1-Math.min(1,(det-5)*0.0165))*0.172)}</span></div>`;
+  }
+
+  document.getElementById('scenB').innerHTML = `
+    <div style="display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:10px; margin-bottom:14px;">
+      <div class="metric"><div class="metric-label">Produits nets cessions</div><div class="metric-value">${fmtK(proceedsTotal)}</div><div class="metric-sub">Après imposition estimée</div></div>
+      <div class="metric"><div class="metric-label">Capital ETF total en 2050</div><div class="metric-value">${fmtK(totalB)}</div><div class="metric-sub">Cessions + CF réinvestis</div></div>
+      <div class="metric" style="border-left:3px solid #3B6D11;"><div class="metric-label">Revenu SWR 4% en 2050</div><div class="metric-value" style="color:#3B6D11;">${fmtK(totalB * 0.04 / 12)}/mois</div><div class="metric-sub">Taux de retrait prudent</div></div>
+    </div>
+    ${rows}
+    <div class="row" style="margin-top:6px;"><span>Libération progressive de gestion</span><span class="num num-green">-1 bien tous les 5 ans</span></div>
+  `;
+
+  // Comparatif
+  const diff = totalB - totalA;
+  const meilleur = diff > 0 ? 'B' : 'A';
+  document.getElementById('comparatif').innerHTML = `
+    <div style="display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:14px; margin-bottom:14px;">
+      <div class="card">
+        <div class="scenario-header"><span class="badge badge-blue">Scénario A</span><h3>Garder tout</h3></div>
+        <div class="row"><span>Patrimoine immo 2050</span><span class="num num-blue">${fmtK(totalA)}</span></div>
+        <div class="row"><span>Revenu mensuel 4% SWR</span><span class="num num-blue">${fmtK(totalA * 0.04 / 12)}/mois</span></div>
+        <div class="row"><span>Revenus locatifs post-crédit</span><span class="num num-blue">~2 954 €/mois</span></div>
+        <div class="row"><span>Complexité gestion</span><span style="font-size:13px;color:var(--color-text-secondary);">Élevée (25 ans)</span></div>
+      </div>
+      <div class="card" style="${diff > 0 ? 'border: 2px solid var(--color-border-success);' : ''}">
+        <div class="scenario-header"><span class="badge badge-green">Scénario B</span><h3>Cessions progressives</h3></div>
+        <div class="row"><span>Capital ETF 2050</span><span class="num num-green">${fmtK(totalB)}</span></div>
+        <div class="row"><span>Revenu mensuel 4% SWR</span><span class="num num-green">${fmtK(totalB * 0.04 / 12)}/mois</span></div>
+        <div class="row"><span>Libération gestion</span><span class="num num-green">Progressive</span></div>
+        <div class="row"><span>Complexité gestion</span><span style="font-size:13px;color:var(--color-text-secondary);">Décroissante</span></div>
+      </div>
+    </div>
+    <div class="metric" style="border-left: 3px solid ${diff > 0 ? '#3B6D11' : '#185FA5'};">
+      <div class="metric-label">Écart entre scénarios à l'horizon 2050</div>
+      <div class="metric-value" style="color: ${diff > 0 ? '#3B6D11' : '#185FA5'};">${diff > 0 ? '+' : ''}${fmtK(diff)} en faveur du Scénario ${meilleur}</div>
+      <div class="metric-sub">Ajuste les hypothèses ci-dessus pour voir la sensibilité</div>
+    </div>
+  `;
+}
+
+document.getElementById('sl-immo').addEventListener('input', compute);
+document.getElementById('sl-etf').addEventListener('input', compute);
+document.getElementById('sl-tax').addEventListener('input', compute);
+
+compute();
+</script>
