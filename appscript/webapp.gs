@@ -32,6 +32,7 @@ function doGet(e) {
       charges:        sheetToObjects(ss, 'charges'),
       history:        sheetToObjects(ss, 'history'),
       fire_profile:   sheetToObjects(ss, 'fire_profile'),
+      vpw:            getVpwData(),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -172,6 +173,69 @@ function upsertCryptoPrice(payload) {
 
 function newId(prefix) {
   return `${prefix}_${Date.now()}`;
+}
+
+// ─── VPW (Variable Percentage Withdrawal) ─────────────────────────────────────
+// Lit les résultats pré-calculés de l'onglet "VPW Retirement" pour les exposer
+// dans le front-end. Le calcul reste intégralement dans Google Sheets.
+//
+// Stratégie : on charge toute la plage utile en une requête, puis on cherche
+// chaque label par plage de lignes pour éviter les faux positifs.
+// Si la feuille n'existe pas, retourne null (front-end affiche rien).
+
+function getVpwData() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('VPW Retirement');
+  if (!sheet) return null;
+
+  try {
+    const rows = Math.min(sheet.getLastRow(), 90);
+    const cols = Math.min(sheet.getLastColumn(), 8);
+    const data = sheet.getRange(1, 1, rows, cols).getValues();
+
+    // Retourne la première valeur numérique à droite du label,
+    // sur les lignes [rowMin, rowMax] (1-based, inclusif).
+    const findNum = (label, rowMin, rowMax) => {
+      for (let r = rowMin - 1; r < Math.min(rowMax, rows); r++) {
+        for (let c = 0; c < cols; c++) {
+          if (String(data[r][c]).includes(label)) {
+            for (let k = c + 1; k < cols; k++) {
+              if (data[r][k] !== null && data[r][k] !== '' && typeof data[r][k] === 'number') {
+                return data[r][k];
+              }
+            }
+          }
+        }
+      }
+      return null;
+    };
+
+    // ── Cellules lues (ajuste les plages si ta feuille diffère) ──────────────
+    // D10 : Age
+    // D16 : Monthly Portfolio Withdrawal  ← suggestion principale (cellule verte)
+    // D23 : Portfolio Loss                ← correction de marché simulée
+    // D24 : Portfolio Balance After Loss
+    // D25 : Monthly Income Reduction
+    // D26 : Monthly Income After Loss     ← retrait après perte
+    // D36 : Portfolio Withdrawal          ← retrait annuel normal
+    // D55 : VPW Table Percentage          ← stocké en décimal (0.045 → 4.5 %)
+    const vpwPctRaw = findNum('VPW Table Percentage', 54, 57);
+
+    return {
+      age:               findNum('Age',                          9,  12),
+      monthlyWithdrawal: findNum('Monthly Portfolio Withdrawal', 14, 18),
+      portfolioLoss:     findNum('Portfolio Loss',               22, 24),
+      balanceAfterLoss:  findNum('Portfolio Balance After Loss', 23, 26),
+      monthlyReduction:  findNum('Monthly Income Reduction',     24, 27),
+      monthlyAfterLoss:  findNum('Monthly Income After Loss',    24, 28),
+      annualWithdrawal:  findNum('Portfolio Withdrawal',         34, 38),
+      // vpwPct : converti en % lisible (0.045 → 4.5)
+      vpwPct: vpwPctRaw !== null ? parseFloat((vpwPctRaw * 100).toFixed(2)) : null,
+    };
+  } catch (e) {
+    Logger.log('getVpwData error : ' + e.message);
+    return null;
+  }
 }
 
 function upsertFireProfile(payload) {

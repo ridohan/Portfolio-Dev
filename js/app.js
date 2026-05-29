@@ -1,5 +1,5 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
@@ -1659,7 +1659,29 @@ function fireDashboardCards() {
       <p class="text-slate-600 text-xs mt-3">Objectif : ${fmt(_fp.depenses)}/mois</p>
     </a>`;
 
-  return `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${classicCard}${dwzCard}</div>`;
+  // Carte VPW — affichée seulement si les données sont disponibles dans Google Sheets
+  const vpw    = STATE.vpw;
+  const vpwCard = vpw && vpw.monthlyWithdrawal != null ? `
+    <a href="#fire" onclick="navigate('#fire');return false;"
+      class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer block">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xl leading-none">📊</span>
+        <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">VPW${vpw.vpwPct != null ? ' · ' + vpw.vpwPct + '%' : ''}</p>
+      </div>
+      <p class="text-blue-400 text-2xl font-bold">
+        ${fmt(vpw.monthlyWithdrawal)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+      </p>
+      <p class="text-slate-400 text-sm mt-1">
+        ${fmt(vpw.annualWithdrawal ?? vpw.monthlyWithdrawal * 12)}<span class="text-slate-500">/an</span>
+      </p>
+      ${vpw.monthlyAfterLoss != null
+        ? `<p class="text-slate-600 text-xs mt-3">Après correction : <span class="text-amber-500">${fmt(vpw.monthlyAfterLoss)}/mois</span></p>`
+        : ''}
+    </a>` : '';
+
+  const hasVpw   = !!(vpwCard);
+  const gridCols = hasVpw ? 'sm:grid-cols-3' : 'sm:grid-cols-2';
+  return `<div class="grid grid-cols-1 ${gridCols} gap-4">${classicCard}${dwzCard}${vpwCard}</div>`;
 }
 
 function renderFire(app) {
@@ -1828,6 +1850,72 @@ function refreshFireResults() {
   _scheduleSave();
 }
 
+// ─── CARTE VPW (résultats pré-calculés depuis Google Sheets) ──────────────────
+// Affiche les résultats de l'onglet "VPW Retirement" sans recalculer côté JS.
+// Retourne '' si les données ne sont pas disponibles.
+
+function fireVpwCard() {
+  const v = STATE.vpw;
+  if (!v || v.monthlyWithdrawal == null) return '';
+
+  const cible    = _fp ? _fp.depenses : 0;
+  const retOk    = cible > 0 && v.monthlyWithdrawal >= cible;
+  const hasStress = v.monthlyAfterLoss != null && v.monthlyAfterLoss > 0;
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 border border-blue-500/20">
+
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <span class="text-xl leading-none">📊</span>
+          <div>
+            <p class="text-white text-sm font-semibold">Variable Percentage Withdrawal</p>
+            <p class="text-slate-500 text-xs">Calculé dans Google Sheets · Taux ajusté chaque année</p>
+          </div>
+        </div>
+        ${v.vpwPct != null
+          ? `<span class="bg-blue-500/15 text-blue-400 text-xs font-bold px-2.5 py-1 rounded-full">${v.vpwPct}% appliqué</span>`
+          : ''}
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait mensuel suggéré</p>
+          <p class="${retOk ? 'text-emerald-400' : 'text-blue-400'} text-xl font-bold">
+            ${fmt(v.monthlyWithdrawal)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+          </p>
+          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5">${retOk ? '✓ Objectif atteint' : `${fmt(cible - v.monthlyWithdrawal)} sous l'objectif`}</p>` : ''}
+        </div>
+
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait annuel</p>
+          <p class="text-slate-300 text-xl font-bold">${fmt(v.annualWithdrawal ?? v.monthlyWithdrawal * 12)}</p>
+        </div>
+
+        ${hasStress ? `
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Après correction marché</p>
+          <p class="text-amber-400 text-xl font-bold">
+            ${fmt(v.monthlyAfterLoss)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+          </p>
+          ${v.monthlyReduction != null
+            ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.monthlyReduction)}/mois</p>`
+            : ''}
+        </div>
+
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Portfolio après perte</p>
+          <p class="text-slate-300 font-semibold">${fmt(v.balanceAfterLoss)}</p>
+          ${v.portfolioLoss != null
+            ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.portfolioLoss)} simulé</p>`
+            : ''}
+        </div>` : '<div></div><div></div>'}
+
+      </div>
+    </div>`;
+}
+
 function runFireSimulation() {
   const { capital, rendement, inflation, duree, versement, depenses, swr,
           dwzMode, dureeFire, reserveFinale, depart } = _fp;
@@ -1925,6 +2013,7 @@ function fireResults() {
 
   return `
     ${fireStatsCards(data, fireYear)}
+    ${fireVpwCard()}
     <div class="bg-slate-800 rounded-xl p-4">
       <p class="text-slate-400 text-xs mb-3">Projection du portfolio
         <span class="ml-2 text-slate-600">· bleu = valeur · pointillés = capital investi${fireYear ? ' · orange = année FIRE' : ''}</span>
