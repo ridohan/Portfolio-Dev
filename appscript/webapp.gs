@@ -31,8 +31,11 @@ function doGet(e) {
       crypto_prices:  sheetToObjects(ss, 'crypto_prices'),
       charges:        sheetToObjects(ss, 'charges'),
       history:        sheetToObjects(ss, 'history'),
-      fire_profile:   sheetToObjects(ss, 'fire_profile'),
-      vpw:            getVpwData(),
+      fire_profile:        sheetToObjects(ss, 'fire_profile'),
+      vpw:                 getVpwData(),
+      expense_categories:  sheetToObjects(ss, 'expense_categories'),
+      expense_items:       sheetToObjects(ss, 'expense_items'),
+      expense_entries:     sheetToObjects(ss, 'expense_entries'),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -79,6 +82,25 @@ function doPost(e) {
       deleteCharge:       () => deleteRow('charges', payload.id),
 
       saveFireProfile:    () => upsertFireProfile(payload),
+
+      createExpenseCategory: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        ensureSheet(ss2, 'expense_categories', ['id','nom','type','couleur']);
+        return createRow('expense_categories', { id: newId('ec'), nom: payload.nom, type: payload.type, couleur: payload.couleur || 'slate' });
+      },
+      updateExpenseCategory: () => updateRow('expense_categories', payload.id, { nom: payload.nom, type: payload.type, couleur: payload.couleur || 'slate' }),
+      deleteExpenseCategory: () => deleteRow('expense_categories', payload.id),
+
+      createExpenseItem: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        ensureSheet(ss2, 'expense_items', ['id','category_id','nom']);
+        return createRow('expense_items', { id: newId('ei'), category_id: payload.category_id, nom: payload.nom });
+      },
+      updateExpenseItem:      () => updateRow('expense_items', payload.id, { nom: payload.nom, category_id: payload.category_id }),
+      deleteExpenseItem:      () => deleteRow('expense_items', payload.id),
+
+      upsertExpenseEntry:     () => upsertExpenseEntry(payload),
+      deleteExpenseEntry:     () => deleteExpenseEntry(payload),
     };
 
     if (!handlers[action]) {
@@ -260,6 +282,76 @@ function upsertFireProfile(payload) {
 
   return { saved: true };
 }
+
+// ─── DÉPENSES ─────────────────────────────────────────────────────────────────
+
+function ensureSheet(ss, name, headers) {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+  return sheet;
+}
+
+function upsertExpenseEntry(payload) {
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const headers = ['id', 'item_id', 'annee', 'mois', 'montant'];
+  const sheet   = ensureSheet(ss, 'expense_entries', headers);
+
+  const lastRow = sheet.getLastRow();
+  const data    = lastRow >= 2
+    ? sheet.getRange(1, 1, lastRow, headers.length).getValues()
+    : [headers];
+
+  const hdrs       = data[0];
+  const itemCol    = hdrs.indexOf('item_id');
+  const anneeCol   = hdrs.indexOf('annee');
+  const moisCol    = hdrs.indexOf('mois');
+  const montantCol = hdrs.indexOf('montant');
+  const idCol      = hdrs.indexOf('id');
+
+  const rowIdx = data.findIndex((row, i) =>
+    i > 0 &&
+    String(row[itemCol])  === String(payload.item_id) &&
+    Number(row[anneeCol]) === Number(payload.annee)   &&
+    Number(row[moisCol])  === Number(payload.mois)
+  );
+
+  if (rowIdx === -1) {
+    const id = newId('ee');
+    sheet.appendRow([id, payload.item_id, Number(payload.annee), Number(payload.mois), Number(payload.montant)]);
+    return { id, item_id: payload.item_id, annee: payload.annee, mois: payload.mois, montant: payload.montant };
+  } else {
+    sheet.getRange(rowIdx + 1, montantCol + 1).setValue(Number(payload.montant));
+    return { id: data[rowIdx][idCol], item_id: payload.item_id, annee: payload.annee, mois: payload.mois, montant: payload.montant };
+  }
+}
+
+function deleteExpenseEntry(payload) {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('expense_entries');
+  if (!sheet || sheet.getLastRow() < 2) return { deleted: false };
+
+  const data    = sheet.getDataRange().getValues();
+  const hdrs    = data[0];
+  const itemCol  = hdrs.indexOf('item_id');
+  const anneeCol = hdrs.indexOf('annee');
+  const moisCol  = hdrs.indexOf('mois');
+
+  const rowIdx = data.findIndex((row, i) =>
+    i > 0 &&
+    String(row[itemCol])  === String(payload.item_id) &&
+    Number(row[anneeCol]) === Number(payload.annee)   &&
+    Number(row[moisCol])  === Number(payload.mois)
+  );
+
+  if (rowIdx === -1) return { deleted: false };
+  sheet.deleteRow(rowIdx + 1);
+  return { deleted: true };
+}
+
+// ─── UTILITAIRE ───────────────────────────────────────────────────────────────
 
 function jsonResponse(obj) {
   return ContentService

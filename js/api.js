@@ -107,4 +107,17 @@ const API = {
 
   // Sauvegarde silencieuse du profil FIRE (n'invalide pas le cache principal)
   saveFireProfile(data)     { return this.postSilent('saveFireProfile', data); },
+
+  // ─── DÉPENSES ─────────────────────────────────────────────────────────────
+
+  createExpenseCategory(data) { return this.post('createExpenseCategory', data); },
+  updateExpenseCategory(data) { return this.post('updateExpenseCategory', data); },
+  deleteExpenseCategory(id)   { return this.post('deleteExpenseCategory', { id }); },
+
+  createExpenseItem(data)     { return this.post('createExpenseItem', data); },
+  updateExpenseItem(data)     { return this.post('updateExpenseItem', data); },
+  deleteExpenseItem(id)       { return this.post('deleteExpenseItem', { id }); },
+
+  upsertExpenseEntry(data)    { return this.post('upsertExpenseEntry', data); },
+  deleteExpenseEntry(data)    { return this.post('deleteExpenseEntry', data); },
 };

@@ -1,11 +1,14 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [] };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
 
 // Période active pour les pages historique
 let _histPeriod = 'all';
+
+// Année active pour la page Dépenses
+let _expYear = new Date().getFullYear();
 
 // ─── ROUTER ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +44,7 @@ async function render() {
   if (route === 'hist-pf')     return renderHistoryPf(app, id);
   if (route === 'hist-global') return renderHistoryGlobal(app);
   if (route === 'fire')        return renderFire(app);
+  if (route === 'expenses')    return renderExpenses(app);
   renderDashboard(app);
 }
 
@@ -113,6 +117,11 @@ function renderDashboard(app) {
         <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-sm">Configurer →</a>
       </div>
       ${fireDashboardCards()}
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">💰 Dépenses</h2>
+        <a href="#expenses" onclick="navigate('#expenses');return false;" class="btn-secondary text-sm">Détail →</a>
+      </div>
+      ${expenseDashboardCard()}
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">Portfolios</h2>
         <div class="flex gap-2">
@@ -836,6 +845,7 @@ function navbar(left = '') {
         ${left}
         <a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-white font-bold text-sm hover:text-slate-300 transition">Portfolio Manager</a>
         <a href="#fire" onclick="navigate('#fire');return false;" class="text-orange-400 hover:text-orange-300 text-sm font-medium transition">🔥 FIRE</a>
+        <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition">💰 Dépenses</a>
       </div>
       <div class="flex items-center gap-4">
         <span class="text-slate-500 text-xs">Cache : ${ageLabel}</span>
@@ -1812,8 +1822,11 @@ function fireParamsPanel() {
         <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Objectif FIRE</p>
 
         <div>
-          <label class="label">Dépenses mensuelles en FIRE (€)</label>
-          <input type="number" value="${_fp.depenses}" min="0" step="100" class="input"
+          <div class="flex items-center justify-between mb-1">
+            <label class="label !mb-0">Dépenses mensuelles en FIRE (€)</label>
+            <button onclick="importExpAvgToFire()" class="text-xs text-emerald-400 hover:text-emerald-300 transition" title="Importer la moyenne des dépenses">📥 Importer moy.</button>
+          </div>
+          <input id="fp-dep-input" type="number" value="${_fp.depenses}" min="0" step="100" class="input"
             oninput="_fp.depenses=Math.max(0,+this.value);refreshFireResults()">
         </div>
 
@@ -2286,4 +2299,576 @@ function fireTable(data, fireYear) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// ─── DÉPENSES MENSUELLES ──────────────────────────────────────────────────────
+
+const EXP_COLORS = {
+  slate:   { bg: 'bg-slate-500/20',   text: 'text-slate-300',   dot: 'bg-slate-400'   },
+  blue:    { bg: 'bg-blue-500/20',    text: 'text-blue-300',    dot: 'bg-blue-400'    },
+  purple:  { bg: 'bg-purple-500/20',  text: 'text-purple-300',  dot: 'bg-purple-400'  },
+  emerald: { bg: 'bg-emerald-500/20', text: 'text-emerald-300', dot: 'bg-emerald-400' },
+  amber:   { bg: 'bg-amber-500/20',   text: 'text-amber-300',   dot: 'bg-amber-400'   },
+  rose:    { bg: 'bg-rose-500/20',    text: 'text-rose-300',    dot: 'bg-rose-400'    },
+  cyan:    { bg: 'bg-cyan-500/20',    text: 'text-cyan-300',    dot: 'bg-cyan-400'    },
+  orange:  { bg: 'bg-orange-500/20',  text: 'text-orange-300',  dot: 'bg-orange-400'  },
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function setEl(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
+function expLookup() {
+  const catMap  = Object.fromEntries(STATE.expense_categories.map(c => [c.id, c]));
+  const itemMap = Object.fromEntries(STATE.expense_items.map(i => [i.id, i]));
+  const entryMap = {};
+  STATE.expense_entries.forEach(e => {
+    entryMap[`${e.item_id}_${e.annee}_${e.mois}`] = Number(e.montant);
+  });
+  return { catMap, itemMap, entryMap };
+}
+
+function expMonthTotal(year, month) {
+  return STATE.expense_entries
+    .filter(e => Number(e.annee) === year && Number(e.mois) === month)
+    .reduce((s, e) => s + Number(e.montant), 0);
+}
+
+function expGlobalMonthlyAvg(year) {
+  const total = STATE.expense_entries
+    .filter(e => Number(e.annee) === year)
+    .reduce((s, e) => s + Number(e.montant), 0);
+  return total / 12;
+}
+
+function expTypeAvg(year, type) {
+  const catIds  = STATE.expense_categories.filter(c => c.type === type).map(c => c.id);
+  const itemIds = STATE.expense_items.filter(i => catIds.includes(i.category_id)).map(i => i.id);
+  const total   = STATE.expense_entries
+    .filter(e => Number(e.annee) === year && itemIds.includes(e.item_id))
+    .reduce((s, e) => s + Number(e.montant), 0);
+  return total / 12;
+}
+
+// ── Dashboard card ────────────────────────────────────────────────────────────
+
+function expenseDashboardCard() {
+  const year         = new Date().getFullYear();
+  const avg          = expGlobalMonthlyAvg(year);
+  const vitalAvg     = expTypeAvg(year, 'vital');
+  const superAvg     = expTypeAvg(year, 'superflu');
+  const currentMonth = new Date().getMonth() + 1;
+  const currentTotal = expMonthTotal(year, currentMonth);
+
+  if (!STATE.expense_categories.length) {
+    return `
+      <div class="bg-slate-800 rounded-xl p-5 text-center cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
+        <p class="text-slate-400 text-sm">Aucune dépense enregistrée</p>
+        <p class="text-slate-500 text-xs mt-1">Cliquer pour configurer</p>
+      </div>`;
+  }
+
+  const MONTHS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  return `
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
+        <p class="text-slate-400 text-xs mb-1">${MONTHS[currentMonth - 1]} ${year}</p>
+        <p class="text-white font-bold text-lg">${fmt(currentTotal)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
+        <p class="text-slate-400 text-xs mb-1">Moy. mensuelle</p>
+        <p class="text-white font-bold text-lg">${fmt(avg)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
+        <p class="text-slate-400 text-xs mb-1">Vital / mois</p>
+        <p class="text-emerald-400 font-bold text-lg">${fmt(vitalAvg)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
+        <p class="text-slate-400 text-xs mb-1">Superflux / mois</p>
+        <p class="text-amber-400 font-bold text-lg">${fmt(superAvg)}</p>
+      </div>
+    </div>`;
+}
+
+// ── Page principale ───────────────────────────────────────────────────────────
+
+function renderExpenses(app) {
+  _fpInit();
+  app.innerHTML = `
+    ${navbar()}
+    <div class="max-w-6xl mx-auto px-4 py-8 space-y-6" id="exp-page">
+      ${expensesContent(_expYear)}
+    </div>
+    ${modalExpenseCategory()}
+    ${modalExpenseItem()}`;
+}
+
+function refreshExpenses(year) {
+  _expYear = Number(year);
+  setEl('exp-page', expensesContent(_expYear));
+}
+
+function expensesContent(year) {
+  const years = [...new Set([year, ...STATE.expense_entries.map(e => Number(e.annee))])].sort((a, b) => b - a);
+
+  return `
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      <h1 class="text-2xl font-bold text-white">💰 Dépenses</h1>
+      <div class="flex items-center gap-2 flex-wrap">
+        <select class="input text-sm py-1.5" onchange="refreshExpenses(+this.value)">
+          ${years.map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}
+        </select>
+        <button onclick="openExpenseCategoryModal()" class="btn-secondary text-sm">⚙ Catégories</button>
+        <button onclick="openExpenseItemModal()" class="btn-primary text-sm">+ Poste</button>
+        <button onclick="importExpAvgToFire()" class="btn-secondary text-sm" title="Importer la moyenne dans la simulation FIRE">🔥 → FIRE</button>
+      </div>
+    </div>
+    <div id="exp-stats">${expenseStatsCards(year)}</div>
+    <div id="exp-table">${expenseTable(year)}</div>`;
+}
+
+// ── Cartes de stats ───────────────────────────────────────────────────────────
+
+function expenseStatsCards(year) {
+  const MONTHS       = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const avg          = expGlobalMonthlyAvg(year);
+  const vitalAvg     = expTypeAvg(year, 'vital');
+  const superAvg     = expTypeAvg(year, 'superflu');
+  const currentMonth = new Date().getMonth() + 1;
+  const currentTotal = expMonthTotal(year, currentMonth);
+
+  return `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">${MONTHS[currentMonth - 1]} ${year}</p>
+        <p class="text-white font-bold text-xl">${fmt(currentTotal)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Moy. mensuelle ${year}</p>
+        <p class="text-white font-bold text-xl">${fmt(avg)}</p>
+        <p class="text-slate-500 text-xs mt-1">${fmt(avg * 12)} / an</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Vital / mois</p>
+        <p class="text-emerald-400 font-bold text-xl">${fmt(vitalAvg)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Superflux / mois</p>
+        <p class="text-amber-400 font-bold text-xl">${fmt(superAvg)}</p>
+      </div>
+    </div>`;
+}
+
+// ── Tableau mensuel ───────────────────────────────────────────────────────────
+
+function expenseTable(year) {
+  const { entryMap } = expLookup();
+  const MONTHS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const cats   = STATE.expense_categories;
+  const items  = STATE.expense_items;
+
+  if (!cats.length) {
+    return `
+      <div class="bg-slate-800 rounded-xl p-8 text-center">
+        <p class="text-slate-400 mb-3">Aucune catégorie de dépense</p>
+        <button onclick="openExpenseCategoryModal()" class="btn-primary text-sm">Créer une catégorie</button>
+      </div>`;
+  }
+
+  // Totaux mensuels globaux + grand total
+  const monthTotals = MONTHS.map((_, mi) => expMonthTotal(year, mi + 1));
+  const grandTotal  = monthTotals.reduce((a, b) => a + b, 0);
+  const grandAvg    = grandTotal / 12;
+
+  const bodyRows = cats.map(cat => {
+    const colors    = EXP_COLORS[cat.couleur] || EXP_COLORS.slate;
+    const catItems  = items.filter(i => i.category_id === cat.id);
+    const typeBadge = cat.type === 'vital'
+      ? '<span class="px-1.5 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-400">vital</span>'
+      : '<span class="px-1.5 py-0.5 rounded text-xs bg-amber-500/20 text-amber-400">superflux</span>';
+
+    // Totaux mensuels de la catégorie
+    const catMonths = MONTHS.map((_, mi) =>
+      catItems.reduce((s, item) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0)
+    );
+    const catTotal = catMonths.reduce((a, b) => a + b, 0);
+    const catAvg   = catTotal / 12;
+
+    // Ligne header catégorie
+    const catRow = `
+      <tr class="border-t border-slate-600">
+        <td class="py-2 px-3 sticky left-0 z-10 bg-slate-900 min-w-[190px]">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="w-2.5 h-2.5 rounded-full ${colors.dot} flex-shrink-0"></span>
+            <span class="font-semibold ${colors.text} text-sm">${esc(cat.nom)}</span>
+            ${typeBadge}
+            <button onclick="openExpenseCategoryModal('${cat.id}')" class="text-slate-600 hover:text-slate-400 text-xs ml-auto">✏</button>
+          </div>
+        </td>
+        ${catMonths.map(v => `<td class="py-2 px-2 text-right text-xs text-slate-400 font-medium">${v > 0 ? fmt(v) : ''}</td>`).join('')}
+        <td class="py-2 px-3 text-right text-xs font-semibold ${colors.text}">${catAvg > 0 ? fmt(catAvg) : '—'}</td>
+      </tr>`;
+
+    // Lignes items
+    const itemRows = catItems.map(item => {
+      const cells = MONTHS.map((_, mi) => {
+        const month = mi + 1;
+        const val   = entryMap[`${item.id}_${year}_${month}`] || 0;
+        return `<td class="py-1.5 px-2 text-right text-xs text-slate-300 cursor-pointer hover:bg-slate-700 transition select-none"
+          onclick="editExpenseCell('${item.id}',${year},${month},${val})"
+          id="ecell-${item.id}-${year}-${month}">${val > 0 ? fmt(val) : ''}</td>`;
+      });
+      const itemTotal = MONTHS.reduce((s, _, mi) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0);
+      const itemAvg   = itemTotal / 12;
+
+      return `
+        <tr class="border-t border-slate-700/50 hover:bg-slate-800/40 transition">
+          <td class="py-1.5 px-3 sticky left-0 bg-slate-900">
+            <div class="flex items-center gap-2 pl-4">
+              <span class="text-sm text-slate-300">${esc(item.nom)}</span>
+              <button onclick="openExpenseItemModal('${item.id}')" class="text-slate-600 hover:text-slate-400 text-xs ml-auto">✏</button>
+            </div>
+          </td>
+          ${cells.join('')}
+          <td class="py-1.5 px-3 text-right text-xs font-medium text-slate-400">${itemAvg > 0 ? fmt(itemAvg) : '—'}</td>
+        </tr>`;
+    }).join('');
+
+    return catRow + itemRows;
+  }).join('');
+
+  const totalRow = `
+    <tr class="border-t-2 border-slate-500 bg-slate-800/60">
+      <td class="py-3 px-3 sticky left-0 bg-slate-800 font-bold text-white text-sm">Total</td>
+      ${monthTotals.map(v => `<td class="py-3 px-2 text-right text-xs font-bold text-white">${v > 0 ? fmt(v) : '—'}</td>`).join('')}
+      <td class="py-3 px-3 text-right text-sm font-bold text-white">${fmt(grandAvg)}</td>
+    </tr>`;
+
+  return `
+    <div class="bg-slate-900 rounded-xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="text-sm" style="min-width:1240px;width:100%">
+          <thead class="bg-slate-900 sticky top-0 z-20">
+            <tr class="text-slate-400 text-xs border-b border-slate-700">
+              <th class="py-3 px-3 text-left sticky left-0 bg-slate-900 font-medium min-w-[190px]">Poste</th>
+              ${MONTHS.map(m => `<th class="py-3 px-2 text-right font-medium w-20">${m}</th>`).join('')}
+              <th class="py-3 px-3 text-right font-medium whitespace-nowrap">Moy./mois</th>
+            </tr>
+          </thead>
+          <tbody>${bodyRows}${totalRow}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── Édition inline d'une cellule ──────────────────────────────────────────────
+
+function editExpenseCell(itemId, year, month, currentVal) {
+  const cellId = `ecell-${itemId}-${year}-${month}`;
+  const cell   = document.getElementById(cellId);
+  if (!cell || cell.querySelector('input')) return; // déjà en édition
+
+  let done = false;
+
+  const commit = async (rawVal) => {
+    if (done) return;
+    done = true;
+    const val = Math.max(0, parseFloat(String(rawVal).replace(',', '.')) || 0);
+
+    // Mise à jour optimiste du STATE
+    const idx = STATE.expense_entries.findIndex(
+      e => e.item_id === itemId && Number(e.annee) === year && Number(e.mois) === month
+    );
+    if (val === 0) {
+      if (idx !== -1) STATE.expense_entries.splice(idx, 1);
+    } else if (idx !== -1) {
+      STATE.expense_entries[idx].montant = val;
+    } else {
+      STATE.expense_entries.push({ id: `ee_${Date.now()}`, item_id: itemId, annee: year, mois: month, montant: val });
+    }
+
+    // Rafraîchissement ciblé des totaux et stats
+    setEl('exp-stats', expenseStatsCards(year));
+    setEl('exp-table', expenseTable(year));
+
+    // Persistance
+    try {
+      if (val === 0) {
+        await API.deleteExpenseEntry({ item_id: itemId, annee: year, mois: month });
+      } else {
+        await API.upsertExpenseEntry({ item_id: itemId, annee: year, mois: month, montant: val });
+      }
+      const cached = API._getCache();
+      if (cached) { cached.expense_entries = STATE.expense_entries; API._setCache(cached); }
+    } catch (err) {
+      console.error('Erreur sauvegarde dépense:', err);
+    }
+  };
+
+  const input = document.createElement('input');
+  input.type  = 'number';
+  input.value = currentVal || '';
+  input.min   = '0';
+  input.step  = '1';
+  input.className = 'w-full bg-slate-600 text-white text-xs text-right rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-blue-500';
+
+  cell.textContent = '';
+  cell.appendChild(input);
+  input.focus();
+  input.select();
+
+  input.addEventListener('blur', () => commit(input.value));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') {
+      done = true;
+      cell.textContent = currentVal > 0 ? fmt(currentVal) : '';
+      cell.onclick = () => editExpenseCell(itemId, year, month, currentVal);
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const nextMonth = month < 12 ? month + 1 : 1;
+      const nextYear  = month < 12 ? year : year + 1;
+      input.blur(); // commit d'abord
+      requestAnimationFrame(() => editExpenseCell(itemId, nextYear, nextMonth, 0));
+    }
+  });
+}
+
+// ── Import moyenne → FIRE ─────────────────────────────────────────────────────
+
+function importExpAvgToFire() {
+  const avg = expGlobalMonthlyAvg(_expYear);
+  if (!avg) { alert('Aucune dépense enregistrée pour cette année.'); return; }
+  _fpInit();
+  _fp.depenses = Math.round(avg);
+  const inp = document.getElementById('fp-dep-input');
+  if (inp) inp.value = _fp.depenses;
+  refreshFireResults();
+  navigate('#fire');
+}
+
+// ── Modal Catégories ──────────────────────────────────────────────────────────
+
+function modalExpenseCategory() {
+  const colorOptions = Object.keys(EXP_COLORS)
+    .map(c => `<option value="${c}">${c.charAt(0).toUpperCase() + c.slice(1)}</option>`).join('');
+  return `
+    <div id="modal-expense-cat" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <h3 class="text-lg font-bold text-white mb-4" id="exp-cat-modal-title">Nouvelle catégorie</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="label">Nom</label>
+            <input type="text" id="exp-cat-nom" class="input" placeholder="Loyer, Courses, Loisirs…" />
+          </div>
+          <div>
+            <label class="label">Type</label>
+            <select id="exp-cat-type" class="input">
+              <option value="vital">Vital (minimum vital)</option>
+              <option value="superflu">Superflux</option>
+            </select>
+          </div>
+          <div>
+            <label class="label">Couleur</label>
+            <select id="exp-cat-couleur" class="input">${colorOptions}</select>
+          </div>
+          <input type="hidden" id="exp-cat-id" value="" />
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="saveExpenseCategory()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeModal('expense-cat')" class="btn-secondary flex-1">Annuler</button>
+        </div>
+        <div id="exp-cat-list" class="mt-5 space-y-1"></div>
+      </div>
+    </div>`;
+}
+
+function openExpenseCategoryModal(editId) {
+  document.getElementById('exp-cat-id').value = editId || '';
+  if (editId) {
+    const cat = STATE.expense_categories.find(c => c.id === editId);
+    if (cat) {
+      document.getElementById('exp-cat-modal-title').textContent = 'Modifier catégorie';
+      document.getElementById('exp-cat-nom').value     = cat.nom;
+      document.getElementById('exp-cat-type').value    = cat.type;
+      document.getElementById('exp-cat-couleur').value = cat.couleur || 'slate';
+    }
+  } else {
+    document.getElementById('exp-cat-modal-title').textContent = 'Nouvelle catégorie';
+    document.getElementById('exp-cat-nom').value     = '';
+    document.getElementById('exp-cat-type').value    = 'vital';
+    document.getElementById('exp-cat-couleur').value = 'slate';
+  }
+  // Liste des catégories existantes
+  const listEl = document.getElementById('exp-cat-list');
+  if (listEl) {
+    listEl.innerHTML = STATE.expense_categories.length ? `
+      <h4 class="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Catégories existantes</h4>
+      ${STATE.expense_categories.map(c => {
+        const col = EXP_COLORS[c.couleur] || EXP_COLORS.slate;
+        return `<div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition">
+          <span class="flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full ${col.dot}"></span>
+            <span class="${col.text}">${esc(c.nom)}</span>
+            <span class="text-slate-600 text-xs">${c.type}</span>
+          </span>
+          <div class="flex gap-3">
+            <button onclick="openExpenseCategoryModal('${c.id}')" class="text-slate-500 hover:text-blue-400 text-xs">✏</button>
+            <button onclick="confirmDeleteExpenseCat('${c.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
+          </div>
+        </div>`;
+      }).join('')}` : '';
+  }
+  document.getElementById('modal-expense-cat').classList.remove('hidden');
+}
+
+async function saveExpenseCategory() {
+  const id      = document.getElementById('exp-cat-id').value;
+  const nom     = document.getElementById('exp-cat-nom').value.trim();
+  const type    = document.getElementById('exp-cat-type').value;
+  const couleur = document.getElementById('exp-cat-couleur').value;
+  if (!nom) return;
+  try {
+    if (id) {
+      await API.updateExpenseCategory({ id, nom, type, couleur });
+      STATE.expense_categories = STATE.expense_categories.map(c => c.id === id ? { ...c, nom, type, couleur } : c);
+    } else {
+      const result = await API.createExpenseCategory({ nom, type, couleur });
+      STATE.expense_categories.push(result);
+    }
+    const cached = API._getCache();
+    if (cached) { cached.expense_categories = STATE.expense_categories; API._setCache(cached); }
+    closeModal('expense-cat');
+    refreshExpenses(_expYear);
+  } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+async function confirmDeleteExpenseCat(id) {
+  if (!confirm('Supprimer cette catégorie et tous ses postes ?')) return;
+  try {
+    await API.deleteExpenseCategory(id);
+    // Cascade côté front
+    const itemIds = STATE.expense_items.filter(i => i.category_id === id).map(i => i.id);
+    STATE.expense_categories = STATE.expense_categories.filter(c => c.id !== id);
+    STATE.expense_items      = STATE.expense_items.filter(i => i.category_id !== id);
+    STATE.expense_entries    = STATE.expense_entries.filter(e => !itemIds.includes(e.item_id));
+    const cached = API._getCache();
+    if (cached) {
+      cached.expense_categories = STATE.expense_categories;
+      cached.expense_items      = STATE.expense_items;
+      cached.expense_entries    = STATE.expense_entries;
+      API._setCache(cached);
+    }
+    closeModal('expense-cat');
+    refreshExpenses(_expYear);
+  } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+// ── Modal Postes de dépense ───────────────────────────────────────────────────
+
+function modalExpenseItem() {
+  return `
+    <div id="modal-expense-item" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <h3 class="text-lg font-bold text-white mb-4" id="exp-item-modal-title">Nouveau poste</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="label">Nom du poste</label>
+            <input type="text" id="exp-item-nom" class="input" placeholder="Électricité, Netflix, Courses…" />
+          </div>
+          <div>
+            <label class="label">Catégorie</label>
+            <select id="exp-item-cat" class="input"></select>
+          </div>
+          <input type="hidden" id="exp-item-id" value="" />
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="saveExpenseItem()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeModal('expense-item')" class="btn-secondary flex-1">Annuler</button>
+        </div>
+        <div id="exp-item-list" class="mt-5 space-y-1"></div>
+      </div>
+    </div>`;
+}
+
+function openExpenseItemModal(editId) {
+  // Rebuild options
+  const sel = document.getElementById('exp-item-cat');
+  if (sel) sel.innerHTML = STATE.expense_categories
+    .map(c => `<option value="${c.id}">${esc(c.nom)}</option>`).join('');
+
+  document.getElementById('exp-item-id').value = editId || '';
+  if (editId) {
+    const item = STATE.expense_items.find(i => i.id === editId);
+    if (item) {
+      document.getElementById('exp-item-modal-title').textContent = 'Modifier poste';
+      document.getElementById('exp-item-nom').value = item.nom;
+      if (sel) sel.value = item.category_id;
+    }
+  } else {
+    document.getElementById('exp-item-modal-title').textContent = 'Nouveau poste';
+    document.getElementById('exp-item-nom').value = '';
+  }
+
+  // Liste des postes existants
+  const listEl = document.getElementById('exp-item-list');
+  if (listEl) {
+    listEl.innerHTML = STATE.expense_items.length ? `
+      <h4 class="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Postes existants</h4>
+      ${STATE.expense_items.map(item => {
+        const cat = STATE.expense_categories.find(c => c.id === item.category_id);
+        const col = EXP_COLORS[cat?.couleur] || EXP_COLORS.slate;
+        return `<div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition">
+          <span class="text-sm text-slate-300">${esc(item.nom)}
+            <span class="text-xs ${col.text} ml-1">${cat ? esc(cat.nom) : ''}</span>
+          </span>
+          <div class="flex gap-3">
+            <button onclick="openExpenseItemModal('${item.id}')" class="text-slate-500 hover:text-blue-400 text-xs">✏</button>
+            <button onclick="confirmDeleteExpenseItem('${item.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
+          </div>
+        </div>`;
+      }).join('')}` : '';
+  }
+  document.getElementById('modal-expense-item').classList.remove('hidden');
+}
+
+async function saveExpenseItem() {
+  const id          = document.getElementById('exp-item-id').value;
+  const nom         = document.getElementById('exp-item-nom').value.trim();
+  const category_id = document.getElementById('exp-item-cat').value;
+  if (!nom || !category_id) return;
+  try {
+    if (id) {
+      await API.updateExpenseItem({ id, nom, category_id });
+      STATE.expense_items = STATE.expense_items.map(i => i.id === id ? { ...i, nom, category_id } : i);
+    } else {
+      const result = await API.createExpenseItem({ nom, category_id });
+      STATE.expense_items.push(result);
+    }
+    const cached = API._getCache();
+    if (cached) { cached.expense_items = STATE.expense_items; API._setCache(cached); }
+    closeModal('expense-item');
+    refreshExpenses(_expYear);
+  } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+async function confirmDeleteExpenseItem(id) {
+  if (!confirm('Supprimer ce poste et toutes ses entrées ?')) return;
+  try {
+    await API.deleteExpenseItem(id);
+    STATE.expense_items   = STATE.expense_items.filter(i => i.id !== id);
+    STATE.expense_entries = STATE.expense_entries.filter(e => e.item_id !== id);
+    const cached = API._getCache();
+    if (cached) {
+      cached.expense_items   = STATE.expense_items;
+      cached.expense_entries = STATE.expense_entries;
+      API._setCache(cached);
+    }
+    closeModal('expense-item');
+    refreshExpenses(_expYear);
+  } catch (err) { alert('Erreur : ' + err.message); }
 }
