@@ -1,5 +1,5 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [] };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
@@ -2366,6 +2366,10 @@ function expTypeAvg(year, type) {
   return total / monthsWithData;
 }
 
+function expTotalAids() {
+  return STATE.expense_aids.reduce((s, a) => s + Number(a.montant), 0);
+}
+
 // ── Dashboard card ────────────────────────────────────────────────────────────
 
 function expenseDashboardCard() {
@@ -2384,7 +2388,9 @@ function expenseDashboardCard() {
       </div>`;
   }
 
-  const MONTHS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const MONTHS   = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const totalAids = expTotalAids();
+  const netAvg    = Math.max(0, avg - totalAids);
   return `
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
@@ -2392,7 +2398,7 @@ function expenseDashboardCard() {
         <p class="text-white font-bold text-lg">${fmt(currentTotal)}</p>
       </div>
       <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
-        <p class="text-slate-400 text-xs mb-1">Moy. mensuelle</p>
+        <p class="text-slate-400 text-xs mb-1">Moy. brute</p>
         <p class="text-white font-bold text-lg">${fmt(avg)}</p>
       </div>
       <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
@@ -2400,8 +2406,8 @@ function expenseDashboardCard() {
         <p class="text-emerald-400 font-bold text-lg">${fmt(vitalAvg)}</p>
       </div>
       <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
-        <p class="text-slate-400 text-xs mb-1">Superflux / mois</p>
-        <p class="text-amber-400 font-bold text-lg">${fmt(superAvg)}</p>
+        <p class="text-slate-400 text-xs mb-1">Reste à financer${totalAids > 0 ? ' 🔥' : ''}</p>
+        <p class="${totalAids > 0 ? 'text-amber-400' : 'text-white'} font-bold text-lg">${fmt(netAvg)}</p>
       </div>
     </div>`;
 }
@@ -2416,7 +2422,8 @@ function renderExpenses(app) {
       ${expensesContent(_expYear)}
     </div>
     ${modalExpenseCategory()}
-    ${modalExpenseItem()}`;
+    ${modalExpenseItem()}
+    ${modalExpenseAid()}`;
 }
 
 function refreshExpenses(year) {
@@ -2436,7 +2443,8 @@ function expensesContent(year) {
         </select>
         <button onclick="openExpenseCategoryModal()" class="btn-secondary text-sm">⚙ Catégories</button>
         <button onclick="openExpenseItemModal()" class="btn-primary text-sm">+ Poste</button>
-        <button onclick="importExpAvgToFire()" class="btn-secondary text-sm" title="Importer la moyenne dans la simulation FIRE">🔥 → FIRE</button>
+        <button onclick="openExpenseAidModal()" class="btn-secondary text-sm">💳 Aides</button>
+        <button onclick="importExpAvgToFire()" class="btn-secondary text-sm" title="Importer le reste à financer dans la simulation FIRE">🔥 → FIRE</button>
       </div>
     </div>
     <div id="exp-stats">${expenseStatsCards(year)}</div>
@@ -2452,15 +2460,18 @@ function expenseStatsCards(year) {
   const superAvg     = expTypeAvg(year, 'superflu');
   const currentMonth = new Date().getMonth() + 1;
   const currentTotal = expMonthTotal(year, currentMonth);
+  const totalAids    = expTotalAids();
+  const netAvg       = Math.max(0, avg - totalAids);
 
   return `
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">${MONTHS[currentMonth - 1]} ${year}</p>
         <p class="text-white font-bold text-xl">${fmt(currentTotal)}</p>
+        ${totalAids > 0 ? `<p class="text-slate-500 text-xs mt-1">Net : ${fmt(Math.max(0, currentTotal - totalAids))}</p>` : ''}
       </div>
       <div class="bg-slate-800 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Moy. mensuelle ${year}</p>
+        <p class="text-slate-400 text-xs mb-1">Moy. brute ${year}</p>
         <p class="text-white font-bold text-xl">${fmt(avg)}</p>
         <p class="text-slate-500 text-xs mt-1">${fmt(avg * 12)} / an</p>
       </div>
@@ -2468,9 +2479,10 @@ function expenseStatsCards(year) {
         <p class="text-slate-400 text-xs mb-1">Vital / mois</p>
         <p class="text-emerald-400 font-bold text-xl">${fmt(vitalAvg)}</p>
       </div>
-      <div class="bg-slate-800 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Superflux / mois</p>
-        <p class="text-amber-400 font-bold text-xl">${fmt(superAvg)}</p>
+      <div class="bg-slate-800 rounded-xl p-4 ${totalAids > 0 ? 'border border-amber-500/30' : ''}">
+        <p class="text-slate-400 text-xs mb-1">Reste à financer / mois</p>
+        <p class="${totalAids > 0 ? 'text-amber-400' : 'text-white'} font-bold text-xl">${fmt(netAvg)}</p>
+        ${totalAids > 0 ? `<p class="text-slate-500 text-xs mt-1">Aides : −${fmt(totalAids)}</p>` : ''}
       </div>
     </div>`;
 }
@@ -2556,12 +2568,49 @@ function expenseTable(year) {
     return catRow + itemRows;
   }).join('');
 
+  // Ligne "Dont vital"
+  const vitalCatIds    = STATE.expense_categories.filter(c => c.type === 'vital').map(c => c.id);
+  const vitalItemIds   = STATE.expense_items.filter(i => vitalCatIds.includes(i.category_id)).map(i => i.id);
+  const vitalMonths    = MONTHS.map((_, mi) =>
+    STATE.expense_entries
+      .filter(e => Number(e.annee) === year && Number(e.mois) === mi + 1 && vitalItemIds.includes(e.item_id))
+      .reduce((s, e) => s + Number(e.montant), 0)
+  );
+  const vitalTotal        = vitalMonths.reduce((a, b) => a + b, 0);
+  const vitalMonthsFilled = vitalMonths.filter(v => v > 0).length;
+  const vitalAvgRow       = vitalMonthsFilled > 0 ? vitalTotal / vitalMonthsFilled : 0;
+
+  // Aides
+  const totalAids = expTotalAids();
+
   const totalRow = `
     <tr class="border-t-2 border-slate-500 bg-slate-800/60">
-      <td class="py-3 px-3 sticky left-0 bg-slate-800 font-bold text-white text-sm">Total</td>
-      ${monthTotals.map(v => `<td class="py-3 px-2 text-right text-xs font-bold text-white">${v > 0 ? fmt(v) : '—'}</td>`).join('')}
-      <td class="py-3 px-3 text-right text-sm font-bold text-white">${fmt(grandAvg)}</td>
-    </tr>`;
+      <td class="py-2.5 px-3 sticky left-0 bg-slate-800 font-bold text-white text-sm">Total brut</td>
+      ${monthTotals.map(v => `<td class="py-2.5 px-2 text-right text-xs font-bold text-white">${v > 0 ? fmt(v) : '—'}</td>`).join('')}
+      <td class="py-2.5 px-3 text-right text-sm font-bold text-white">${fmt(grandAvg)}</td>
+    </tr>
+    <tr class="bg-slate-800/40">
+      <td class="py-2 px-3 sticky left-0 bg-slate-800/40 text-emerald-400 text-xs pl-6">↳ dont vital</td>
+      ${vitalMonths.map(v => `<td class="py-2 px-2 text-right text-xs text-emerald-400/70">${v > 0 ? fmt(v) : ''}</td>`).join('')}
+      <td class="py-2 px-3 text-right text-xs text-emerald-400">${vitalAvgRow > 0 ? fmt(vitalAvgRow) : '—'}</td>
+    </tr>
+    ${totalAids > 0 ? `
+    <tr class="bg-slate-800/30 border-t border-slate-700/50">
+      <td class="py-2 px-3 sticky left-0 bg-slate-800/30 text-blue-400 text-xs font-medium">
+        Aides mensuelles
+        <button onclick="openExpenseAidModal()" class="text-slate-600 hover:text-slate-400 ml-1 text-xs">✏</button>
+      </td>
+      ${MONTHS.map(() => `<td class="py-2 px-2 text-right text-xs text-blue-400">−${fmt(totalAids)}</td>`).join('')}
+      <td class="py-2 px-3 text-right text-xs font-medium text-blue-400">−${fmt(totalAids)}</td>
+    </tr>
+    <tr class="bg-amber-500/8 border-t border-amber-500/20">
+      <td class="py-2.5 px-3 sticky left-0 bg-amber-500/8 font-bold text-amber-400 text-sm">Reste à financer</td>
+      ${monthTotals.map(v => {
+        const net = v - totalAids;
+        return `<td class="py-2.5 px-2 text-right text-xs font-bold ${net > 0 ? 'text-amber-400' : 'text-emerald-400'}">${v > 0 || totalAids > 0 ? fmt(Math.max(0, net)) : '—'}</td>`;
+      }).join('')}
+      <td class="py-2.5 px-3 text-right text-sm font-bold text-amber-400">${fmt(Math.max(0, grandAvg - totalAids))}</td>
+    </tr>` : ''}`;
 
   return `
     <div class="bg-slate-900 rounded-xl overflow-hidden">
@@ -2657,10 +2706,12 @@ function editExpenseCell(itemId, year, month, currentVal) {
 // ── Import moyenne → FIRE ─────────────────────────────────────────────────────
 
 function importExpAvgToFire() {
-  const avg = expGlobalMonthlyAvg(_expYear);
-  if (!avg) { alert('Aucune dépense enregistrée pour cette année.'); return; }
+  const grossAvg  = expGlobalMonthlyAvg(_expYear);
+  const totalAids = expTotalAids();
+  const netAvg    = Math.max(0, grossAvg - totalAids);
+  if (!grossAvg && !totalAids) { alert('Aucune dépense enregistrée pour cette année.'); return; }
   _fpInit();
-  _fp.depenses = Math.round(avg);
+  _fp.depenses = Math.round(netAvg);
   const inp = document.getElementById('fp-dep-input');
   if (inp) inp.value = _fp.depenses;
   refreshFireResults();
@@ -2912,6 +2963,100 @@ async function confirmDeleteExpenseItem(id) {
       API._setCache(cached);
     }
     closeModal('expense-item');
+    refreshExpenses(_expYear);
+  } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+// ── Modal Aides mensuelles ────────────────────────────────────────────────────
+
+function modalExpenseAid() {
+  return `
+    <div id="modal-expense-aid" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <h3 class="text-lg font-bold text-white mb-1">Aides mensuelles</h3>
+        <p class="text-slate-400 text-xs mb-4">Revenus récurrents qui réduisent ton besoin FIRE (contribution conjoint, rente, etc.).</p>
+        <div class="space-y-3">
+          <div>
+            <label class="label">Nom</label>
+            <input type="text" id="exp-aid-nom" class="input" placeholder="Contribution épouse, Rente…" />
+          </div>
+          <div>
+            <label class="label">Montant mensuel (€)</label>
+            <input type="number" id="exp-aid-montant" class="input" min="0" step="50" placeholder="500" />
+          </div>
+          <input type="hidden" id="exp-aid-id" value="" />
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="saveExpenseAid()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeModal('expense-aid')" class="btn-secondary flex-1">Annuler</button>
+        </div>
+        <div id="exp-aid-list" class="mt-5 space-y-1"></div>
+      </div>
+    </div>`;
+}
+
+function openExpenseAidModal(editId) {
+  document.getElementById('exp-aid-id').value      = editId || '';
+  document.getElementById('exp-aid-nom').value     = '';
+  document.getElementById('exp-aid-montant').value = '';
+  if (editId) {
+    const aid = STATE.expense_aids.find(a => a.id === editId);
+    if (aid) {
+      document.getElementById('exp-aid-nom').value     = aid.nom;
+      document.getElementById('exp-aid-montant').value = aid.montant;
+    }
+  }
+  // Liste des aides existantes
+  const listEl = document.getElementById('exp-aid-list');
+  if (listEl) {
+    const total = expTotalAids();
+    listEl.innerHTML = STATE.expense_aids.length ? `
+      <h4 class="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Aides enregistrées</h4>
+      ${STATE.expense_aids.map(a => `
+        <div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition cursor-pointer"
+          onclick="openExpenseAidModal('${a.id}')">
+          <span class="text-sm text-slate-300">${esc(a.nom)}</span>
+          <span class="flex items-center gap-3">
+            <span class="text-blue-400 text-sm font-medium">${fmt(Number(a.montant))}/mois</span>
+            <button onclick="event.stopPropagation();confirmDeleteExpenseAid('${a.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
+          </span>
+        </div>`).join('')}
+      <div class="mt-2 pt-2 border-t border-slate-700 flex justify-between text-xs">
+        <span class="text-slate-500">Total aides</span>
+        <span class="text-blue-400 font-semibold">${fmt(total)}/mois</span>
+      </div>` : '<p class="text-slate-600 text-xs">Aucune aide enregistrée.</p>';
+  }
+  document.getElementById('modal-expense-aid').classList.remove('hidden');
+}
+
+async function saveExpenseAid() {
+  const id      = document.getElementById('exp-aid-id').value;
+  const nom     = document.getElementById('exp-aid-nom').value.trim();
+  const montant = parseFloat(document.getElementById('exp-aid-montant').value) || 0;
+  if (!nom || !montant) return;
+  try {
+    if (id) {
+      await API.updateExpenseAid({ id, nom, montant });
+      STATE.expense_aids = STATE.expense_aids.map(a => a.id === id ? { ...a, nom, montant } : a);
+    } else {
+      const result = await API.createExpenseAid({ nom, montant });
+      STATE.expense_aids.push(result);
+    }
+    const cached = API._getCache();
+    if (cached) { cached.expense_aids = STATE.expense_aids; API._setCache(cached); }
+    closeModal('expense-aid');
+    refreshExpenses(_expYear);
+  } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+async function confirmDeleteExpenseAid(id) {
+  if (!confirm('Supprimer cette aide ?')) return;
+  try {
+    await API.deleteExpenseAid(id);
+    STATE.expense_aids = STATE.expense_aids.filter(a => a.id !== id);
+    const cached = API._getCache();
+    if (cached) { cached.expense_aids = STATE.expense_aids; API._setCache(cached); }
+    closeModal('expense-aid');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
 }

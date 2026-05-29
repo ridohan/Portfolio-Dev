@@ -120,4 +120,8 @@ const API = {
 
   upsertExpenseEntry(data)    { return this.post('upsertExpenseEntry', data); },
   deleteExpenseEntry(data)    { return this.post('deleteExpenseEntry', data); },
+
+  createExpenseAid(data)      { return this.post('createExpenseAid', data); },
+  updateExpenseAid(data)      { return this.post('updateExpenseAid', data); },
+  deleteExpenseAid(id)        { return this.post('deleteExpenseAid', { id }); },
 };

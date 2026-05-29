@@ -36,6 +36,7 @@ function doGet(e) {
       expense_categories:  sheetToObjects(ss, 'expense_categories'),
       expense_items:       sheetToObjects(ss, 'expense_items'),
       expense_entries:     sheetToObjects(ss, 'expense_entries'),
+      expense_aids:        sheetToObjects(ss, 'expense_aids'),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -101,6 +102,14 @@ function doPost(e) {
 
       upsertExpenseEntry:     () => upsertExpenseEntry(payload),
       deleteExpenseEntry:     () => deleteExpenseEntry(payload),
+
+      createExpenseAid: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        ensureSheet(ss2, 'expense_aids', ['id','nom','montant']);
+        return createRow('expense_aids', { id: newId('ea'), nom: payload.nom, montant: Number(payload.montant) });
+      },
+      updateExpenseAid: () => updateRow('expense_aids', payload.id, { nom: payload.nom, montant: Number(payload.montant) }),
+      deleteExpenseAid: () => deleteRow('expense_aids', payload.id),
     };
 
     if (!handlers[action]) {
