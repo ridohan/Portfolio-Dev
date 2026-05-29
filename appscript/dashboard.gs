@@ -1,10 +1,11 @@
 // dashboard.gs
-// Génère un onglet "📊 NomPortfolio" par portfolio dans Google Sheets.
+// Génère un onglet "📊 NomPortfolio" par portfolio + "📊 Vue consolidée".
 // Fonction principale : refreshDashboards()
-// Déclencheur suggéré : time-driven, toutes les heures ou journalier.
 // Note : sheetToObjects() est définie dans webapp.gs — partagée automatiquement.
 
 const CONSOLIDATED_SHEET_NAME = '📊 Vue consolidée';
+
+// ─── POINT D'ENTRÉE ───────────────────────────────────────────────────────────
 
 function refreshDashboards() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -14,24 +15,36 @@ function refreshDashboards() {
   const positions    = sheetToObjects(ss, 'positions');
   const prices       = sheetToObjects(ss, 'prices');
   const cryptoPrices = sheetToObjects(ss, 'crypto_prices');
+  const charges      = sheetToObjects(ss, 'charges');
+  const rawHistory   = sheetToObjects(ss, 'history');
 
   const priceByIsin    = {};
   prices.forEach(p => { priceByIsin[p.isin] = p; });
   const cryptoBySymbol = {};
   cryptoPrices.forEach(c => { cryptoBySymbol[String(c.symbole).toUpperCase()] = c; });
 
-  // Onglet consolidé (tous les portfolios)
-  renderConsolidatedSheet(ss, portfolios, envelopes, positions, priceByIsin, cryptoBySymbol);
+  // Normalise les dates history (Sheets renvoie des objets Date)
+  const history = rawHistory.map(h => ({
+    ...h,
+    date:            h.date instanceof Date ? h.date.toISOString().slice(0, 10) : String(h.date).slice(0, 10),
+    valeur_investie: Number(h.valeur_investie) || 0,
+    valeur_actuelle: Number(h.valeur_actuelle) || 0,
+    pv_euros:        Number(h.pv_euros)        || 0,
+    pv_pct:          Number(h.pv_pct)          || 0,
+  })).sort((a, b) => a.date.localeCompare(b.date));
+
+  // Onglet consolidé
+  renderConsolidatedSheet(ss, portfolios, envelopes, positions, priceByIsin, cryptoBySymbol, charges, history);
 
   // Un onglet par portfolio
   portfolios.forEach(portfolio => {
-    renderPortfolioSheet(ss, portfolio, envelopes, positions, priceByIsin, cryptoBySymbol);
+    renderPortfolioSheet(ss, portfolio, envelopes, positions, priceByIsin, cryptoBySymbol, charges, history);
   });
 
-  // Supprime les onglets portfolio orphelins (portfolio supprimé du côté data)
+  // Supprime les onglets dashboard orphelins
   const validNames = new Set(portfolios.map(p => dashSheetName(p.nom)));
   validNames.add(CONSOLIDATED_SHEET_NAME);
-  const reserved = new Set(['portfolios','sub_portfolios','envelopes','positions','prices','crypto_prices','history']);
+  const reserved = new Set(['portfolios','sub_portfolios','envelopes','positions','prices','crypto_prices','history','charges']);
   ss.getSheets().forEach(sheet => {
     const name = sheet.getName();
     if (name.startsWith('📊 ') && !validNames.has(name) && !reserved.has(name)) {
@@ -42,13 +55,11 @@ function refreshDashboards() {
   SpreadsheetApp.flush();
 }
 
-function dashSheetName(nom) {
-  return `📊 ${nom}`;
-}
+function dashSheetName(nom) { return `📊 ${nom}`; }
 
-// ─── RENDU DE L'ONGLET CONSOLIDÉ ─────────────────────────────────────────────
+// ─── ONGLET CONSOLIDÉ ─────────────────────────────────────────────────────────
 
-function renderConsolidatedSheet(ss, portfolios, allEnvelopes, allPositions, priceByIsin, cryptoBySymbol) {
+function renderConsolidatedSheet(ss, portfolios, allEnvelopes, allPositions, priceByIsin, cryptoBySymbol, charges, history) {
   let sheet = ss.getSheetByName(CONSOLIDATED_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(CONSOLIDATED_SHEET_NAME);
@@ -61,16 +72,16 @@ function renderConsolidatedSheet(ss, portfolios, allEnvelopes, allPositions, pri
 
   let row = 1;
 
-  // ── TITRE ──────────────────────────────────────────────────────────────────
+  // Titre
   mergeWrite(sheet, row, 1, 8, 'Vue consolidée',
     { size: 18, bold: true, fg: C.WHITE, bg: C.BG, align: 'left' });
   row++;
-  mergeWrite(sheet, row, 1, 8, `Actualisé le ${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')}`,
+  mergeWrite(sheet, row, 1, 8, `Actualisé le ${fmtNow()}`,
     { size: 8, fg: C.MUTED2, bg: C.BG });
   row++;
   setBg(sheet, row, 1, 1, 8, C.BG); row++;
 
-  // ── STATS GLOBALES (agrégat de tous les portfolios) ────────────────────────
+  // Stats globales
   let grandTotal = 0, grandInvested = 0;
   const allStats = portfolios.map(p => {
     const s = calcPortfolioStats(p.id, allEnvelopes, allPositions, priceByIsin, cryptoBySymbol);
@@ -78,14 +89,21 @@ function renderConsolidatedSheet(ss, portfolios, allEnvelopes, allPositions, pri
     grandInvested += s.invested;
     return { portfolio: p, ...s };
   });
-  const grandPv    = grandTotal - grandInvested;
-  const grandPvPct = grandInvested > 0 ? ((grandPv / grandInvested) * 100).toFixed(2) : '0.00';
+  const grandCharges = charges.reduce((s, c) => s + (Number(c.montant) || 0), 0);
+  const grandPv      = grandTotal - grandInvested;
+  const grandPvPct   = grandInvested > 0 ? ((grandPv / grandInvested) * 100).toFixed(2) : '0.00';
 
-  row = writeGlobalStats(sheet, row, grandTotal, grandInvested, grandPv, grandPvPct);
+  row = writeGlobalStats(sheet, row, grandTotal, grandInvested, grandPv, grandPvPct, grandCharges);
 
-  // ── TABLEAU RÉCAP PAR PORTFOLIO ────────────────────────────────────────────
+  // Historique global
+  const globalHist = aggregateHistory(history, allEnvelopes.map(e => e.id));
+  row = writeHistorySection(sheet, row, globalHist, 'Historique global');
+
+  // Activité récente
+  row = writeRecentActivity(sheet, row, allPositions, allEnvelopes);
+
+  // Tableau récap par portfolio
   row = writeSectionHeader(sheet, row, 'Récapitulatif par portfolio');
-
   ['Portfolio', 'Total', 'Investi', 'Plus-value', 'PV %', 'Actions', 'Obligations', 'Cash'].forEach((h, i) => {
     sheet.getRange(row, i + 1).setValue(h)
       .setFontColor(C.MUTED2).setFontSize(8).setFontWeight('bold').setBackground(C.BG);
@@ -106,35 +124,33 @@ function renderConsolidatedSheet(ss, portfolios, allEnvelopes, allPositions, pri
     sheet.getRange(row, 8).setValue(`${alloc.cash}%`).setFontColor(C.GREEN).setFontSize(9).setBackground(C.CARD);
     row++;
   });
-
   setBg(sheet, row, 1, 1, 8, C.BG); row++;
 
-  // ── DÉTAIL COMPLET PAR PORTFOLIO ───────────────────────────────────────────
+  // Détail complet par portfolio
   allStats.forEach(({ portfolio, total, invested, alloc }) => {
-    const pv    = total - invested;
-    const pvPct = invested > 0 ? ((pv / invested) * 100).toFixed(2) : '0.00';
-    const envs  = allEnvelopes.filter(e => e.portfolio_id === portfolio.id);
-    const rebal = calcRebalancing(portfolio, total, alloc);
+    const pv         = total - invested;
+    const pvPct      = invested > 0 ? ((pv / invested) * 100).toFixed(2) : '0.00';
+    const envs       = allEnvelopes.filter(e => e.portfolio_id === portfolio.id);
+    const rebal      = calcRebalancing(portfolio, total, alloc);
+    const pfCharges  = charges.filter(c => c.portfolio_id === portfolio.id);
+    const totalChg   = pfCharges.reduce((s, c) => s + (Number(c.montant) || 0), 0);
 
     row = writeTitle(sheet, row, portfolio, pvPct);
+    row = writeGlobalStats(sheet, row, total, invested, pv, pvPct, totalChg);
     row = writeAllocSection(sheet, row, alloc, portfolio, total);
-    if (rebal.length > 0) row = writeRebalancing(sheet, row, rebal);
+    if (rebal.length) row = writeRebalancing(sheet, row, rebal);
 
     row = writeSectionHeader(sheet, row, 'Enveloppes');
-    if (!envs.length) {
-      sheet.getRange(row, 1).setValue('Aucune enveloppe').setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
-      bg8(sheet, row, C.CARD);
-      row++;
-    } else {
-      envs.forEach(env => {
-        row = renderEnvelopeBlock(sheet, row, env, allPositions, priceByIsin, cryptoBySymbol);
-        setBg(sheet, row, 1, 1, 8, C.BG);
-        row++;
-      });
-    }
+    row = envs.length
+      ? writeEnvelopesByType(sheet, row, envs, allPositions, priceByIsin, cryptoBySymbol)
+      : (sheet.getRange(row, 1).setValue('Aucune enveloppe').setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD), bg8(sheet, row, C.CARD), row + 1);
+
+    if (pfCharges.length) row = writeChargesSection(sheet, row, pfCharges, totalChg);
 
     // Séparateur inter-portfolio
-    sheet.getRange(row, 1, 1, 8).setBackground('#1e3a5f').setBorder(false, false, true, false, false, false, '#3b82f6', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    sheet.getRange(row, 1, 1, 8)
+      .setBackground('#1e3a5f')
+      .setBorder(false, false, true, false, false, false, '#3b82f6', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
     sheet.setRowHeight(row, 6);
     row++;
     setBg(sheet, row, 1, 1, 8, C.BG); row++;
@@ -144,138 +160,119 @@ function renderConsolidatedSheet(ss, portfolios, allEnvelopes, allPositions, pri
   sheet.setFrozenRows(0);
 }
 
-// ─── RENDU D'UN ONGLET PORTFOLIO ─────────────────────────────────────────────
+// ─── ONGLET PAR PORTFOLIO ─────────────────────────────────────────────────────
 
-function renderPortfolioSheet(ss, portfolio, allEnvelopes, allPositions, priceByIsin, cryptoBySymbol) {
-  const name = dashSheetName(portfolio.nom);
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-  } else {
-    sheet.clearContents();
-    sheet.clearFormats();
-  }
+function renderPortfolioSheet(ss, portfolio, allEnvelopes, allPositions, priceByIsin, cryptoBySymbol, charges, history) {
+  const name  = dashSheetName(portfolio.nom);
+  let sheet   = ss.getSheetByName(name);
+  if (!sheet) { sheet = ss.insertSheet(name); }
+  else        { sheet.clearContents(); sheet.clearFormats(); }
 
-  const envs   = allEnvelopes.filter(e => e.portfolio_id === portfolio.id);
-  const stats  = calcPortfolioStats(portfolio.id, allEnvelopes, allPositions, priceByIsin, cryptoBySymbol);
-  const { total, invested, alloc } = stats;
-  const pv     = total - invested;
-  const pvPct  = invested > 0 ? ((pv / invested) * 100).toFixed(2) : '0.00';
-  const rebal  = calcRebalancing(portfolio, total, alloc);
+  const envs       = allEnvelopes.filter(e => e.portfolio_id === portfolio.id);
+  const pfCharges  = charges.filter(c => c.portfolio_id === portfolio.id);
+  const totalChg   = pfCharges.reduce((s, c) => s + (Number(c.montant) || 0), 0);
+  const { total, invested, alloc } = calcPortfolioStats(portfolio.id, allEnvelopes, allPositions, priceByIsin, cryptoBySymbol);
+  const pv         = total - invested;
+  const pvPct      = invested > 0 ? ((pv / invested) * 100).toFixed(2) : '0.00';
+  const rebal      = calcRebalancing(portfolio, total, alloc);
+  const pfHist     = aggregateHistory(history, envs.map(e => e.id));
 
   let row = 1;
-
-  // ── TITRE ──────────────────────────────────────────────────────────────────
   row = writeTitle(sheet, row, portfolio, pvPct);
-
-  // ── STATS GLOBALES ─────────────────────────────────────────────────────────
-  row = writeGlobalStats(sheet, row, total, invested, pv, pvPct);
-
-  // ── BARRE D'ALLOCATION ─────────────────────────────────────────────────────
+  row = writeGlobalStats(sheet, row, total, invested, pv, pvPct, totalChg);
   row = writeAllocSection(sheet, row, alloc, portfolio, total);
+  if (rebal.length) row = writeRebalancing(sheet, row, rebal);
+  row = writeHistorySection(sheet, row, pfHist, 'Historique');
 
-  // ── RÉÉQUILIBRAGE ──────────────────────────────────────────────────────────
-  if (rebal.length > 0) {
-    row = writeRebalancing(sheet, row, rebal);
-  }
-
-  // ── ENVELOPPES ─────────────────────────────────────────────────────────────
   row = writeSectionHeader(sheet, row, 'Enveloppes');
-  envs.forEach(env => {
-    row = renderEnvelopeBlock(sheet, row, env, allPositions, priceByIsin, cryptoBySymbol);
-    setBg(sheet, row, 1, 1, 8, C.BG);
-    row++;
-  });
-  if (!envs.length) {
-    sheet.getRange(row, 1).setValue('Aucune enveloppe').setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
-    bg8(sheet, row, C.CARD);
-    row++;
-  }
+  row = envs.length
+    ? writeEnvelopesByType(sheet, row, envs, allPositions, priceByIsin, cryptoBySymbol)
+    : (sheet.getRange(row, 1).setValue('Aucune enveloppe').setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD), bg8(sheet, row, C.CARD), row + 1);
 
-  // ── MISE EN FORME DES COLONNES ─────────────────────────────────────────────
+  if (pfCharges.length) row = writeChargesSection(sheet, row, pfCharges, totalChg);
+
   [220, 110, 110, 150, 120, 150, 80, 80].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
   sheet.setFrozenRows(0);
 }
 
-// ─── SECTIONS ────────────────────────────────────────────────────────────────
+// ─── SECTIONS DE BASE ─────────────────────────────────────────────────────────
 
 function writeTitle(sheet, row, portfolio, pvPct) {
-  const pvSign = Number(pvPct) >= 0 ? '+' : '';
   mergeWrite(sheet, row, 1, 8, portfolio.nom,
     { size: 16, bold: true, fg: C.WHITE, bg: C.BG, align: 'left' });
   row++;
-
-  const cibleStr = `Cible : ${portfolio.cible_actions}% actions · ${portfolio.cible_obligations}% obligations · ${portfolio.cible_cash}% cash`;
-  mergeWrite(sheet, row, 1, 8, cibleStr,
+  mergeWrite(sheet, row, 1, 8,
+    `Cible : ${portfolio.cible_actions}% actions · ${portfolio.cible_obligations}% obligations · ${portfolio.cible_cash}% cash`,
     { size: 9, fg: C.MUTED, bg: C.BG });
   row++;
-
-  mergeWrite(sheet, row, 1, 8, `Actualisé le ${Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')}`,
+  mergeWrite(sheet, row, 1, 8, `Actualisé le ${fmtNow()}`,
     { size: 8, fg: C.MUTED2, bg: C.BG });
   row++;
-
   setBg(sheet, row, 1, 1, 8, C.BG); row++;
   return row;
 }
 
-function writeGlobalStats(sheet, row, total, invested, pv, pvPct) {
+function writeGlobalStats(sheet, row, total, invested, pv, pvPct, totalCharges) {
+  totalCharges = totalCharges || 0;
+  const nette   = total - totalCharges;
+  const pvColor = pv >= 0 ? C.GREEN : C.RED;
+
   // Labels
   ['Valeur totale', 'Investi', 'Plus-value'].forEach((label, i) => {
-    const col = i * 3 + 1;
-    const span = i === 2 ? 2 : 2;
-    mergeWrite(sheet, row, col, span, label,
+    mergeWrite(sheet, row, i * 3 + 1, 2, label,
       { size: 8, fg: C.MUTED, bg: C.CARD, align: 'center' });
   });
+  setBg(sheet, row, 7, 1, 2, C.CARD);
   row++;
 
   // Valeurs
-  const pvColor = pv >= 0 ? C.GREEN : C.RED;
-  mergeWrite(sheet, row, 1, 2, fmtEur(total),
-    { size: 14, bold: true, fg: C.WHITE, bg: C.CARD, align: 'center' });
+  const valLabel = totalCharges > 0
+    ? `${fmtEur(nette)}  (brut ${fmtEur(total)})`
+    : fmtEur(total);
+  mergeWrite(sheet, row, 1, 2, valLabel,
+    { size: 13, bold: true, fg: C.WHITE, bg: C.CARD, align: 'center' });
   mergeWrite(sheet, row, 3, 2, fmtEur(invested),
-    { size: 14, bold: true, fg: C.WHITE, bg: C.CARD, align: 'center' });
-  const pvLabel = `${pv >= 0 ? '+' : ''}${fmtEur(pv)}\n(${pv >= 0 ? '+' : ''}${pvPct}%)`;
-  mergeWrite(sheet, row, 5, 2, `${pv >= 0 ? '+' : ''}${fmtEur(pv)} (${pv >= 0 ? '+' : ''}${pvPct}%)`,
-    { size: 12, bold: true, fg: pvColor, bg: C.CARD, align: 'center' });
+    { size: 13, bold: true, fg: C.WHITE, bg: C.CARD, align: 'center' });
+  mergeWrite(sheet, row, 5, 2,
+    `${pv >= 0 ? '+' : ''}${fmtEur(pv)} (${pv >= 0 ? '+' : ''}${pvPct}%)`,
+    { size: 11, bold: true, fg: pvColor, bg: C.CARD, align: 'center' });
   setBg(sheet, row, 7, 1, 2, C.CARD);
   row++;
+
+  // Ligne charges si applicable
+  if (totalCharges > 0) {
+    sheet.getRange(row, 1).setValue('Charges à venir').setFontColor(C.MUTED2).setFontSize(8).setBackground(C.CARD);
+    sheet.getRange(row, 2).setValue(`−${fmtEur(totalCharges)}`).setFontColor(C.RED).setFontSize(9).setBackground(C.CARD);
+    setBg(sheet, row, 3, 1, 6, C.CARD);
+    row++;
+  }
 
   setBg(sheet, row, 1, 1, 8, C.BG); row++;
   return row;
 }
 
 function writeAllocSection(sheet, row, alloc, portfolio, total) {
-  // Ligne labels réels vs cible
-  const cells = [
-    [1, 'Allocation réelle', C.MUTED, 8, false],
-    [2, `${alloc.actions}% actions`,    C.BLUE,  10, false],
-    [3, `${alloc.obligations}% oblig.`, C.AMBER, 10, false],
-    [4, `${alloc.cash}% cash`,          C.GREEN, 10, false],
-    [5, 'Cible',                        C.MUTED, 8,  false],
-    [6, `${portfolio.cible_actions}% actions`,    C.BLUE,  10, false],
-    [7, `${portfolio.cible_obligations}% oblig.`, C.AMBER, 10, false],
-    [8, `${portfolio.cible_cash}% cash`,          C.GREEN, 10, false],
-  ];
-  cells.forEach(([col, val, fg, size]) => {
-    sheet.getRange(row, col)
-      .setValue(val).setFontColor(fg).setFontSize(size).setBackground(C.CARD);
+  [
+    [1, 'Allocation réelle', C.MUTED, 8],
+    [2, `${alloc.actions}% actions`,    C.BLUE,  10],
+    [3, `${alloc.obligations}% oblig.`, C.AMBER, 10],
+    [4, `${alloc.cash}% cash`,          C.GREEN, 10],
+    [5, 'Cible',                        C.MUTED, 8],
+    [6, `${portfolio.cible_actions}% actions`,    C.BLUE,  10],
+    [7, `${portfolio.cible_obligations}% oblig.`, C.AMBER, 10],
+    [8, `${portfolio.cible_cash}% cash`,          C.GREEN, 10],
+  ].forEach(([col, val, fg, size]) => {
+    sheet.getRange(row, col).setValue(val).setFontColor(fg).setFontSize(size).setBackground(C.CARD);
   });
   row++;
 
-  // Barre visuelle (8 colonnes colorées proportionnellement)
   drawAllocBar(sheet, row, alloc);
   row++;
 
-  // Montants par poche
-  const amtCells = [
-    [2, fmtEur(total * Number(alloc.actions)     / 100), C.BLUE],
-    [3, fmtEur(total * Number(alloc.obligations) / 100), C.AMBER],
-    [4, fmtEur(total * Number(alloc.cash)        / 100), C.GREEN],
-  ];
   setBg(sheet, row, 1, 1, 8, C.CARD);
   sheet.getRange(row, 1).setValue('Montants').setFontColor(C.MUTED).setFontSize(8).setBackground(C.CARD);
-  amtCells.forEach(([col, val, fg]) => {
-    sheet.getRange(row, col).setValue(val).setFontColor(fg).setFontSize(9).setBackground(C.CARD);
+  [[2, alloc.actions, C.BLUE], [3, alloc.obligations, C.AMBER], [4, alloc.cash, C.GREEN]].forEach(([col, pct, fg]) => {
+    sheet.getRange(row, col).setValue(fmtEur(total * Number(pct) / 100)).setFontColor(fg).setFontSize(9).setBackground(C.CARD);
   });
   row++;
 
@@ -286,9 +283,8 @@ function writeAllocSection(sheet, row, alloc, portfolio, total) {
 function writeRebalancing(sheet, row, rebal) {
   writeSectionHeader(sheet, row, 'Suggestions de rééquilibrage');
   row++;
-
   rebal.forEach(s => {
-    const buy = s.ecartEur > 0;
+    const buy   = s.ecartEur > 0;
     const color = buy ? C.GREEN : C.RED;
     sheet.getRange(row, 1).setValue(s.label).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
     sheet.getRange(row, 2).setValue(`${buy ? '▲ +' : '▼ '}${s.ecartEur.toLocaleString('fr-FR')} €`).setFontColor(color).setFontSize(10).setBackground(C.CARD);
@@ -296,27 +292,195 @@ function writeRebalancing(sheet, row, rebal) {
     setBg(sheet, row, 4, 1, 5, C.CARD);
     row++;
   });
-
   setBg(sheet, row, 1, 1, 8, C.BG); row++;
   return row;
 }
 
 function writeSectionHeader(sheet, row, label) {
-  mergeWrite(sheet, row, 1, 8, label,
-    { size: 11, bold: true, fg: C.WHITE, bg: C.BG });
+  mergeWrite(sheet, row, 1, 8, label, { size: 11, bold: true, fg: C.WHITE, bg: C.BG });
+  return row + 1;
+}
+
+// ─── HISTORIQUE ──────────────────────────────────────────────────────────────
+
+// Agrège les entrées history par date pour une liste d'envelope IDs
+function aggregateHistory(history, envelopeIds) {
+  const byDate = {};
+  history.forEach(h => {
+    if (!envelopeIds.includes(h.envelope_id)) return;
+    if (!byDate[h.date]) byDate[h.date] = { date: h.date, valeur_investie: 0, valeur_actuelle: 0 };
+    byDate[h.date].valeur_investie += h.valeur_investie;
+    byDate[h.date].valeur_actuelle += h.valeur_actuelle;
+  });
+  return Object.values(byDate)
+    .map(e => ({
+      ...e,
+      pv_euros: e.valeur_actuelle - e.valeur_investie,
+      pv_pct:   e.valeur_investie > 0
+        ? ((e.valeur_actuelle / e.valeur_investie - 1) * 100).toFixed(2)
+        : 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function writeHistorySection(sheet, row, entries, label) {
+  if (!entries.length) return row;
+
+  row = writeSectionHeader(sheet, row, label);
+
+  // Ligne résumé : tendance globale
+  const first      = entries[0];
+  const last       = entries[entries.length - 1];
+  const change     = last.valeur_actuelle - first.valeur_actuelle;
+  const changePct  = first.valeur_actuelle > 0 ? ((change / first.valeur_actuelle) * 100).toFixed(2) : 0;
+  const trendColor = change >= 0 ? C.GREEN : C.RED;
+  const sign       = change >= 0 ? '+' : '';
+
+  sheet.getRange(row, 1).setValue('Dernière valeur').setFontColor(C.MUTED).setFontSize(8).setBackground(C.CARD);
+  sheet.getRange(row, 2).setValue(fmtEur(last.valeur_actuelle)).setFontColor(C.WHITE).setFontSize(11).setFontWeight('bold').setBackground(C.CARD);
+  sheet.getRange(row, 3).setValue(`${sign}${fmtEur(change)} (${sign}${changePct}%)`).setFontColor(trendColor).setFontSize(10).setBackground(C.CARD);
+  sheet.getRange(row, 4).setValue(`sur ${entries.length} entrée${entries.length > 1 ? 's' : ''}`).setFontColor(C.MUTED2).setFontSize(8).setBackground(C.CARD);
+  setBg(sheet, row, 5, 1, 4, C.CARD);
   row++;
+
+  // En-têtes
+  ['Date', 'Valeur', 'Investi', 'Plus-value', 'PV %', '', '', ''].forEach((h, i) => {
+    sheet.getRange(row, i + 1).setValue(h)
+      .setFontColor(C.MUTED2).setFontSize(8).setFontWeight('bold').setBackground(C.BG);
+  });
+  row++;
+
+  // Dernières 10 entrées, plus récent en premier
+  entries.slice(-10).reverse().forEach(h => {
+    const pv       = h.pv_euros;
+    const pvColor  = pv >= 0 ? C.GREEN : C.RED;
+    const dateLbl  = fmtDateStr(h.date);
+    sheet.getRange(row, 1).setValue(dateLbl).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 2).setValue(fmtEur(h.valeur_actuelle)).setFontColor(C.WHITE).setFontSize(9).setFontWeight('bold').setBackground(C.CARD);
+    sheet.getRange(row, 3).setValue(fmtEur(h.valeur_investie)).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 4).setValue(`${pv >= 0 ? '+' : ''}${fmtEur(pv)}`).setFontColor(pvColor).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 5).setValue(`${pv >= 0 ? '+' : ''}${Number(h.pv_pct).toFixed(2)}%`).setFontColor(pvColor).setFontSize(9).setBackground(C.CARD);
+    setBg(sheet, row, 6, 1, 3, C.CARD);
+    row++;
+  });
+
+  setBg(sheet, row, 1, 1, 8, C.BG); row++;
+  return row;
+}
+
+// ─── ACTIVITÉ RÉCENTE ─────────────────────────────────────────────────────────
+
+function writeRecentActivity(sheet, row, allPositions, allEnvelopes) {
+  const recent = allPositions
+    .filter(p => p.date_achat)
+    .map(p => ({
+      ...p,
+      dateStr: p.date_achat instanceof Date
+        ? p.date_achat.toISOString().slice(0, 10)
+        : String(p.date_achat).slice(0, 10),
+    }))
+    .sort((a, b) => b.dateStr.localeCompare(a.dateStr))
+    .slice(0, 5);
+
+  if (!recent.length) return row;
+
+  row = writeSectionHeader(sheet, row, 'Activité récente');
+  ['Date', 'Identifiant', 'Enveloppe', 'Quantité', 'Prix achat', '', '', ''].forEach((h, i) => {
+    sheet.getRange(row, i + 1).setValue(h)
+      .setFontColor(C.MUTED2).setFontSize(8).setFontWeight('bold').setBackground(C.BG);
+  });
+  row++;
+
+  recent.forEach(pos => {
+    const env = allEnvelopes.find(e => e.id === pos.envelope_id);
+    sheet.getRange(row, 1).setValue(fmtDateStr(pos.dateStr)).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 2).setValue(pos.identifiant).setFontColor(C.TEXT).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 3).setValue(env?.nom || '').setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 4).setValue(pos.quantite).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 5).setValue(fmtEur(Number(pos.prix_achat))).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    setBg(sheet, row, 6, 1, 3, C.CARD);
+    row++;
+  });
+
+  setBg(sheet, row, 1, 1, 8, C.BG); row++;
+  return row;
+}
+
+// ─── ENVELOPPES PAR TYPE ──────────────────────────────────────────────────────
+
+function writeEnvelopesByType(sheet, row, envs, allPositions, priceByIsin, cryptoBySymbol) {
+  const typeConfig = [
+    { key: 'bourse',  label: 'Bourse',  bg: '#1d4ed8' },
+    { key: 'crypto',  label: 'Crypto',  bg: '#6d28d9' },
+    { key: 'épargne', label: 'Épargne', bg: '#065f46' },
+  ];
+
+  typeConfig.forEach(tc => {
+    const group = envs.filter(e => e.type === tc.key);
+    if (!group.length) return;
+
+    // Total du groupe
+    const groupTotal = group.reduce((sum, env) => {
+      const pos = allPositions.filter(p => p.envelope_id === env.id);
+      return sum + calcEnvelopeStats(env, pos, priceByIsin, cryptoBySymbol).total;
+    }, 0);
+
+    // En-tête de type (bande colorée)
+    sheet.getRange(row, 1).setValue(tc.label).setFontColor(C.WHITE).setFontSize(10).setFontWeight('bold').setBackground(tc.bg);
+    sheet.getRange(row, 2).setValue(fmtEur(groupTotal)).setFontColor(C.WHITE).setFontSize(10).setFontWeight('bold').setBackground(tc.bg);
+    setBg(sheet, row, 3, 1, 6, tc.bg);
+    row++;
+
+    group.forEach(env => {
+      row = renderEnvelopeBlock(sheet, row, env, allPositions, priceByIsin, cryptoBySymbol);
+      setBg(sheet, row, 1, 1, 8, C.BG);
+      row++;
+    });
+  });
+
+  return row;
+}
+
+// ─── CHARGES ─────────────────────────────────────────────────────────────────
+
+function writeChargesSection(sheet, row, pfCharges, totalCharges) {
+  row = writeSectionHeader(sheet, row, 'Charges à venir');
+  ['Nom', 'Montant', 'Date de fin', '', '', '', '', ''].forEach((h, i) => {
+    sheet.getRange(row, i + 1).setValue(h)
+      .setFontColor(C.MUTED2).setFontSize(8).setFontWeight('bold').setBackground(C.BG);
+  });
+  row++;
+
+  pfCharges.forEach(c => {
+    const dateFin = c.date_fin
+      ? fmtDateStr(c.date_fin instanceof Date ? c.date_fin.toISOString().slice(0, 10) : String(c.date_fin).slice(0, 10))
+      : '—';
+    sheet.getRange(row, 1).setValue(c.nom).setFontColor(C.TEXT).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 2).setValue(`−${fmtEur(Number(c.montant))}`).setFontColor(C.RED).setFontSize(9).setFontWeight('bold').setBackground(C.CARD);
+    sheet.getRange(row, 3).setValue(dateFin).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    setBg(sheet, row, 4, 1, 5, C.CARD);
+    row++;
+  });
+
+  // Ligne total
+  sheet.getRange(row, 1).setValue('Total charges').setFontColor(C.MUTED).setFontSize(9).setFontWeight('bold').setBackground(C.CARD);
+  sheet.getRange(row, 2).setValue(`−${fmtEur(totalCharges)}`).setFontColor(C.RED).setFontSize(10).setFontWeight('bold').setBackground(C.CARD);
+  setBg(sheet, row, 3, 1, 6, C.CARD);
+  row++;
+
+  setBg(sheet, row, 1, 1, 8, C.BG); row++;
   return row;
 }
 
 // ─── BLOC ENVELOPPE ──────────────────────────────────────────────────────────
 
 function renderEnvelopeBlock(sheet, startRow, env, allPositions, priceByIsin, cryptoBySymbol) {
-  const positions = allPositions.filter(p => p.envelope_id === env.id);
+  const positions  = allPositions.filter(p => p.envelope_id === env.id);
   const { total, invested } = calcEnvelopeStats(env, positions, priceByIsin, cryptoBySymbol);
-  const pv     = total - invested;
-  const pvPct  = invested > 0 ? ((pv / invested) * 100).toFixed(1) : '0.0';
-  const pvColor = pv >= 0 ? C.GREEN : C.RED;
-  const typeBg  = { bourse: '#1d4ed8', crypto: '#6d28d9', 'épargne': '#065f46' };
+  const pv         = total - invested;
+  const pvPct      = invested > 0 ? ((pv / invested) * 100).toFixed(1) : '0.0';
+  const pvColor    = pv >= 0 ? C.GREEN : C.RED;
+  const typeBg     = { bourse: '#1d4ed8', crypto: '#6d28d9', 'épargne': '#065f46' };
 
   let row = startRow;
 
@@ -334,12 +498,8 @@ function renderEnvelopeBlock(sheet, startRow, env, allPositions, priceByIsin, cr
     return row + 1;
   }
 
-  // Récap allocation pour bourse
-  if (env.type === 'bourse') {
-    row = writeEnvelopeAllocBar(sheet, row, positions, priceByIsin);
-  }
+  if (env.type === 'bourse') row = writeEnvelopeAllocBar(sheet, row, positions, priceByIsin);
 
-  // En-têtes du tableau positions
   const isEpargne = env.type === 'épargne';
   const isBourse  = env.type === 'bourse';
   const hdr = isEpargne
@@ -354,8 +514,8 @@ function renderEnvelopeBlock(sheet, startRow, env, allPositions, priceByIsin, cr
   });
   row++;
 
-  // Tri actions d'abord, bonds ensuite
-  const order = { action: 0, bond: 1 };
+  // Tri : actions d'abord, bonds ensuite (pour bourse)
+  const order  = { action: 0, bond: 1 };
   const sorted = [...positions].sort((a, b) => {
     const tA = priceByIsin[a.identifiant]?.type || 'z';
     const tB = priceByIsin[b.identifiant]?.type || 'z';
@@ -373,7 +533,7 @@ function writeEnvelopeAllocBar(sheet, row, positions, priceByIsin) {
   let actions = 0, bonds = 0;
   positions.forEach(pos => {
     const val = (Number(priceByIsin[pos.identifiant]?.prix_actuel) || 0) * Number(pos.quantite);
-    const t = priceByIsin[pos.identifiant]?.type;
+    const t   = priceByIsin[pos.identifiant]?.type;
     if (t === 'action') actions += val;
     else if (t === 'bond') bonds += val;
   });
@@ -389,7 +549,6 @@ function writeEnvelopeAllocBar(sheet, row, positions, priceByIsin) {
   setBg(sheet, row, 4, 1, 5, C.CARD);
   row++;
 
-  // Barre visuelle 8 colonnes
   const actCols  = Math.max(0, Math.round(Number(pctA) / 100 * 8));
   const bondCols = Math.max(0, Math.min(8 - actCols, Math.round(Number(pctB) / 100 * 8)));
   const restCols = 8 - actCols - bondCols;
@@ -404,55 +563,48 @@ function writeEnvelopeAllocBar(sheet, row, positions, priceByIsin) {
 }
 
 function writePositionRow(sheet, row, pos, env, isEpargne, isBourse, priceByIsin, cryptoBySymbol) {
-  const prix    = currentPriceCalc(pos.identifiant, env.type, priceByIsin, cryptoBySymbol);
-  const pa      = Number(pos.prix_achat) || 0;
-  const qty     = Number(pos.quantite)   || 0;
+  const prix      = currentPriceCalc(pos.identifiant, env.type, priceByIsin, cryptoBySymbol);
+  const pa        = Number(pos.prix_achat) || 0;
+  const qty       = Number(pos.quantite)   || 0;
   const valAchat  = isEpargne ? pa : pa * qty;
   const valActuel = isEpargne ? pa : prix * qty;
   const posPv     = valActuel - valAchat;
   const posPvPct  = valAchat > 0 ? ((posPv / valAchat) * 100).toFixed(1) : '0.0';
-  const posPvColor = posPv >= 0 ? C.GREEN : C.RED;
+  const pvColor   = posPv >= 0 ? C.GREEN : C.RED;
 
-  const etfInfo  = priceByIsin[pos.identifiant];
-  const etfType  = etfInfo?.type || '';
-  const etfNom   = env.type === 'bourse'
+  const etfInfo   = priceByIsin[pos.identifiant];
+  const etfNom    = env.type === 'bourse'
     ? (etfInfo?.nom || '')
     : (cryptoBySymbol[String(pos.identifiant).toUpperCase()]?.nom || '');
-  const label    = pos.nom || etfNom || pos.identifiant;
+  const etfType   = etfInfo?.type || '';
+  const label     = etfNom || pos.identifiant;
   const typeLabel = etfType === 'action' ? 'action' : etfType === 'bond' ? 'bond' : '';
-  const typeFg   = etfType === 'action' ? C.BLUE : etfType === 'bond' ? C.AMBER : C.MUTED;
-  const rowBg    = C.CARD;
+  const typeFg    = etfType === 'action' ? C.BLUE : etfType === 'bond' ? C.AMBER : C.MUTED;
 
   if (isEpargne) {
-    sheet.getRange(row, 1).setValue(label).setFontColor(C.TEXT).setFontSize(9).setBackground(rowBg);
-    sheet.getRange(row, 2).setValue(pa).setFontColor(C.WHITE).setFontSize(9).setBackground(rowBg).setNumberFormat('#,##0 "€"');
-    sheet.getRange(row, 3).setValue(`${qty}%`).setFontColor(C.MUTED).setFontSize(9).setBackground(rowBg);
-    setBg(sheet, row, 4, 1, 5, rowBg);
+    sheet.getRange(row, 1).setValue(label).setFontColor(C.TEXT).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 2).setValue(pa).setFontColor(C.WHITE).setFontSize(9).setBackground(C.CARD).setNumberFormat('#,##0 "€"');
+    sheet.getRange(row, 3).setValue(`${qty}%`).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    setBg(sheet, row, 4, 1, 5, C.CARD);
   } else {
-    sheet.getRange(row, 1).setValue(pos.identifiant).setFontColor(C.MUTED).setFontSize(8).setBackground(rowBg);
-    sheet.getRange(row, 2).setValue(label).setFontColor(C.TEXT).setFontSize(9).setBackground(rowBg);
-    if (isBourse) {
-      sheet.getRange(row, 3).setValue(typeLabel).setFontColor(typeFg).setFontSize(9).setBackground(rowBg);
-    } else {
-      sheet.getRange(row, 3).setValue(fmtEur(prix)).setFontColor(C.MUTED).setFontSize(9).setBackground(rowBg);
-    }
-    sheet.getRange(row, 4).setValue(`${qty} × ${fmtEur(pa)}`).setFontColor(C.MUTED).setFontSize(9).setBackground(rowBg);
-    sheet.getRange(row, 5).setValue(fmtEur(valActuel)).setFontColor(C.WHITE).setFontSize(9).setBackground(rowBg);
-    sheet.getRange(row, 6).setValue(`${posPv >= 0 ? '+' : ''}${fmtEur(posPv)} (${posPvPct}%)`).setFontColor(posPvColor).setFontSize(9).setBackground(rowBg);
-    setBg(sheet, row, 7, 1, 2, rowBg);
+    sheet.getRange(row, 1).setValue(pos.identifiant).setFontColor(C.MUTED).setFontSize(8).setBackground(C.CARD);
+    sheet.getRange(row, 2).setValue(label).setFontColor(C.TEXT).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 3).setValue(isBourse ? typeLabel : fmtEur(prix)).setFontColor(isBourse ? typeFg : C.MUTED).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 4).setValue(`${qty} × ${fmtEur(pa)}`).setFontColor(C.MUTED).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 5).setValue(fmtEur(valActuel)).setFontColor(C.WHITE).setFontSize(9).setBackground(C.CARD);
+    sheet.getRange(row, 6).setValue(`${posPv >= 0 ? '+' : ''}${fmtEur(posPv)} (${posPvPct}%)`).setFontColor(pvColor).setFontSize(9).setBackground(C.CARD);
+    setBg(sheet, row, 7, 1, 2, C.CARD);
   }
-  row++;
-  return row;
+  return row + 1;
 }
 
-// ─── BARRE D'ALLOCATION GLOBALE ──────────────────────────────────────────────
+// ─── BARRE D'ALLOCATION ───────────────────────────────────────────────────────
 
 function drawAllocBar(sheet, row, alloc) {
   const COLS    = 8;
   const actCols = Math.max(0, Math.round(Number(alloc.actions)     / 100 * COLS));
   const obCols  = Math.max(0, Math.min(COLS - actCols, Math.round(Number(alloc.obligations) / 100 * COLS)));
   const casCols = COLS - actCols - obCols;
-
   let col = 1;
   if (actCols > 0) { sheet.getRange(row, col, 1, actCols).setBackground('#3b82f6'); col += actCols; }
   if (obCols  > 0) { sheet.getRange(row, col, 1, obCols ).setBackground('#f59e0b'); col += obCols;  }
@@ -460,7 +612,7 @@ function drawAllocBar(sheet, row, alloc) {
   sheet.setRowHeight(row, 12);
 }
 
-// ─── CALCULS (réplique exacte de la logique JS front) ────────────────────────
+// ─── CALCULS ─────────────────────────────────────────────────────────────────
 
 function currentPriceCalc(identifiant, type, priceByIsin, cryptoBySymbol) {
   if (type === 'bourse')  return Number(priceByIsin[identifiant]?.prix_actuel) || 0;
@@ -505,9 +657,9 @@ function calcPortfolioStats(portfolioId, allEnvelopes, allPositions, priceByIsin
 
   const alloc = total > 0
     ? {
-        actions:     (actions / total * 100).toFixed(1),
+        actions:     (actions     / total * 100).toFixed(1),
         obligations: (obligations / total * 100).toFixed(1),
-        cash:        (cash / total * 100).toFixed(1),
+        cash:        (cash        / total * 100).toFixed(1),
       }
     : { actions: 0, obligations: 0, cash: 0 };
 
@@ -529,7 +681,6 @@ function calcRebalancing(portfolio, total, alloc) {
 
 // ─── UTILITAIRES D'AFFICHAGE ─────────────────────────────────────────────────
 
-// Palette de couleurs (dark slate theme)
 const C = {
   BG:    '#0f172a',
   CARD:  '#1e293b',
@@ -548,16 +699,26 @@ function fmtEur(n) {
   return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 }
 
+// "YYYY-MM-DD" → "JJ/MM/AAAA"
+function fmtDateStr(dateStr) {
+  const parts = String(dateStr).split('-');
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dateStr;
+}
+
+function fmtNow() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+}
+
 function mergeWrite(sheet, row, col, span, value, opts) {
   const range = span > 1
     ? sheet.getRange(row, col, 1, span).merge()
     : sheet.getRange(row, col);
   range.setValue(value);
-  if (opts.size)   range.setFontSize(opts.size);
-  if (opts.bold)   range.setFontWeight('bold');
-  if (opts.fg)     range.setFontColor(opts.fg);
-  if (opts.bg)     range.setBackground(opts.bg);
-  if (opts.align)  range.setHorizontalAlignment(opts.align);
+  if (opts.size)  range.setFontSize(opts.size);
+  if (opts.bold)  range.setFontWeight('bold');
+  if (opts.fg)    range.setFontColor(opts.fg);
+  if (opts.bg)    range.setBackground(opts.bg);
+  if (opts.align) range.setHorizontalAlignment(opts.align);
   return range;
 }
 
