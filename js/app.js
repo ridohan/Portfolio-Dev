@@ -1116,54 +1116,187 @@ function filterByPeriod(entries, period) {
 
 // ─── GRAPHIQUE SVG ────────────────────────────────────────────────────────────
 
+// Formate une valeur pour les graduations de l'axe Y (compact, en €)
+function fmtAxis(v) {
+  if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M€';
+  if (Math.abs(v) >= 1_000)     return (v / 1_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' k€';
+  return Math.round(v).toLocaleString('fr-FR') + ' €';
+}
+
+// Calcule un pas "propre" pour les graduations (ex: 500, 1000, 2500…)
+function niceNumber(range, round) {
+  if (!range) return 1;
+  const exp  = Math.floor(Math.log10(range));
+  const frac = range / Math.pow(10, exp);
+  let nice;
+  if (round) { nice = frac < 1.5 ? 1 : frac < 3 ? 2 : frac < 7 ? 5 : 10; }
+  else       { nice = frac <= 1  ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10; }
+  return nice * Math.pow(10, exp);
+}
+
 function svgLineChart(entries, { width = 600, height = 200, mini = false } = {}) {
   if (entries.length < 2) return '';
 
   const values = entries.map(e => Number(e.valeur_actuelle));
   const minV   = Math.min(...values);
   const maxV   = Math.max(...values);
-  const range  = maxV - minV || 1;
+  const isUp   = values[values.length - 1] >= values[0];
+  const color  = isUp ? '#10b981' : '#ef4444';
 
-  const pad = mini ? 2 : 16;
-  const w   = width  - pad * 2;
-  const h   = height - pad * 2;
-
-  const pts = values.map((v, i) => {
-    const x = pad + (i / Math.max(values.length - 1, 1)) * w;
-    const y = pad + (1 - (v - minV) / range) * h;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-
-  const isUp    = values[values.length - 1] >= values[0];
-  const color   = isUp ? '#10b981' : '#ef4444';
-  const polyPts = pts.join(' ');
-
+  // ── Mode mini (sparkline) ─────────────────────────────────────────────────
   if (mini) {
+    const range = maxV - minV || 1;
+    const pad = 2, w = width - pad * 2, h = height - pad * 2;
+    const pts = values.map((v, i) => {
+      const x = pad + (i / Math.max(values.length - 1, 1)) * w;
+      const y = pad + (1 - (v - minV) / range) * h;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
     return `
       <svg viewBox="0 0 ${width} ${height}" class="w-full h-full" preserveAspectRatio="none">
-        <polyline points="${polyPts}" fill="none" stroke="${color}" stroke-width="1.5"
+        <polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5"
           stroke-linejoin="round" stroke-linecap="round"/>
       </svg>`;
   }
 
-  // Zone de remplissage sous la courbe
-  const firstX = pts[0].split(',')[0];
-  const lastX  = pts[pts.length - 1].split(',')[0];
-  const baseY  = (pad + h).toFixed(1);
-  const fillPts = `${firstX},${baseY} ${polyPts} ${lastX},${baseY}`;
+  // ── Graphique complet avec axes, graduations et points ───────────────────
+  const padL = 72;  // espace pour labels Y
+  const padR = 16;
+  const padT = 14;
+  const padB = 34;  // espace pour labels X
+  const cw   = width  - padL - padR;
+  const ch   = height - padT - padB;
+
+  // Graduations Y : 4-5 niveaux "propres"
+  const rawRange = maxV - minV;
+  const tickStep = rawRange > 0
+    ? niceNumber(rawRange / 4, false)
+    : niceNumber((maxV || 1) / 4, false);
+  const tickMin  = rawRange > 0
+    ? Math.floor(minV / tickStep) * tickStep
+    : Math.floor(maxV * 0.9 / tickStep) * tickStep;
+  const tickMax  = rawRange > 0
+    ? Math.ceil(maxV  / tickStep) * tickStep
+    : Math.ceil(maxV  * 1.1 / tickStep) * tickStep;
+  const totalRange = tickMax - tickMin || 1;
+
+  const yTicks = [];
+  for (let t = tickMin; t <= tickMax + tickStep * 0.01; t += tickStep) yTicks.push(t);
+
+  const toX = i  => padL + (i / Math.max(values.length - 1, 1)) * cw;
+  const toY = v  => padT + ch - ((v - tickMin) / totalRange) * ch;
+
+  // Gridlines horizontales + labels Y
+  const gridLines = yTicks.map(t => {
+    const y = toY(t).toFixed(1);
+    return `
+      <line x1="${padL}" y1="${y}" x2="${(padL + cw).toFixed(1)}" y2="${y}"
+        stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="${(padL - 7).toFixed(1)}" y="${y}" text-anchor="end" dominant-baseline="middle"
+        fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif">${fmtAxis(t)}</text>`;
+  }).join('');
+
+  // Labels X : max 7 étiquettes, bien réparties
+  const maxXLabels = Math.min(7, entries.length);
+  const xStep = entries.length <= maxXLabels ? 1 : Math.ceil((entries.length - 1) / (maxXLabels - 1));
+  const xIndices = new Set([0, entries.length - 1]);
+  for (let i = xStep; i < entries.length - 1; i += xStep) xIndices.add(i);
+
+  const xLabels = [...xIndices].sort((a, b) => a - b).map(i => {
+    const parts = (entries[i].date || '').split('-');
+    const label = parts.length === 3
+      ? `${parts[2]}/${parts[1]}/${parts[0].slice(2)}`
+      : entries[i].date;
+    return `<text x="${toX(i).toFixed(1)}" y="${(padT + ch + 22).toFixed(1)}"
+      text-anchor="middle" fill="#64748b" font-size="10"
+      font-family="system-ui,sans-serif">${label}</text>`;
+  }).join('');
+
+  // Courbe + aire de remplissage
+  const pts     = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`);
+  const polyPts = pts.join(' ');
+  const baseY   = toY(tickMin).toFixed(1);
+  const fillPts = `${toX(0).toFixed(1)},${baseY} ${polyPts} ${toX(values.length - 1).toFixed(1)},${baseY}`;
+
+  // Points visuels (non-interactifs — les hit targets sont au-dessus)
+  const visualDots = values.map((v, i) =>
+    `<circle cx="${toX(i).toFixed(1)}" cy="${toY(v).toFixed(1)}" r="3.5"
+      fill="${color}" stroke="#1e293b" stroke-width="1.5" pointer-events="none"/>`
+  ).join('');
+
+  // Zones de hit invisibles (rayon large pour faciliter le survol)
+  const hitTargets = values.map((v, i) => {
+    const e       = entries[i];
+    const parts   = (e.date || '').split('-');
+    const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : e.date;
+    const pv      = Number(e.pv_euros);
+    const pct     = Math.abs(Number(e.pv_pct)).toFixed(2);
+    const pvFmt   = fmtAxis(Math.abs(pv));
+    const sign    = pv >= 0 ? '+' : '−';
+    return `<circle cx="${toX(i).toFixed(1)}" cy="${toY(v).toFixed(1)}" r="14"
+      fill="transparent" style="cursor:crosshair"
+      data-date="${dateStr}" data-val="${fmtAxis(v)}"
+      data-pv="${sign}${pvFmt}" data-pct="${sign}${pct}%" data-up="${pv >= 0}"
+      onmouseenter="showChartTip(event,this)"
+      onmousemove="positionChartTip(event)"
+      onmouseleave="hideChartTip()"/>`;
+  }).join('');
 
   return `
-    <svg viewBox="0 0 ${width} ${height}" class="w-full h-full" preserveAspectRatio="none">
+    <svg viewBox="0 0 ${width} ${height}" class="w-full" preserveAspectRatio="xMidYMid meet">
       <defs>
         <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%"   stop-color="${color}" stop-opacity="0.25"/>
           <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
         </linearGradient>
       </defs>
+      ${gridLines}
       <polygon points="${fillPts}" fill="url(#chart-grad)"/>
       <polyline points="${polyPts}" fill="none" stroke="${color}" stroke-width="2"
         stroke-linejoin="round" stroke-linecap="round"/>
+      ${visualDots}
+      ${hitTargets}
+      ${xLabels}
     </svg>`;
+}
+
+// ─── TOOLTIP DU GRAPHIQUE ─────────────────────────────────────────────────────
+
+function showChartTip(event, el) {
+  let tip = document.getElementById('chart-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'chart-tip';
+    tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none';
+    tip.className = 'bg-slate-700 border border-slate-500/60 rounded-lg px-3 py-2 text-xs shadow-2xl';
+    document.body.appendChild(tip);
+  }
+  const d    = el.dataset;
+  const isUp = d.up === 'true';
+  tip.innerHTML = `
+    <p class="text-slate-400 mb-1">${d.date}</p>
+    <p class="text-white font-bold text-sm">${d.val}</p>
+    <p class="${isUp ? 'text-emerald-400' : 'text-red-400'} mt-0.5">${d.pv} (${d.pct})</p>`;
+  tip.style.display = 'block';
+  positionChartTip(event);
+}
+
+function positionChartTip(event) {
+  const tip = document.getElementById('chart-tip');
+  if (!tip || tip.style.display === 'none') return;
+  const gap = 16;
+  let x = event.clientX + gap;
+  let y = event.clientY - tip.offsetHeight / 2;
+  if (x + tip.offsetWidth  > window.innerWidth  - 4) x = event.clientX - tip.offsetWidth  - gap;
+  if (y < 4)                                          y = 4;
+  if (y + tip.offsetHeight > window.innerHeight - 4)  y = window.innerHeight - tip.offsetHeight - 4;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+}
+
+function hideChartTip() {
+  const tip = document.getElementById('chart-tip');
+  if (tip) tip.style.display = 'none';
 }
 
 // Mini sparkline affiché sur les pages portfolio / enveloppe
@@ -1300,9 +1433,7 @@ function historyContent(allEntries, filtered) {
     </div>
     ${historyStatsCards(filtered)}
     <div class="bg-slate-800 rounded-xl p-4">
-      <div style="height:200px" class="relative">
-        ${svgLineChart(filtered, { width: 900, height: 200 })}
-      </div>
+      ${svgLineChart(filtered, { width: 900, height: 240 })}
     </div>
     ${historyTable(filtered)}`;
 }
