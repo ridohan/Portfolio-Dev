@@ -1,5 +1,5 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [] };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
@@ -108,6 +108,11 @@ function renderDashboard(app) {
       ${statCards(total, invested, totalCharges)}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">🔥 Simulation FIRE</h2>
+        <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-sm">Configurer →</a>
+      </div>
+      ${fireDashboardCards()}
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">Portfolios</h2>
         <div class="flex gap-2">
@@ -1497,15 +1502,164 @@ function renderHistoryGlobal(app) {
 // Paramètres de simulation (persistés pendant la session)
 let _fp = null;
 
+// Estime le rendement annuel net à partir de l'historique global du portfolio.
+// Méthode : annualise le PV% total (valeur_actuelle / valeur_investie − 1).
+//
+// Durée utilisée :
+//   • Historique >= 6 mois → on utilise la durée réelle observée
+//   • Historique < 6 mois (ou absent) → on suppose que les positions sont
+//     détenues depuis 5 ans (hypothèse conservative pour un portefeuille existant)
+function estimateAnnualReturn() {
+  const hist = globalHistory();
+  const last  = hist.length ? hist[hist.length - 1] : null;
+
+  // PV% : ratio rendement total depuis le prix d'achat
+  const totalReturn = last ? Number(last.pv_pct) / 100 : null;
+  if (totalReturn === null || !isFinite(totalReturn) || totalReturn <= -1) return 7;
+
+  // Durée réelle de l'historique en jours
+  const first       = hist[0];
+  const histDays    = hist.length >= 2
+    ? (new Date(last.date) - new Date(first.date)) / 86400000
+    : 0;
+
+  // Si moins de 6 mois d'historique : on pose l'hypothèse de 5 ans de détention
+  const years = histDays >= 180 ? histDays / 365 : 5;
+
+  const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
+  // Arrondi au 0.5 % le plus proche, borné entre 0 et 20 %
+  return Math.max(0, Math.min(20, Math.round(annualized * 2) / 2));
+}
+
 function _fpInit() {
   const { total, totalCharges } = globalStats();
-  const capital = Math.max(0, Math.round(total - totalCharges)); // valeur nette
+  const capital          = Math.max(0, Math.round(total - totalCharges)); // valeur nette
+  const defaultRendement = estimateAnnualReturn();
+
   if (!_fp) {
-    _fp = { capital, rendement: 7, inflation: 2, duree: 30, versement: 500, depenses: 2000, swr: 4,
-            dwzMode: false, dureeFire: 30, reserveFinale: 0, depart: 0 };
+    const saved = STATE.fire_profile && STATE.fire_profile[0];
+    if (saved && saved.rendement != null) {
+      // Charger le profil sauvegardé depuis Google Sheets
+      _fp = {
+        capital,
+        rendement:     Number(saved.rendement)     || defaultRendement,
+        inflation:     Number(saved.inflation)     || 2,
+        duree:         Number(saved.duree)         || 30,
+        versement:     Number(saved.versement)     || 500,
+        depenses:      Number(saved.depenses)      || 2000,
+        swr:           Number(saved.swr)           || 4,
+        dwzMode:       saved.dwzMode === true || saved.dwzMode === 'TRUE',
+        dureeFire:     Number(saved.dureeFire)     || 30,
+        reserveFinale: Number(saved.reserveFinale) || 0,
+        depart:        Number(saved.depart)        || 0,
+        age:           Number(saved.age)           || 39,
+      };
+    } else {
+      // Aucun profil sauvegardé — valeurs par défaut
+      _fp = { capital, rendement: defaultRendement, inflation: 2, duree: 30, versement: 500,
+              depenses: 2000, swr: 4, dwzMode: false, dureeFire: 30, reserveFinale: 0,
+              depart: 0, age: 39 };
+    }
   } else {
     _fp.capital = capital; // Synchronise valeur nette depuis le portfolio
   }
+}
+
+// ─── SAUVEGARDE DIFFÉRÉE DU PROFIL FIRE ──────────────────────────────────────
+// Déclenché à chaque modification d'un paramètre FIRE.
+// Debounce 2 s pour éviter de spammer l'API sur chaque glissement de slider.
+
+let _fpSaveTimer = null;
+
+function _scheduleSave() {
+  if (!API.isConfigured() || !_fp) return;
+  if (_fpSaveTimer) clearTimeout(_fpSaveTimer);
+  _fpSaveTimer = setTimeout(async () => {
+    try {
+      await API.saveFireProfile({ ..._fp });
+      // Met à jour le cache pour que le rechargement de page retrouve le bon profil
+      const cached = API._getCache();
+      if (cached) {
+        cached.fire_profile = [{ ..._fp }];
+        API._setCache(cached);
+      }
+    } catch (e) {
+      console.warn('Erreur sauvegarde profil FIRE :', e);
+    }
+  }, 2000);
+}
+
+// ─── CARTES FIRE DU DASHBOARD ─────────────────────────────────────────────────
+// Affiche deux aperçus rapides (FIRE classique + Die with Zero) sur le dashboard.
+// Simule les deux modes à partir du profil courant sans modifier _fp.
+
+function fireDashboardCards() {
+  _fpInit(); // s'assure que _fp est initialisé
+
+  const curYear  = new Date().getFullYear();
+  const savedDwz = _fp.dwzMode;
+
+  // Simulation FIRE classique
+  _fp.dwzMode = false;
+  const { data: cData, fireYear: cFireYear } = runFireSimulation();
+
+  // Simulation Die with Zero
+  _fp.dwzMode = true;
+  const { data: dData, fireYear: dFireYear } = runFireSimulation();
+
+  _fp.dwzMode = savedDwz; // restaurer le mode d'origine
+
+  // Calcul des retraits à l'année FIRE
+  const cFire     = cFireYear ? cData.find(d => d.year === cFireYear) : null;
+  const cRetAnnuel  = cFire ? Math.round(cFire.yearStart * _fp.swr / 100) : 0;
+  const cRetMensuel = Math.round(cRetAnnuel / 12);
+
+  const dFire       = dFireYear ? dData.find(d => d.year === dFireYear) : null;
+  const dRetMensuel = dFire ? Math.round(dFire.withdrawal / 12) : 0;
+
+  const classicCard = `
+    <a href="#fire" onclick="navigate('#fire');return false;"
+      class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer block">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xl leading-none">🔥</span>
+        <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">FIRE Classique · SWR ${_fp.swr}%</p>
+      </div>
+      ${cFireYear
+        ? `<p class="text-amber-400 text-2xl font-bold">
+             An ${cFireYear}
+             <span class="text-slate-500 text-sm font-normal">(${curYear + cFireYear})</span>
+           </p>
+           <p class="text-slate-300 text-sm mt-1">
+             ${fmt(cRetMensuel)}<span class="text-slate-500">/mois</span>
+             <span class="text-slate-600 text-xs ml-2">· ${fmt(cRetAnnuel)}/an</span>
+           </p>`
+        : `<p class="text-slate-400 font-semibold">Non atteint sur ${_fp.duree} ans</p>
+           <p class="text-slate-600 text-xs mt-1">↑ versements ou durée de simulation</p>`}
+      <p class="text-slate-600 text-xs mt-3">Objectif : ${fmt(_fp.depenses)}/mois</p>
+    </a>`;
+
+  const dwzCard = `
+    <a href="#fire" onclick="navigate('#fire');return false;"
+      class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer block">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xl leading-none">💀</span>
+        <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Die with Zero · ${_fp.dureeFire} ans</p>
+      </div>
+      ${dFireYear
+        ? `<p class="text-orange-400 text-2xl font-bold">
+             An ${dFireYear}
+             <span class="text-slate-500 text-sm font-normal">(${curYear + dFireYear})</span>
+           </p>
+           <p class="text-slate-300 text-sm mt-1">
+             ${fmt(dRetMensuel)}<span class="text-slate-500">/mois</span>
+             <span class="text-slate-600 text-xs ml-2">· ${fmt(dRetMensuel * 12)}/an</span>
+           </p>`
+        : `<p class="text-slate-400 font-semibold">Non atteint sur ${_fp.duree} ans</p>
+           <p class="text-slate-600 text-xs mt-1">↑ versements ou durée de simulation</p>`}
+      <p class="text-slate-600 text-xs mt-3">Objectif : ${fmt(_fp.depenses)}/mois</p>
+    </a>`;
+
+  return `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${classicCard}${dwzCard}</div>`;
 }
 
 function renderFire(app) {
@@ -1671,6 +1825,7 @@ function _thumbOffCls()  { return 'absolute top-1 left-1 w-4 h-4 rounded-full bg
 function refreshFireResults() {
   const el = document.getElementById('fire-results');
   if (el) el.innerHTML = fireResults();
+  _scheduleSave();
 }
 
 function runFireSimulation() {

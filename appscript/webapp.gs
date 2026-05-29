@@ -31,6 +31,7 @@ function doGet(e) {
       crypto_prices:  sheetToObjects(ss, 'crypto_prices'),
       charges:        sheetToObjects(ss, 'charges'),
       history:        sheetToObjects(ss, 'history'),
+      fire_profile:   sheetToObjects(ss, 'fire_profile'),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -75,6 +76,8 @@ function doPost(e) {
       createCharge:       () => createRow('charges', { id: newId('chg'), portfolio_id: payload.portfolio_id, nom: payload.nom, montant: Number(payload.montant), date_fin: payload.date_fin || '' }),
       updateCharge:       () => updateRow('charges', payload.id, { nom: payload.nom, montant: Number(payload.montant), date_fin: payload.date_fin || '' }),
       deleteCharge:       () => deleteRow('charges', payload.id),
+
+      saveFireProfile:    () => upsertFireProfile(payload),
     };
 
     if (!handlers[action]) {
@@ -169,6 +172,29 @@ function upsertCryptoPrice(payload) {
 
 function newId(prefix) {
   return `${prefix}_${Date.now()}`;
+}
+
+function upsertFireProfile(payload) {
+  const ss     = SpreadsheetApp.getActiveSpreadsheet();
+  const fields = ['capital', 'rendement', 'inflation', 'duree', 'versement', 'depenses',
+                  'swr', 'dwzMode', 'dureeFire', 'reserveFinale', 'depart', 'age'];
+
+  let sheet = ss.getSheetByName('fire_profile');
+  if (!sheet) {
+    sheet = ss.insertSheet('fire_profile');
+    sheet.getRange(1, 1, 1, fields.length).setValues([fields]);
+  }
+
+  const values = fields.map(f => (payload[f] !== undefined ? payload[f] : ''));
+
+  if (sheet.getLastRow() < 2) {
+    sheet.appendRow(values);
+  } else {
+    // Un seul profil → on écrase la ligne 2
+    sheet.getRange(2, 1, 1, fields.length).setValues([values]);
+  }
+
+  return { saved: true };
 }
 
 function jsonResponse(obj) {

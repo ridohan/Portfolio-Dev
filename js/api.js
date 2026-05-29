@@ -69,6 +69,18 @@ const API = {
     return json.result;
   },
 
+  // Comme post() mais sans invalider le cache — utilisé pour les sauvegardes silencieuses
+  // (ex: profil FIRE) qui ne doivent pas déclencher un rechargement des données.
+  async postSilent(action, payload = {}) {
+    const res  = await fetch(this.url, {
+      method: 'POST',
+      body: JSON.stringify({ action, token: this.token, ...payload }),
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error);
+    return json.result;
+  },
+
   // ─── CRUD ───────────────────────────────────────────────────────────────────
 
   createPortfolio(data)     { return this.post('createPortfolio', data); },
@@ -92,4 +104,7 @@ const API = {
   createCharge(data)        { return this.post('createCharge', data); },
   updateCharge(data)        { return this.post('updateCharge', data); },
   deleteCharge(id)          { return this.post('deleteCharge', { id }); },
+
+  // Sauvegarde silencieuse du profil FIRE (n'invalide pas le cache principal)
+  saveFireProfile(data)     { return this.postSilent('saveFireProfile', data); },
 };
