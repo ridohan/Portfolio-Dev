@@ -30,7 +30,7 @@ function doGet(e) {
       prices:         sheetToObjects(ss, 'prices'),
       crypto_prices:  sheetToObjects(ss, 'crypto_prices'),
       charges:        sheetToObjects(ss, 'charges'),
-      history:        sheetToObjects(ss, 'history'),
+      history:        getHistory(ss),
       fire_profile:        sheetToObjects(ss, 'fire_profile'),
       vpw:                 getVpwData(),
       expense_categories:  sheetToObjects(ss, 'expense_categories'),
@@ -290,6 +290,38 @@ function upsertFireProfile(payload) {
   }
 
   return { saved: true };
+}
+
+// ─── HISTORIQUE ───────────────────────────────────────────────────────────────
+// Lit l'onglet history, normalise toutes les dates en yyyy-MM-dd (fuseau du
+// script) et déduplique par (envelope_id, date_jour) en gardant la dernière
+// ligne de la journée — utile quand le snapshot tourne plusieurs fois par jour.
+
+function getHistory(ss) {
+  const sheet = ss.getSheetByName('history');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const [headers, ...rows] = sheet.getDataRange().getValues();
+  const tz      = Session.getScriptTimeZone();
+  const dateIdx = headers.indexOf('date');
+  const envIdx  = headers.indexOf('envelope_id');
+
+  const objects = rows.map(row => {
+    const obj = Object.fromEntries(headers.map((h, i) => [h, row[i]]));
+    if (dateIdx !== -1 && obj.date) {
+      const d = obj.date instanceof Date ? obj.date : new Date(obj.date);
+      obj.date = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+    }
+    return obj;
+  });
+
+  // Dernière ligne de la journée gagne (ordre naturel = chronologique)
+  const seen = new Map();
+  objects.forEach(obj => {
+    seen.set(`${obj.envelope_id}__${obj.date}`, obj);
+  });
+
+  return Array.from(seen.values());
 }
 
 // ─── DÉPENSES ─────────────────────────────────────────────────────────────────

@@ -1075,10 +1075,20 @@ function normalizeDate(d) {
   return String(d).slice(0, 10);
 }
 
-// Toutes les entrées history d'une enveloppe, triées chronologiquement
+// Déduplique les entrées history par (envelope_id, date_jour) en gardant
+// la dernière occurrence — les lignes du sheet étant en ordre chronologique,
+// la dernière ligne d'une journée = l'enregistrement le plus récent.
+function dedupHistory(entries) {
+  const seen = new Map();
+  entries.forEach(h => {
+    seen.set(`${h.envelope_id}__${normalizeDate(h.date)}`, h);
+  });
+  return Array.from(seen.values());
+}
+
+// Toutes les entrées history d'une enveloppe, triées chronologiquement (dédupliquées par jour)
 function envelopeHistory(envelopeId) {
-  return STATE.history
-    .filter(h => h.envelope_id === envelopeId)
+  return dedupHistory(STATE.history.filter(h => h.envelope_id === envelopeId))
     .map(h => ({ ...h, date: normalizeDate(h.date) }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -1086,7 +1096,7 @@ function envelopeHistory(envelopeId) {
 // Somme quotidienne de toutes les enveloppes → courbe de valeur globale
 function globalHistory() {
   const byDate = {};
-  STATE.history.forEach(h => {
+  dedupHistory(STATE.history).forEach(h => {
     const date = normalizeDate(h.date);
     if (!byDate[date]) byDate[date] = { date, valeur_investie: 0, valeur_actuelle: 0 };
     byDate[date].valeur_investie += Number(h.valeur_investie) || 0;
@@ -1111,14 +1121,12 @@ function portfolioHistory(portfolioId) {
     .map(e => e.id);
 
   const byDate = {};
-  STATE.history
-    .filter(h => envIds.includes(h.envelope_id))
-    .forEach(h => {
-      const date = normalizeDate(h.date);
-      if (!byDate[date]) byDate[date] = { date, valeur_investie: 0, valeur_actuelle: 0 };
-      byDate[date].valeur_investie += Number(h.valeur_investie) || 0;
-      byDate[date].valeur_actuelle += Number(h.valeur_actuelle) || 0;
-    });
+  dedupHistory(STATE.history.filter(h => envIds.includes(h.envelope_id))).forEach(h => {
+    const date = normalizeDate(h.date);
+    if (!byDate[date]) byDate[date] = { date, valeur_investie: 0, valeur_actuelle: 0 };
+    byDate[date].valeur_investie += Number(h.valeur_investie) || 0;
+    byDate[date].valeur_actuelle += Number(h.valeur_actuelle) || 0;
+  });
 
   return Object.values(byDate)
     .map(e => ({
