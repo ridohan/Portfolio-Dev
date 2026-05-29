@@ -2306,12 +2306,22 @@ function fireTable(data, fireYear) {
 const EXP_COLORS = {
   slate:   { bg: 'bg-slate-500/20',   text: 'text-slate-300',   dot: 'bg-slate-400'   },
   blue:    { bg: 'bg-blue-500/20',    text: 'text-blue-300',    dot: 'bg-blue-400'    },
-  purple:  { bg: 'bg-purple-500/20',  text: 'text-purple-300',  dot: 'bg-purple-400'  },
-  emerald: { bg: 'bg-emerald-500/20', text: 'text-emerald-300', dot: 'bg-emerald-400' },
-  amber:   { bg: 'bg-amber-500/20',   text: 'text-amber-300',   dot: 'bg-amber-400'   },
-  rose:    { bg: 'bg-rose-500/20',    text: 'text-rose-300',    dot: 'bg-rose-400'    },
+  sky:     { bg: 'bg-sky-500/20',     text: 'text-sky-300',     dot: 'bg-sky-400'     },
   cyan:    { bg: 'bg-cyan-500/20',    text: 'text-cyan-300',    dot: 'bg-cyan-400'    },
+  teal:    { bg: 'bg-teal-500/20',    text: 'text-teal-300',    dot: 'bg-teal-400'    },
+  emerald: { bg: 'bg-emerald-500/20', text: 'text-emerald-300', dot: 'bg-emerald-400' },
+  green:   { bg: 'bg-green-500/20',   text: 'text-green-300',   dot: 'bg-green-400'   },
+  lime:    { bg: 'bg-lime-500/20',    text: 'text-lime-300',    dot: 'bg-lime-400'    },
+  yellow:  { bg: 'bg-yellow-500/20',  text: 'text-yellow-300',  dot: 'bg-yellow-400'  },
+  amber:   { bg: 'bg-amber-500/20',   text: 'text-amber-300',   dot: 'bg-amber-400'   },
   orange:  { bg: 'bg-orange-500/20',  text: 'text-orange-300',  dot: 'bg-orange-400'  },
+  red:     { bg: 'bg-red-500/20',     text: 'text-red-300',     dot: 'bg-red-400'     },
+  rose:    { bg: 'bg-rose-500/20',    text: 'text-rose-300',    dot: 'bg-rose-400'    },
+  pink:    { bg: 'bg-pink-500/20',    text: 'text-pink-300',    dot: 'bg-pink-400'    },
+  fuchsia: { bg: 'bg-fuchsia-500/20', text: 'text-fuchsia-300', dot: 'bg-fuchsia-400' },
+  purple:  { bg: 'bg-purple-500/20',  text: 'text-purple-300',  dot: 'bg-purple-400'  },
+  violet:  { bg: 'bg-violet-500/20',  text: 'text-violet-300',  dot: 'bg-violet-400'  },
+  indigo:  { bg: 'bg-indigo-500/20',  text: 'text-indigo-300',  dot: 'bg-indigo-400'  },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -2338,19 +2348,22 @@ function expMonthTotal(year, month) {
 }
 
 function expGlobalMonthlyAvg(year) {
-  const total = STATE.expense_entries
-    .filter(e => Number(e.annee) === year)
-    .reduce((s, e) => s + Number(e.montant), 0);
-  return total / 12;
+  const entries = STATE.expense_entries.filter(e => Number(e.annee) === year && Number(e.montant) > 0);
+  if (!entries.length) return 0;
+  const total          = entries.reduce((s, e) => s + Number(e.montant), 0);
+  const monthsWithData = new Set(entries.map(e => Number(e.mois))).size;
+  return total / monthsWithData;
 }
 
 function expTypeAvg(year, type) {
   const catIds  = STATE.expense_categories.filter(c => c.type === type).map(c => c.id);
   const itemIds = STATE.expense_items.filter(i => catIds.includes(i.category_id)).map(i => i.id);
-  const total   = STATE.expense_entries
-    .filter(e => Number(e.annee) === year && itemIds.includes(e.item_id))
-    .reduce((s, e) => s + Number(e.montant), 0);
-  return total / 12;
+  const entries = STATE.expense_entries
+    .filter(e => Number(e.annee) === year && itemIds.includes(e.item_id) && Number(e.montant) > 0);
+  if (!entries.length) return 0;
+  const total          = entries.reduce((s, e) => s + Number(e.montant), 0);
+  const monthsWithData = new Set(entries.map(e => Number(e.mois))).size;
+  return total / monthsWithData;
 }
 
 // ── Dashboard card ────────────────────────────────────────────────────────────
@@ -2479,9 +2492,10 @@ function expenseTable(year) {
   }
 
   // Totaux mensuels globaux + grand total
-  const monthTotals = MONTHS.map((_, mi) => expMonthTotal(year, mi + 1));
-  const grandTotal  = monthTotals.reduce((a, b) => a + b, 0);
-  const grandAvg    = grandTotal / 12;
+  const monthTotals       = MONTHS.map((_, mi) => expMonthTotal(year, mi + 1));
+  const grandTotal        = monthTotals.reduce((a, b) => a + b, 0);
+  const grandMonthsFilled = monthTotals.filter(v => v > 0).length;
+  const grandAvg          = grandMonthsFilled > 0 ? grandTotal / grandMonthsFilled : 0;
 
   const bodyRows = cats.map(cat => {
     const colors    = EXP_COLORS[cat.couleur] || EXP_COLORS.slate;
@@ -2494,18 +2508,19 @@ function expenseTable(year) {
     const catMonths = MONTHS.map((_, mi) =>
       catItems.reduce((s, item) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0)
     );
-    const catTotal = catMonths.reduce((a, b) => a + b, 0);
-    const catAvg   = catTotal / 12;
+    const catTotal        = catMonths.reduce((a, b) => a + b, 0);
+    const catMonthsFilled = catMonths.filter(v => v > 0).length;
+    const catAvg          = catMonthsFilled > 0 ? catTotal / catMonthsFilled : 0;
 
     // Ligne header catégorie
     const catRow = `
       <tr class="border-t border-slate-600">
-        <td class="py-2 px-3 sticky left-0 z-10 bg-slate-900 min-w-[190px]">
+        <td class="py-2 px-3 sticky left-0 z-10 bg-slate-900 min-w-[190px] cursor-pointer hover:bg-slate-800 transition"
+          onclick="openExpenseCategoryModal('${cat.id}')">
           <div class="flex items-center gap-1.5 flex-wrap">
             <span class="w-2.5 h-2.5 rounded-full ${colors.dot} flex-shrink-0"></span>
             <span class="font-semibold ${colors.text} text-sm">${esc(cat.nom)}</span>
             ${typeBadge}
-            <button onclick="openExpenseCategoryModal('${cat.id}')" class="text-slate-600 hover:text-slate-400 text-xs ml-auto">✏</button>
           </div>
         </td>
         ${catMonths.map(v => `<td class="py-2 px-2 text-right text-xs text-slate-400 font-medium">${v > 0 ? fmt(v) : ''}</td>`).join('')}
@@ -2521,15 +2536,16 @@ function expenseTable(year) {
           onclick="editExpenseCell('${item.id}',${year},${month},${val})"
           id="ecell-${item.id}-${year}-${month}">${val > 0 ? fmt(val) : ''}</td>`;
       });
-      const itemTotal = MONTHS.reduce((s, _, mi) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0);
-      const itemAvg   = itemTotal / 12;
+      const itemTotal        = MONTHS.reduce((s, _, mi) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0);
+      const itemMonthsFilled = MONTHS.filter((_, mi) => (entryMap[`${item.id}_${year}_${mi + 1}`] || 0) > 0).length;
+      const itemAvg          = itemMonthsFilled > 0 ? itemTotal / itemMonthsFilled : 0;
 
       return `
         <tr class="border-t border-slate-700/50 hover:bg-slate-800/40 transition">
-          <td class="py-1.5 px-3 sticky left-0 bg-slate-900">
-            <div class="flex items-center gap-2 pl-4">
+          <td class="py-1.5 px-3 sticky left-0 bg-slate-900 cursor-pointer hover:bg-slate-800 transition"
+            onclick="openExpenseItemModal('${item.id}')">
+            <div class="pl-4">
               <span class="text-sm text-slate-300">${esc(item.nom)}</span>
-              <button onclick="openExpenseItemModal('${item.id}')" class="text-slate-600 hover:text-slate-400 text-xs ml-auto">✏</button>
             </div>
           </td>
           ${cells.join('')}
@@ -2653,9 +2669,33 @@ function importExpAvgToFire() {
 
 // ── Modal Catégories ──────────────────────────────────────────────────────────
 
+function _expColorDots(selected = 'slate') {
+  return Object.entries(EXP_COLORS).map(([key, col]) => {
+    const isSelected = key === selected;
+    return `<button type="button" title="${key}"
+      onclick="selectExpColor('${key}')"
+      id="exp-color-dot-${key}"
+      class="w-6 h-6 rounded-full ${col.dot} transition-all ${isSelected ? 'ring-2 ring-offset-2 ring-offset-slate-800 ring-white scale-110' : 'opacity-60 hover:opacity-100 hover:scale-105'}">
+    </button>`;
+  }).join('');
+}
+
+function selectExpColor(key) {
+  document.getElementById('exp-cat-couleur').value = key;
+  // Reset all dots then highlight selected
+  Object.keys(EXP_COLORS).forEach(k => {
+    const btn = document.getElementById(`exp-color-dot-${k}`);
+    if (!btn) return;
+    const col = EXP_COLORS[k];
+    if (k === key) {
+      btn.className = `w-6 h-6 rounded-full ${col.dot} transition-all ring-2 ring-offset-2 ring-offset-slate-800 ring-white scale-110`;
+    } else {
+      btn.className = `w-6 h-6 rounded-full ${col.dot} transition-all opacity-60 hover:opacity-100 hover:scale-105`;
+    }
+  });
+}
+
 function modalExpenseCategory() {
-  const colorOptions = Object.keys(EXP_COLORS)
-    .map(c => `<option value="${c}">${c.charAt(0).toUpperCase() + c.slice(1)}</option>`).join('');
   return `
     <div id="modal-expense-cat" class="modal-backdrop hidden">
       <div class="modal-box">
@@ -2674,7 +2714,10 @@ function modalExpenseCategory() {
           </div>
           <div>
             <label class="label">Couleur</label>
-            <select id="exp-cat-couleur" class="input">${colorOptions}</select>
+            <div id="exp-color-picker" class="flex flex-wrap gap-2 mt-1">
+              ${_expColorDots('slate')}
+            </div>
+            <input type="hidden" id="exp-cat-couleur" value="slate" />
           </div>
           <input type="hidden" id="exp-cat-id" value="" />
         </div>
@@ -2689,20 +2732,24 @@ function modalExpenseCategory() {
 
 function openExpenseCategoryModal(editId) {
   document.getElementById('exp-cat-id').value = editId || '';
+  let selectedColor = 'slate';
   if (editId) {
     const cat = STATE.expense_categories.find(c => c.id === editId);
     if (cat) {
       document.getElementById('exp-cat-modal-title').textContent = 'Modifier catégorie';
-      document.getElementById('exp-cat-nom').value     = cat.nom;
-      document.getElementById('exp-cat-type').value    = cat.type;
-      document.getElementById('exp-cat-couleur').value = cat.couleur || 'slate';
+      document.getElementById('exp-cat-nom').value  = cat.nom;
+      document.getElementById('exp-cat-type').value = cat.type;
+      selectedColor = cat.couleur || 'slate';
     }
   } else {
     document.getElementById('exp-cat-modal-title').textContent = 'Nouvelle catégorie';
-    document.getElementById('exp-cat-nom').value     = '';
-    document.getElementById('exp-cat-type').value    = 'vital';
-    document.getElementById('exp-cat-couleur').value = 'slate';
+    document.getElementById('exp-cat-nom').value  = '';
+    document.getElementById('exp-cat-type').value = 'vital';
   }
+  // Re-render color picker avec la bonne sélection
+  const picker = document.getElementById('exp-color-picker');
+  if (picker) picker.innerHTML = _expColorDots(selectedColor);
+  document.getElementById('exp-cat-couleur').value = selectedColor;
   // Liste des catégories existantes
   const listEl = document.getElementById('exp-cat-list');
   if (listEl) {
@@ -2710,16 +2757,14 @@ function openExpenseCategoryModal(editId) {
       <h4 class="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Catégories existantes</h4>
       ${STATE.expense_categories.map(c => {
         const col = EXP_COLORS[c.couleur] || EXP_COLORS.slate;
-        return `<div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition">
+        return `<div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition cursor-pointer"
+          onclick="openExpenseCategoryModal('${c.id}')">
           <span class="flex items-center gap-2 text-sm">
             <span class="w-2 h-2 rounded-full ${col.dot}"></span>
             <span class="${col.text}">${esc(c.nom)}</span>
             <span class="text-slate-600 text-xs">${c.type}</span>
           </span>
-          <div class="flex gap-3">
-            <button onclick="openExpenseCategoryModal('${c.id}')" class="text-slate-500 hover:text-blue-400 text-xs">✏</button>
-            <button onclick="confirmDeleteExpenseCat('${c.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
-          </div>
+          <button onclick="event.stopPropagation();confirmDeleteExpenseCat('${c.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
         </div>`;
       }).join('')}` : '';
   }
@@ -2822,14 +2867,12 @@ function openExpenseItemModal(editId) {
       ${STATE.expense_items.map(item => {
         const cat = STATE.expense_categories.find(c => c.id === item.category_id);
         const col = EXP_COLORS[cat?.couleur] || EXP_COLORS.slate;
-        return `<div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition">
+        return `<div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition cursor-pointer"
+          onclick="openExpenseItemModal('${item.id}')">
           <span class="text-sm text-slate-300">${esc(item.nom)}
             <span class="text-xs ${col.text} ml-1">${cat ? esc(cat.nom) : ''}</span>
           </span>
-          <div class="flex gap-3">
-            <button onclick="openExpenseItemModal('${item.id}')" class="text-slate-500 hover:text-blue-400 text-xs">✏</button>
-            <button onclick="confirmDeleteExpenseItem('${item.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
-          </div>
+          <button onclick="event.stopPropagation();confirmDeleteExpenseItem('${item.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
         </div>`;
       }).join('')}` : '';
   }
