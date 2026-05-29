@@ -840,17 +840,17 @@ function navbar(left = '') {
     : `il y a ${Math.floor(age / 60)}min`;
 
   return `
-    <nav class="bg-slate-900 border-b border-slate-700 px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-4">
+    <nav class="bg-slate-900 border-b border-slate-700 px-4 py-2.5 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-3 min-w-0">
         ${left}
-        <a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-white font-bold text-sm hover:text-slate-300 transition">Portfolio Manager</a>
-        <a href="#fire" onclick="navigate('#fire');return false;" class="text-orange-400 hover:text-orange-300 text-sm font-medium transition">🔥 FIRE</a>
-        <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition">💰 Dépenses</a>
+        <a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-white font-bold text-sm hover:text-slate-300 transition whitespace-nowrap">Portfolio Manager</a>
+        <a href="#fire" onclick="navigate('#fire');return false;" class="text-orange-400 hover:text-orange-300 text-sm font-medium transition whitespace-nowrap">🔥 FIRE</a>
+        <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition whitespace-nowrap">💰 Dépenses</a>
       </div>
-      <div class="flex items-center gap-4">
-        <span class="text-slate-500 text-xs">Cache : ${ageLabel}</span>
-        <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition">↻ Actualiser</button>
-        <button onclick="localStorage.clear();location.reload()" class="text-slate-500 hover:text-white text-xs transition">Déconnexion</button>
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <span class="hidden sm:inline text-slate-500 text-xs whitespace-nowrap" title="Âge du cache">Cache : ${ageLabel}</span>
+        <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition whitespace-nowrap" title="Cache : ${ageLabel}">↻ <span class="hidden sm:inline">Actualiser</span></button>
+        <button onclick="localStorage.clear();location.reload()" class="text-slate-500 hover:text-white text-xs transition whitespace-nowrap" title="Déconnexion">⏻ <span class="hidden sm:inline">Déconnexion</span></button>
       </div>
     </nav>`;
 }
@@ -873,31 +873,31 @@ function statCards(total, invested, totalCharges = 0, annualReturn = null) {
   }
 
   return `
-    <div class="grid grid-cols-3 gap-4">
-      <div class="bg-slate-800 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">${totalCharges > 0 ? 'Valeur nette' : 'Valeur totale'}</p>
-        <p class="text-white text-2xl font-bold">${fmt(totalCharges > 0 ? nette : total)}</p>
+    <div class="grid grid-cols-3 gap-3 sm:gap-4">
+      <div class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0">
+        <p class="text-slate-400 text-xs mb-1 truncate">${totalCharges > 0 ? 'Valeur nette' : 'Valeur totale'}</p>
+        <p class="text-white text-base sm:text-2xl font-bold leading-tight break-all">${fmt(totalCharges > 0 ? nette : total)}</p>
       </div>
-      <div class="bg-slate-800 rounded-xl p-4">
+      <div class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0">
         <p class="text-slate-400 text-xs mb-1">Investi</p>
-        <p class="text-white text-2xl font-bold">${fmt(invested)}</p>
+        <p class="text-white text-base sm:text-2xl font-bold leading-tight break-all">${fmt(invested)}</p>
       </div>
-      <div class="bg-slate-800 rounded-xl p-4">
+      <div class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0">
         <p class="text-slate-400 text-xs mb-1">Plus-value</p>
-        <p class="text-2xl font-bold ${pvColor}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
+        <p class="text-base sm:text-2xl font-bold leading-tight break-all ${pvColor}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
         <p class="text-xs ${pctColor}">${pvPct}%</p>
         ${annualLine}
       </div>
     </div>
     ${totalCharges > 0 ? `
-    <div class="grid grid-cols-2 gap-4">
-      <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
+    <div class="grid grid-cols-2 gap-3 sm:gap-4">
+      <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-3 min-w-0">
         <p class="text-slate-500 text-xs mb-1">Valeur brute</p>
-        <p class="text-slate-400 text-lg font-semibold">${fmt(total)}</p>
+        <p class="text-slate-400 text-base sm:text-lg font-semibold break-all">${fmt(total)}</p>
       </div>
-      <div class="bg-slate-800/50 border border-red-500/20 rounded-xl p-3">
+      <div class="bg-slate-800/50 border border-red-500/20 rounded-xl p-3 min-w-0">
         <p class="text-slate-500 text-xs mb-1">Charges à venir</p>
-        <p class="text-red-400 text-lg font-semibold">−${fmt(totalCharges)}</p>
+        <p class="text-red-400 text-base sm:text-lg font-semibold break-all">−${fmt(totalCharges)}</p>
       </div>
     </div>` : ''}`;
 }
@@ -1672,7 +1672,7 @@ function fireDashboardCards() {
         <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">FIRE Classique · SWR ${_fp.swr}%</p>
       </div>
       ${cFireYear
-        ? `<p class="text-amber-400 text-2xl font-bold">
+        ? `<p class="text-amber-400 text-xl sm:text-2xl font-bold leading-tight">
              An ${cFireYear}
              <span class="text-slate-500 text-sm font-normal">(${curYear + cFireYear})</span>
            </p>
@@ -1693,7 +1693,7 @@ function fireDashboardCards() {
         <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Die with Zero · ${_fp.dureeFire} ans</p>
       </div>
       ${dFireYear
-        ? `<p class="text-orange-400 text-2xl font-bold">
+        ? `<p class="text-orange-400 text-xl sm:text-2xl font-bold leading-tight">
              An ${dFireYear}
              <span class="text-slate-500 text-sm font-normal">(${curYear + dFireYear})</span>
            </p>
@@ -1715,7 +1715,7 @@ function fireDashboardCards() {
         <span class="text-xl leading-none">📊</span>
         <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">VPW${vpw.vpwPct != null ? ' · ' + vpw.vpwPct + '%' : ''}</p>
       </div>
-      <p class="text-blue-400 text-2xl font-bold">
+      <p class="text-blue-400 text-xl sm:text-2xl font-bold leading-tight break-all">
         ${fmt(vpw.monthlyWithdrawal)}<span class="text-slate-500 text-sm font-normal">/mois</span>
       </p>
       <p class="text-slate-400 text-sm mt-1">
