@@ -2365,15 +2365,23 @@ function expGlobalMonthlyAvg(year) {
   return total / monthsWithData;
 }
 
+function expTrackedMonthsCount(year) {
+  return new Set(
+    STATE.expense_entries
+      .filter(e => Number(e.annee) === year && Number(e.montant) > 0)
+      .map(e => Number(e.mois))
+  ).size;
+}
+
 function expTypeAvg(year, type) {
   const catIds  = STATE.expense_categories.filter(c => c.type === type).map(c => c.id);
   const itemIds = STATE.expense_items.filter(i => catIds.includes(i.category_id)).map(i => i.id);
   const entries = STATE.expense_entries
     .filter(e => Number(e.annee) === year && itemIds.includes(e.item_id) && Number(e.montant) > 0);
   if (!entries.length) return 0;
-  const total          = entries.reduce((s, e) => s + Number(e.montant), 0);
-  const monthsWithData = new Set(entries.map(e => Number(e.mois))).size;
-  return total / monthsWithData;
+  const total         = entries.reduce((s, e) => s + Number(e.montant), 0);
+  const trackedMonths = expTrackedMonthsCount(year);
+  return trackedMonths > 0 ? total / trackedMonths : 0;
 }
 
 function expTotalAids() {
@@ -2518,6 +2526,8 @@ function expenseTable(year) {
   const grandTotal        = monthTotals.reduce((a, b) => a + b, 0);
   const grandMonthsFilled = monthTotals.filter(v => v > 0).length;
   const grandAvg          = grandMonthsFilled > 0 ? grandTotal / grandMonthsFilled : 0;
+  // Dénominateur commun pour toutes les moyennes cat/item : mois avec AU MOINS une dépense
+  const trackedMonths     = expTrackedMonthsCount(year);
 
   const bodyRows = cats.map(cat => {
     const colors    = EXP_COLORS[cat.couleur] || EXP_COLORS.slate;
@@ -2530,9 +2540,8 @@ function expenseTable(year) {
     const catMonths = MONTHS.map((_, mi) =>
       catItems.reduce((s, item) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0)
     );
-    const catTotal        = catMonths.reduce((a, b) => a + b, 0);
-    const catMonthsFilled = catMonths.filter(v => v > 0).length;
-    const catAvg          = catMonthsFilled > 0 ? catTotal / catMonthsFilled : 0;
+    const catTotal = catMonths.reduce((a, b) => a + b, 0);
+    const catAvg   = trackedMonths > 0 ? catTotal / trackedMonths : 0;
 
     // Ligne header catégorie
     const catRow = `
@@ -2558,9 +2567,8 @@ function expenseTable(year) {
           onclick="editExpenseCell('${item.id}',${year},${month},${val})"
           id="ecell-${item.id}-${year}-${month}">${val > 0 ? fmt(val) : ''}</td>`;
       });
-      const itemTotal        = MONTHS.reduce((s, _, mi) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0);
-      const itemMonthsFilled = MONTHS.filter((_, mi) => (entryMap[`${item.id}_${year}_${mi + 1}`] || 0) > 0).length;
-      const itemAvg          = itemMonthsFilled > 0 ? itemTotal / itemMonthsFilled : 0;
+      const itemTotal = MONTHS.reduce((s, _, mi) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0);
+      const itemAvg   = trackedMonths > 0 ? itemTotal / trackedMonths : 0;
 
       return `
         <tr class="border-t border-slate-700/50 hover:bg-slate-800/40 transition">
