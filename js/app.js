@@ -105,7 +105,7 @@ function renderDashboard(app) {
   app.innerHTML = `
     ${navbar()}
     <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      ${statCards(total, invested, totalCharges)}
+      ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}
       <div class="flex items-center justify-between">
@@ -177,7 +177,7 @@ function renderPortfolio(app, portfolioId) {
           <button onclick="confirmDelete('portfolio','${p.id}')" class="btn-danger text-sm">Supprimer</button>
         </div>
       </div>
-      ${statCards(total, invested, totalCharges)}
+      ${statCards(total, invested, totalCharges, computeAnnualReturn(portfolioHistory(portfolioId)))}
       ${historySparkline(portfolioHistory(portfolioId), '#hist-pf/' + portfolioId)}
       ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
@@ -235,7 +235,7 @@ function renderEnvelope(app, envelopeId) {
           <button onclick="confirmDelete('envelope','${e.id}')" class="btn-danger text-sm">Supprimer</button>
         </div>
       </div>
-      ${statCards(total, invested)}
+      ${statCards(total, invested, 0, computeAnnualReturn(envelopeHistory(envelopeId)))}
       ${historySparkline(envelopeHistory(envelopeId), '#hist-env/' + envelopeId)}
       <h2 class="text-lg font-semibold text-white">Positions</h2>
       ${positionsTable(positions, e.type)}
@@ -845,10 +845,23 @@ function navbar(left = '') {
     </nav>`;
 }
 
-function statCards(total, invested, totalCharges = 0) {
+function statCards(total, invested, totalCharges = 0, annualReturn = null) {
   const pv    = total - invested;
   const pvPct = invested > 0 ? ((pv / invested) * 100).toFixed(2) : 0;
   const nette = total - totalCharges;
+  const pvColor  = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const pctColor = pv >= 0 ? 'text-emerald-500' : 'text-red-500';
+
+  // Rendement annualisé — affiché si disponible
+  let annualLine = '';
+  if (annualReturn && annualReturn.value !== null) {
+    const ar  = annualReturn.value;
+    const est = annualReturn.estimated;
+    // Même couleur que la PV, légèrement atténuée
+    const arColor = ar >= 0 ? 'text-emerald-500/70' : 'text-red-500/70';
+    annualLine = `<p class="text-xs ${arColor} mt-0.5">${est ? '~' : ''}${ar >= 0 ? '+' : ''}${ar}%/an${est ? '*' : ''}</p>`;
+  }
+
   return `
     <div class="grid grid-cols-3 gap-4">
       <div class="bg-slate-800 rounded-xl p-4">
@@ -861,8 +874,9 @@ function statCards(total, invested, totalCharges = 0) {
       </div>
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">Plus-value</p>
-        <p class="text-2xl font-bold ${pv >= 0 ? 'text-emerald-400' : 'text-red-400'}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
-        <p class="text-xs ${pv >= 0 ? 'text-emerald-500' : 'text-red-500'}">${pvPct}%</p>
+        <p class="text-2xl font-bold ${pvColor}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
+        <p class="text-xs ${pctColor}">${pvPct}%</p>
+        ${annualLine}
       </div>
     </div>
     ${totalCharges > 0 ? `
@@ -1501,6 +1515,29 @@ function renderHistoryGlobal(app) {
 
 // Paramètres de simulation (persistés pendant la session)
 let _fp = null;
+
+// Calcule le rendement annualisé (CAGR) à partir d'un tableau d'entrées history.
+// Retourne { value: number|null, estimated: boolean }
+//   • value      : rendement annualisé en %, arrondi à 0.1 %
+//   • estimated  : true si l'historique est < 6 mois (on suppose 5 ans de détention)
+function computeAnnualReturn(histEntries) {
+  if (!histEntries || !histEntries.length) return { value: null, estimated: false };
+  const last        = histEntries[histEntries.length - 1];
+  const totalReturn = Number(last.pv_pct) / 100;
+  if (!isFinite(totalReturn) || totalReturn <= -1) return { value: null, estimated: false };
+
+  const first    = histEntries[0];
+  const histDays = histEntries.length >= 2
+    ? (new Date(last.date) - new Date(first.date)) / 86400000
+    : 0;
+
+  // Moins de 6 mois d'historique → hypothèse 5 ans de détention
+  const estimated = histDays < 180;
+  const years     = estimated ? 5 : histDays / 365;
+
+  const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
+  return { value: Math.round(annualized * 10) / 10, estimated };
+}
 
 // Estime le rendement annuel net à partir de l'historique global du portfolio.
 // Méthode : annualise le PV% total (valeur_actuelle / valeur_investie − 1).
