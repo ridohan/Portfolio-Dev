@@ -28,6 +28,7 @@ function setup() {
     prices:         ['isin', 'nom', 'type', 'prix_actuel', 'derniere_maj'],
     crypto_prices:  ['symbole', 'nom', 'prix_actuel', 'derniere_maj'],
     history:        ['date', 'envelope_id', 'valeur_investie', 'valeur_actuelle', 'pv_euros', 'pv_pct'],
+    charges:        ['id', 'portfolio_id', 'nom', 'montant', 'date_fin'],
   };
 
   Object.entries(tabs).forEach(([name, headers]) => {

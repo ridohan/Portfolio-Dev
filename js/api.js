@@ -88,4 +88,8 @@ const API = {
 
   addPrice(data)            { return this.post('addPrice', data); },
   addCryptoPrice(data)      { return this.post('addCryptoPrice', data); },
+
+  createCharge(data)        { return this.post('createCharge', data); },
+  updateCharge(data)        { return this.post('updateCharge', data); },
+  deleteCharge(id)          { return this.post('deleteCharge', { id }); },
 };

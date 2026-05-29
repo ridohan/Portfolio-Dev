@@ -1,5 +1,5 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [] };
 
 // ─── ROUTER ──────────────────────────────────────────────────────────────────
 
@@ -90,12 +90,12 @@ function renderSetup(app) {
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
 function renderDashboard(app) {
-  const { total, invested, alloc } = globalStats();
+  const { total, invested, alloc, totalCharges } = globalStats();
 
   app.innerHTML = `
     ${navbar()}
     <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      ${statCards(total, invested)}
+      ${statCards(total, invested, totalCharges)}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">Portfolios</h2>
@@ -110,7 +110,7 @@ function renderDashboard(app) {
 
 function portfolioCard(p) {
   const envs    = STATE.envelopes.filter(e => e.portfolio_id === p.id);
-  const { total, invested, alloc } = portfolioStats(p.id);
+  const { total, invested, alloc, totalCharges } = portfolioStats(p.id);
   const pv      = total - invested;
   const pvPct   = invested > 0 ? ((pv / invested) * 100).toFixed(1) : 0;
 
@@ -125,7 +125,8 @@ function portfolioCard(p) {
           ${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)
         </span>
       </div>
-      <p class="text-white text-xl font-bold mb-3">${fmt(total)}</p>
+      <p class="text-white text-xl font-bold ${totalCharges > 0 ? 'mb-1' : 'mb-3'}">${fmt(total)}${totalCharges > 0 ? `<span class="text-slate-400 text-xs font-normal ml-1">brut</span>` : ''}</p>
+      ${totalCharges > 0 ? `<p class="text-slate-400 text-xs mb-3">Net de charges : <span class="text-white font-semibold">${fmt(total - totalCharges)}</span></p>` : ''}
       ${allocBar(alloc, null, 'sm')}
     </div>`;
 }
@@ -136,7 +137,7 @@ function renderPortfolio(app, portfolioId) {
   const p = STATE.portfolios.find(x => x.id === portfolioId);
   if (!p) { navigate('#dashboard'); return; }
 
-  const { total, invested, alloc } = portfolioStats(portfolioId);
+  const { total, invested, alloc, totalCharges } = portfolioStats(portfolioId);
   const pv    = total - invested;
   const rebal = rebalancingSuggestions(portfolioId);
   const envs  = STATE.envelopes.filter(e => e.portfolio_id === portfolioId);
@@ -155,16 +156,19 @@ function renderPortfolio(app, portfolioId) {
           <button onclick="confirmDelete('portfolio','${p.id}')" class="btn-danger text-sm">Supprimer</button>
         </div>
       </div>
-      ${statCards(total, invested)}
+      ${statCards(total, invested, totalCharges)}
       ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
       <h2 class="text-lg font-semibold text-white">Enveloppes</h2>
       <div class="grid gap-4 sm:grid-cols-2">
         ${envs.map(e => envelopeCard(e)).join('') || empty('Aucune enveloppe.')}
       </div>
+      ${chargesSection(portfolioId)}
     </div>
     ${modalEnvelope()}
-    ${modalEditPortfolio()}`;
+    ${modalEditPortfolio()}
+    ${modalCharge()}
+    ${modalEditCharge()}`;
 }
 
 function envelopeCard(e) {
@@ -392,6 +396,50 @@ function modalPosition(envelopeId, type) {
     </div>`;
 }
 
+function modalCharge() {
+  return `
+    <div id="modal-charge" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <h2 class="text-white font-semibold mb-4">Nouvelle charge</h2>
+        <form id="form-charge" class="space-y-3">
+          <div><label class="label">Nom</label>
+            <input name="nom" placeholder="Ex: Remboursement prêt immo" required class="input" /></div>
+          <div><label class="label">Montant (€)</label>
+            <input name="montant" type="number" step="0.01" min="0" required class="input" /></div>
+          <div><label class="label">Date de fin (optionnelle)</label>
+            <input name="date_fin" type="date" class="input" /></div>
+          <p id="err-charge" class="text-red-400 text-xs hidden"></p>
+          <div class="flex gap-2 pt-1">
+            <button type="submit" class="btn-primary flex-1">Ajouter</button>
+            <button type="button" onclick="closeModal('charge')" class="btn-secondary flex-1">Annuler</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+}
+
+function modalEditCharge() {
+  return `
+    <div id="modal-edit-charge" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <h2 class="text-white font-semibold mb-4">Modifier la charge</h2>
+        <form id="form-edit-charge" class="space-y-3">
+          <div><label class="label">Nom</label>
+            <input name="nom" id="edit-charge-nom" required class="input" /></div>
+          <div><label class="label">Montant (€)</label>
+            <input name="montant" id="edit-charge-montant" type="number" step="0.01" min="0" required class="input" /></div>
+          <div><label class="label">Date de fin (optionnelle)</label>
+            <input name="date_fin" id="edit-charge-date" type="date" class="input" /></div>
+          <p id="err-edit-charge" class="text-red-400 text-xs hidden"></p>
+          <div class="flex gap-2 pt-1">
+            <button type="submit" class="btn-primary flex-1">Enregistrer</button>
+            <button type="button" onclick="closeModal('edit-charge')" class="btn-secondary flex-1">Annuler</button>
+          </div>
+        </form>
+      </div>
+    </div>`;
+}
+
 function modalEditPortfolio() {
   return `
     <div id="modal-edit-portfolio" class="modal-backdrop hidden">
@@ -493,6 +541,19 @@ function openModal(type, ...args) {
       } finally { setLoading(btn, false); }
     };
   }
+  if (type === 'charge') {
+    document.getElementById('form-charge').reset();
+    document.getElementById('form-charge').onsubmit = async e => {
+      e.preventDefault();
+      const btn = e.target.querySelector('[type=submit]');
+      setLoading(btn, true);
+      const d = Object.fromEntries(new FormData(e.target));
+      try {
+        await withErr('charge', () => API.createCharge({ ...d, portfolio_id: args[0] }));
+        closeModal('charge'); render();
+      } finally { setLoading(btn, false); }
+    };
+  }
   if (type === 'position') {
     document.getElementById('form-position').onsubmit = async e => {
       e.preventDefault();
@@ -513,6 +574,24 @@ function openModal(type, ...args) {
 
 function closeModal(type) {
   document.getElementById(`modal-${type}`)?.classList.add('hidden');
+}
+
+function openEditCharge(c) {
+  document.getElementById('modal-edit-charge')?.classList.remove('hidden');
+  document.getElementById('edit-charge-nom').value     = c.nom     || '';
+  document.getElementById('edit-charge-montant').value = c.montant || '';
+  document.getElementById('edit-charge-date').value    = c.date_fin || '';
+
+  document.getElementById('form-edit-charge').onsubmit = async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector('[type=submit]');
+    setLoading(btn, true);
+    const d = Object.fromEntries(new FormData(e.target));
+    try {
+      await withErr('edit-charge', () => API.updateCharge({ id: c.id, ...d }));
+      closeModal('edit-charge'); render();
+    } finally { setLoading(btn, false); }
+  };
 }
 
 function openEditPortfolio(p) {
@@ -572,7 +651,7 @@ function openEditPosition(pos) {
 
 async function confirmDelete(type, id) {
   if (!confirm(`Supprimer définitivement ?`)) return;
-  const actions = { portfolio: () => API.deletePortfolio(id), envelope: () => API.deleteEnvelope(id), position: () => API.deletePosition(id) };
+  const actions = { portfolio: () => API.deletePortfolio(id), envelope: () => API.deleteEnvelope(id), position: () => API.deletePosition(id), charge: () => API.deleteCharge(id) };
   await actions[type]?.();
   render();
 }
@@ -646,7 +725,11 @@ function portfolioStats(portfolioId) {
     ? { actions: (actions / total * 100).toFixed(1), obligations: (obligations / total * 100).toFixed(1), cash: (cash / total * 100).toFixed(1) }
     : { actions: 0, obligations: 0, cash: 0 };
 
-  return { total, invested, alloc };
+  const totalCharges = STATE.charges
+    .filter(c => c.portfolio_id === portfolioId)
+    .reduce((sum, c) => sum + (Number(c.montant) || 0), 0);
+
+  return { total, invested, alloc, totalCharges };
 }
 
 function globalStats() {
@@ -662,7 +745,10 @@ function globalStats() {
   const alloc = total > 0
     ? { actions: (actions / total * 100).toFixed(1), obligations: (obligations / total * 100).toFixed(1), cash: (cash / total * 100).toFixed(1) }
     : { actions: 0, obligations: 0, cash: 0 };
-  return { total, invested, alloc };
+  const totalCharges = STATE.charges
+    .reduce((sum, c) => sum + (Number(c.montant) || 0), 0);
+
+  return { total, invested, alloc, totalCharges };
 }
 
 function rebalancingSuggestions(portfolioId) {
@@ -707,18 +793,33 @@ function navbar(left = '') {
     </nav>`;
 }
 
-function statCards(total, invested) {
+function statCards(total, invested, totalCharges = 0) {
   const pv    = total - invested;
   const pvPct = invested > 0 ? ((pv / invested) * 100).toFixed(2) : 0;
+  const nette = total - totalCharges;
   return `
     <div class="grid grid-cols-3 gap-4">
-      <div class="bg-slate-800 rounded-xl p-4"><p class="text-slate-400 text-xs mb-1">Valeur totale</p><p class="text-white text-2xl font-bold">${fmt(total)}</p></div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">${totalCharges > 0 ? 'Valeur brute' : 'Valeur totale'}</p>
+        <p class="text-white text-2xl font-bold">${fmt(total)}</p>
+      </div>
       <div class="bg-slate-800 rounded-xl p-4"><p class="text-slate-400 text-xs mb-1">Investi</p><p class="text-white text-2xl font-bold">${fmt(invested)}</p></div>
       <div class="bg-slate-800 rounded-xl p-4"><p class="text-slate-400 text-xs mb-1">Plus-value</p>
         <p class="text-2xl font-bold ${pv >= 0 ? 'text-emerald-400' : 'text-red-400'}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
         <p class="text-xs ${pv >= 0 ? 'text-emerald-500' : 'text-red-500'}">${pvPct}%</p>
       </div>
-    </div>`;
+    </div>
+    ${totalCharges > 0 ? `
+    <div class="grid grid-cols-2 gap-4">
+      <div class="bg-slate-800 border border-red-500/20 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Charges à venir</p>
+        <p class="text-red-400 text-xl font-bold">−${fmt(totalCharges)}</p>
+      </div>
+      <div class="bg-slate-800 border border-emerald-500/20 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Valeur nette</p>
+        <p class="text-white text-xl font-bold">${fmt(nette)}</p>
+      </div>
+    </div>` : ''}`;
 }
 
 function allocBar(alloc, title, size = 'md', cible = null, total = null) {
@@ -764,12 +865,59 @@ function empty(msg) {
   return `<div class="col-span-2 text-slate-500 text-sm text-center py-8 bg-slate-800 rounded-xl">${msg}</div>`;
 }
 
+function chargesSection(portfolioId) {
+  const charges = STATE.charges.filter(c => c.portfolio_id === portfolioId);
+  const total   = charges.reduce((s, c) => s + (Number(c.montant) || 0), 0);
+
+  const rows = charges.map(c => `
+    <tr class="border-t border-slate-700 hover:bg-slate-750">
+      <td class="py-3 px-4 text-white font-medium">${esc(c.nom)}</td>
+      <td class="py-3 px-4 text-red-400 font-medium">−${fmt(Number(c.montant))}</td>
+      <td class="py-3 px-4 text-slate-400 text-sm">${c.date_fin ? fmtDate(c.date_fin) : '—'}</td>
+      <td class="py-3 px-4 flex gap-3">
+        <button onclick='openEditCharge(${JSON.stringify(c)})' class="text-slate-400 hover:text-blue-400 text-xs transition">Modifier</button>
+        <button onclick="confirmDelete('charge','${c.id}')" class="text-slate-500 hover:text-red-400 text-xs transition">Supprimer</button>
+      </td>
+    </tr>`).join('');
+
+  return `
+    <div class="flex items-center justify-between">
+      <h2 class="text-lg font-semibold text-white">Charges à venir</h2>
+      <button onclick="openModal('charge','${portfolioId}')" class="btn-danger text-sm">+ Charge</button>
+    </div>
+    ${charges.length ? `
+    <div class="bg-slate-800 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-slate-400 text-left">
+            <th class="py-3 px-4">Nom</th>
+            <th class="py-3 px-4">Montant</th>
+            <th class="py-3 px-4">Date de fin</th>
+            <th class="py-3 px-4"></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="border-t border-slate-700 px-4 py-3 flex justify-between items-center bg-slate-800/60">
+        <span class="text-slate-400 text-sm font-medium">Total charges</span>
+        <span class="text-red-400 font-semibold">−${fmt(total)}</span>
+      </div>
+    </div>`
+    : `<p class="text-slate-500 text-sm py-2">Aucune charge à venir.</p>`}`;
+}
+
 function errorBanner(msg) {
   return `<div class="m-8 bg-red-900/30 border border-red-500 text-red-300 rounded-xl p-4 text-sm">Erreur : ${esc(msg)}</div>`;
 }
 
 function fmt(n) {
   return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+}
+
+function fmtDate(dateStr) {
+  if (!dateStr) return '—';
+  try { return new Date(dateStr).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+  catch { return String(dateStr); }
 }
 
 function esc(s) {

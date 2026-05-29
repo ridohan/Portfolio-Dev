@@ -29,6 +29,7 @@ function doGet(e) {
       positions:      sheetToObjects(ss, 'positions'),
       prices:         sheetToObjects(ss, 'prices'),
       crypto_prices:  sheetToObjects(ss, 'crypto_prices'),
+      charges:        sheetToObjects(ss, 'charges'),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -69,6 +70,10 @@ function doPost(e) {
 
       addPrice:           () => upsertPrice(payload),
       addCryptoPrice:     () => upsertCryptoPrice(payload),
+
+      createCharge:       () => createRow('charges', { id: newId('chg'), portfolio_id: payload.portfolio_id, nom: payload.nom, montant: Number(payload.montant), date_fin: payload.date_fin || '' }),
+      updateCharge:       () => updateRow('charges', payload.id, { nom: payload.nom, montant: Number(payload.montant), date_fin: payload.date_fin || '' }),
+      deleteCharge:       () => deleteRow('charges', payload.id),
     };
 
     if (!handlers[action]) {
