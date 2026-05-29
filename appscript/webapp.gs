@@ -30,6 +30,7 @@ function doGet(e) {
       prices:         sheetToObjects(ss, 'prices'),
       crypto_prices:  sheetToObjects(ss, 'crypto_prices'),
       charges:        sheetToObjects(ss, 'charges'),
+      history:        sheetToObjects(ss, 'history'),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {

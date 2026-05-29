@@ -1,8 +1,11 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [] };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
+
+// Période active pour les pages historique
+let _histPeriod = 'all';
 
 // ─── ROUTER ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +37,9 @@ async function render() {
   if (route === 'dashboard')  return renderDashboard(app);
   if (route === 'portfolio')  return renderPortfolio(app, id);
   if (route === 'envelope')   return renderEnvelope(app, id);
+  if (route === 'hist-env')    return renderHistoryEnv(app, id);
+  if (route === 'hist-pf')     return renderHistoryPf(app, id);
+  if (route === 'hist-global') return renderHistoryGlobal(app);
   renderDashboard(app);
 }
 
@@ -100,9 +106,13 @@ function renderDashboard(app) {
     <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
       ${statCards(total, invested, totalCharges)}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
+      ${historySparkline(globalHistory(), '#hist-global')}
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">Portfolios</h2>
-        <button onclick="openModal('portfolio')" class="btn-primary text-sm">+ Nouveau</button>
+        <div class="flex gap-2">
+          <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm">📈 Historique</a>
+          <button onclick="openModal('portfolio')" class="btn-primary text-sm">+ Nouveau</button>
+        </div>
       </div>
       ${envelopeTypeAllocBar(STATE.envelopes)}
       <div class="grid gap-4 sm:grid-cols-2">
@@ -156,11 +166,13 @@ function renderPortfolio(app, portfolioId) {
         </div>
         <div class="flex gap-2">
           <button onclick='openEditPortfolio(${JSON.stringify(p)})' class="btn-secondary text-sm">✏ Modifier</button>
+          <a href="#hist-pf/${p.id}" onclick="navigate('#hist-pf/${p.id}');return false;" class="btn-secondary text-sm">📈 Historique</a>
           <button onclick="openModal('envelope','${portfolioId}')" class="btn-primary text-sm">+ Enveloppe</button>
           <button onclick="confirmDelete('portfolio','${p.id}')" class="btn-danger text-sm">Supprimer</button>
         </div>
       </div>
       ${statCards(total, invested, totalCharges)}
+      ${historySparkline(portfolioHistory(portfolioId), '#hist-pf/' + portfolioId)}
       ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
       <h2 class="text-lg font-semibold text-white">Enveloppes</h2>
@@ -212,11 +224,13 @@ function renderEnvelope(app, envelopeId) {
         </div>
         <div class="flex gap-2">
           <button onclick='openEditEnvelope(${JSON.stringify(e)})' class="btn-secondary text-sm">✏ Renommer</button>
+          <a href="#hist-env/${e.id}" onclick="navigate('#hist-env/${e.id}');return false;" class="btn-secondary text-sm">📈 Historique</a>
           <button onclick="openModal('position','${envelopeId}','${e.type}')" class="btn-primary text-sm">+ Position</button>
           <button onclick="confirmDelete('envelope','${e.id}')" class="btn-danger text-sm">Supprimer</button>
         </div>
       </div>
       ${statCards(total, invested)}
+      ${historySparkline(envelopeHistory(envelopeId), '#hist-env/' + envelopeId)}
       <h2 class="text-lg font-semibold text-white">Positions</h2>
       ${positionsTable(positions, e.type)}
     </div>
@@ -1021,4 +1035,326 @@ function fmtDate(dateStr) {
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── HISTORIQUE ───────────────────────────────────────────────────────────────
+
+function normalizeDate(d) {
+  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  return String(d).slice(0, 10);
+}
+
+// Toutes les entrées history d'une enveloppe, triées chronologiquement
+function envelopeHistory(envelopeId) {
+  return STATE.history
+    .filter(h => h.envelope_id === envelopeId)
+    .map(h => ({ ...h, date: normalizeDate(h.date) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Somme quotidienne de toutes les enveloppes → courbe de valeur globale
+function globalHistory() {
+  const byDate = {};
+  STATE.history.forEach(h => {
+    const date = normalizeDate(h.date);
+    if (!byDate[date]) byDate[date] = { date, valeur_investie: 0, valeur_actuelle: 0 };
+    byDate[date].valeur_investie += Number(h.valeur_investie) || 0;
+    byDate[date].valeur_actuelle += Number(h.valeur_actuelle) || 0;
+  });
+
+  return Object.values(byDate)
+    .map(e => ({
+      ...e,
+      pv_euros: e.valeur_actuelle - e.valeur_investie,
+      pv_pct: e.valeur_investie > 0
+        ? ((e.valeur_actuelle / e.valeur_investie - 1) * 100).toFixed(2)
+        : 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Somme quotidienne des enveloppes d'un portfolio → courbe de valeur globale
+function portfolioHistory(portfolioId) {
+  const envIds = STATE.envelopes
+    .filter(e => e.portfolio_id === portfolioId)
+    .map(e => e.id);
+
+  const byDate = {};
+  STATE.history
+    .filter(h => envIds.includes(h.envelope_id))
+    .forEach(h => {
+      const date = normalizeDate(h.date);
+      if (!byDate[date]) byDate[date] = { date, valeur_investie: 0, valeur_actuelle: 0 };
+      byDate[date].valeur_investie += Number(h.valeur_investie) || 0;
+      byDate[date].valeur_actuelle += Number(h.valeur_actuelle) || 0;
+    });
+
+  return Object.values(byDate)
+    .map(e => ({
+      ...e,
+      pv_euros: e.valeur_actuelle - e.valeur_investie,
+      pv_pct: e.valeur_investie > 0
+        ? ((e.valeur_actuelle / e.valeur_investie - 1) * 100).toFixed(2)
+        : 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Filtre un tableau d'entrées selon la période sélectionnée
+function filterByPeriod(entries, period) {
+  if (!period || period === 'all') return entries;
+  const now    = new Date();
+  const cutoff = new Date(now);
+  if (period === '1m')  cutoff.setMonth(now.getMonth() - 1);
+  if (period === '3m')  cutoff.setMonth(now.getMonth() - 3);
+  if (period === '6m')  cutoff.setMonth(now.getMonth() - 6);
+  if (period === '1y')  cutoff.setFullYear(now.getFullYear() - 1);
+  if (period === 'ytd') { cutoff.setMonth(0); cutoff.setDate(1); }
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  return entries.filter(e => e.date >= cutoffStr);
+}
+
+// ─── GRAPHIQUE SVG ────────────────────────────────────────────────────────────
+
+function svgLineChart(entries, { width = 600, height = 200, mini = false } = {}) {
+  if (entries.length < 2) return '';
+
+  const values = entries.map(e => Number(e.valeur_actuelle));
+  const minV   = Math.min(...values);
+  const maxV   = Math.max(...values);
+  const range  = maxV - minV || 1;
+
+  const pad = mini ? 2 : 16;
+  const w   = width  - pad * 2;
+  const h   = height - pad * 2;
+
+  const pts = values.map((v, i) => {
+    const x = pad + (i / Math.max(values.length - 1, 1)) * w;
+    const y = pad + (1 - (v - minV) / range) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  const isUp    = values[values.length - 1] >= values[0];
+  const color   = isUp ? '#10b981' : '#ef4444';
+  const polyPts = pts.join(' ');
+
+  if (mini) {
+    return `
+      <svg viewBox="0 0 ${width} ${height}" class="w-full h-full" preserveAspectRatio="none">
+        <polyline points="${polyPts}" fill="none" stroke="${color}" stroke-width="1.5"
+          stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>`;
+  }
+
+  // Zone de remplissage sous la courbe
+  const firstX = pts[0].split(',')[0];
+  const lastX  = pts[pts.length - 1].split(',')[0];
+  const baseY  = (pad + h).toFixed(1);
+  const fillPts = `${firstX},${baseY} ${polyPts} ${lastX},${baseY}`;
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="w-full h-full" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="${color}" stop-opacity="0.25"/>
+          <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+        </linearGradient>
+      </defs>
+      <polygon points="${fillPts}" fill="url(#chart-grad)"/>
+      <polyline points="${polyPts}" fill="none" stroke="${color}" stroke-width="2"
+        stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>`;
+}
+
+// Mini sparkline affiché sur les pages portfolio / enveloppe
+function historySparkline(entries, histHref) {
+  if (entries.length < 2) return '';
+
+  const first     = entries[0];
+  const last      = entries[entries.length - 1];
+  const change    = last.valeur_actuelle - first.valeur_actuelle;
+  const changePct = first.valeur_actuelle > 0
+    ? ((change / first.valeur_actuelle) * 100).toFixed(1)
+    : 0;
+  const isUp = change >= 0;
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-4">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-slate-400 text-xs">Historique (${entries.length} entrée${entries.length > 1 ? 's' : ''})</p>
+        <a href="${histHref}" onclick="navigate('${histHref}');return false;"
+           class="text-blue-400 hover:text-blue-300 text-xs transition">Voir le détail →</a>
+      </div>
+      <div class="h-14 relative">
+        ${svgLineChart(entries, { width: 600, height: 56, mini: true })}
+      </div>
+      <p class="text-xs mt-2 ${isUp ? 'text-emerald-400' : 'text-red-400'}">
+        ${isUp ? '+' : ''}${fmt(change)} (${isUp ? '+' : ''}${changePct}%) sur ${entries.length} jour${entries.length > 1 ? 's' : ''}
+      </p>
+    </div>`;
+}
+
+// ─── PAGES HISTORIQUE ─────────────────────────────────────────────────────────
+
+function setHistPeriod(period) {
+  _histPeriod = period;
+  render();
+}
+
+function periodFilter(active) {
+  const periods = [
+    { key: '1m',  label: '1M'  },
+    { key: '3m',  label: '3M'  },
+    { key: '6m',  label: '6M'  },
+    { key: 'ytd', label: 'YTD' },
+    { key: '1y',  label: '1A'  },
+    { key: 'all', label: 'Tout'},
+  ];
+  return `
+    <div class="flex gap-1 flex-wrap">
+      ${periods.map(p => `
+        <button onclick="setHistPeriod('${p.key}')"
+          class="px-3 py-1 rounded-lg text-xs font-medium transition ${active === p.key
+            ? 'bg-blue-600 text-white'
+            : 'bg-slate-800 text-slate-400 hover:text-white'}">
+          ${p.label}
+        </button>`).join('')}
+    </div>`;
+}
+
+function historyStatsCards(entries) {
+  if (!entries.length) return '';
+  const first      = entries[0];
+  const last       = entries[entries.length - 1];
+  const change     = last.valeur_actuelle - first.valeur_actuelle;
+  const changePct  = first.valeur_actuelle > 0
+    ? ((change / first.valeur_actuelle) * 100).toFixed(2) : 0;
+  const maxVal     = Math.max(...entries.map(e => Number(e.valeur_actuelle)));
+  const minVal     = Math.min(...entries.map(e => Number(e.valeur_actuelle)));
+
+  return `
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Valeur actuelle</p>
+        <p class="text-white text-2xl font-bold">${fmt(last.valeur_actuelle)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Variation période</p>
+        <p class="text-2xl font-bold ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}">${change >= 0 ? '+' : ''}${fmt(change)}</p>
+        <p class="text-xs ${change >= 0 ? 'text-emerald-500' : 'text-red-500'}">${change >= 0 ? '+' : ''}${changePct}%</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Plus haut</p>
+        <p class="text-white text-2xl font-bold">${fmt(maxVal)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Plus bas</p>
+        <p class="text-white text-2xl font-bold">${fmt(minVal)}</p>
+      </div>
+    </div>`;
+}
+
+function historyTable(entries) {
+  if (!entries.length) return `<p class="text-slate-500 text-sm py-4 text-center">Aucune donnée.</p>`;
+
+  const rows = [...entries].reverse().map(h => {
+    const pv  = Number(h.pv_euros);
+    const pct = Number(h.pv_pct);
+    return `
+      <tr class="border-t border-slate-700 hover:bg-slate-750">
+        <td class="py-3 px-4 text-slate-300 text-sm">${fmtDate(h.date)}</td>
+        <td class="py-3 px-4 text-white font-medium">${fmt(h.valeur_actuelle)}</td>
+        <td class="py-3 px-4 text-slate-400">${fmt(h.valeur_investie)}</td>
+        <td class="py-3 px-4 ${pv >= 0 ? 'text-emerald-400' : 'text-red-400'}">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pct >= 0 ? '+' : ''}${pct}%)</td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <div class="bg-slate-800 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-slate-400 text-left">
+            <th class="py-3 px-4">Date</th>
+            <th class="py-3 px-4">Valeur</th>
+            <th class="py-3 px-4">Investi</th>
+            <th class="py-3 px-4">Plus-value</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// Contenu partagé entre les deux pages d'historique
+function historyContent(allEntries, filtered) {
+  if (!allEntries.length) return `
+    <div class="bg-slate-800 rounded-xl p-10 text-center space-y-2">
+      <p class="text-slate-300 font-medium">Aucune donnée historique disponible.</p>
+      <p class="text-slate-500 text-sm">Lance <code class="bg-slate-700 px-1.5 py-0.5 rounded text-slate-400">takeDailySnapshot()</code> depuis l'éditeur AppScript, ou configure un déclencheur avec <code class="bg-slate-700 px-1.5 py-0.5 rounded text-slate-400">createDailyTrigger()</code>.</p>
+    </div>`;
+
+  return `
+    <div class="flex items-center justify-between flex-wrap gap-3">
+      ${periodFilter(_histPeriod)}
+      <p class="text-slate-500 text-xs">${filtered.length} point${filtered.length > 1 ? 's' : ''}</p>
+    </div>
+    ${historyStatsCards(filtered)}
+    <div class="bg-slate-800 rounded-xl p-4">
+      <div style="height:200px" class="relative">
+        ${svgLineChart(filtered, { width: 900, height: 200 })}
+      </div>
+    </div>
+    ${historyTable(filtered)}`;
+}
+
+function renderHistoryEnv(app, envelopeId) {
+  const e = STATE.envelopes.find(x => x.id === envelopeId);
+  if (!e) { navigate('#dashboard'); return; }
+  const portfolio = STATE.portfolios.find(p => p.id === e.portfolio_id);
+
+  const all      = envelopeHistory(envelopeId);
+  const filtered = filterByPeriod(all, _histPeriod);
+
+  app.innerHTML = `
+    ${navbar(`<a href="#envelope/${e.id}" class="text-slate-400 hover:text-white text-sm">← ${esc(e.nom)}</a>`)}
+    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white">${esc(e.nom)}</h1>
+        <p class="text-slate-400 text-sm mt-1">Historique · <span class="capitalize">${e.type}</span> · ${esc(portfolio?.nom || '')}</p>
+      </div>
+      ${historyContent(all, filtered)}
+    </div>`;
+}
+
+function renderHistoryPf(app, portfolioId) {
+  const p = STATE.portfolios.find(x => x.id === portfolioId);
+  if (!p) { navigate('#dashboard'); return; }
+
+  const all      = portfolioHistory(portfolioId);
+  const filtered = filterByPeriod(all, _histPeriod);
+
+  app.innerHTML = `
+    ${navbar(`<a href="#portfolio/${p.id}" class="text-slate-400 hover:text-white text-sm">← ${esc(p.nom)}</a>`)}
+    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white">${esc(p.nom)}</h1>
+        <p class="text-slate-400 text-sm mt-1">Historique de valeur du portfolio</p>
+      </div>
+      ${historyContent(all, filtered)}
+    </div>`;
+}
+
+function renderHistoryGlobal(app) {
+  const all      = globalHistory();
+  const filtered = filterByPeriod(all, _histPeriod);
+
+  app.innerHTML = `
+    ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white">Historique global</h1>
+        <p class="text-slate-400 text-sm mt-1">Tous les portfolios confondus</p>
+      </div>
+      ${historyContent(all, filtered)}
+    </div>`;
 }
