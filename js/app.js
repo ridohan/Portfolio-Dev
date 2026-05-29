@@ -108,7 +108,7 @@ function renderDashboard(app) {
 
   app.innerHTML = `
     ${navbar()}
-    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}
@@ -173,7 +173,7 @@ function renderPortfolio(app, portfolioId) {
 
   app.innerHTML = `
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Retour</a>`)}
-    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="flex items-start justify-between">
         <div>
           <h1 class="text-2xl font-bold text-white">${esc(p.nom)}</h1>
@@ -231,7 +231,7 @@ function renderEnvelope(app, envelopeId) {
 
   app.innerHTML = `
     ${navbar(`<a href="#portfolio/${e.portfolio_id}" class="text-slate-400 hover:text-white text-sm">← ${esc(portfolio?.nom || 'Retour')}</a>`)}
-    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="flex items-start justify-between">
         <div>
           <h1 class="text-2xl font-bold text-white">${esc(e.nom)}</h1>
@@ -1487,7 +1487,7 @@ function renderHistoryEnv(app, envelopeId) {
 
   app.innerHTML = `
     ${navbar(`<a href="#envelope/${e.id}" class="text-slate-400 hover:text-white text-sm">← ${esc(e.nom)}</a>`)}
-    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 class="text-2xl font-bold text-white">${esc(e.nom)}</h1>
         <p class="text-slate-400 text-sm mt-1">Historique · <span class="capitalize">${e.type}</span> · ${esc(portfolio?.nom || '')}</p>
@@ -1505,7 +1505,7 @@ function renderHistoryPf(app, portfolioId) {
 
   app.innerHTML = `
     ${navbar(`<a href="#portfolio/${p.id}" class="text-slate-400 hover:text-white text-sm">← ${esc(p.nom)}</a>`)}
-    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 class="text-2xl font-bold text-white">${esc(p.nom)}</h1>
         <p class="text-slate-400 text-sm mt-1">Historique de valeur du portfolio</p>
@@ -1520,7 +1520,7 @@ function renderHistoryGlobal(app) {
 
   app.innerHTML = `
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
-    <div class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 class="text-2xl font-bold text-white">Historique global</h1>
         <p class="text-slate-400 text-sm mt-1">Tous les portfolios confondus</p>
@@ -1745,7 +1745,7 @@ function renderFire(app) {
   _fpInit();
   app.innerHTML = `
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
-    <div class="max-w-6xl mx-auto px-4 py-8">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8">
       <div class="flex items-center gap-3 mb-6">
         <span class="text-4xl leading-none">🔥</span>
         <div>
@@ -2436,7 +2436,7 @@ function renderExpenses(app) {
   _fpInit();
   app.innerHTML = `
     ${navbar()}
-    <div class="max-w-6xl mx-auto px-4 py-8 space-y-6" id="exp-page">
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6" id="exp-page">
       ${expensesContent(_expYear)}
     </div>
     ${modalExpenseCategory()}
@@ -2546,7 +2546,7 @@ function expenseTable(year) {
     // Ligne header catégorie
     const catRow = `
       <tr class="border-t border-slate-600">
-        <td class="py-2 px-3 sticky left-0 z-10 bg-slate-900 min-w-[190px] cursor-pointer hover:bg-slate-800 transition"
+        <td class="py-2 px-3 sticky left-0 z-10 bg-slate-900 min-w-[260px] cursor-pointer hover:bg-slate-800 transition"
           onclick="openExpenseCategoryModal('${cat.id}')">
           <div class="flex items-center gap-1.5 flex-wrap">
             <span class="w-2.5 h-2.5 rounded-full ${colors.dot} flex-shrink-0"></span>
@@ -2554,8 +2554,8 @@ function expenseTable(year) {
             ${typeBadge}
           </div>
         </td>
+        <td class="py-2 px-3 text-right text-xs font-semibold border-r border-slate-600 ${colors.text}">${catAvg > 0 ? fmt(catAvg) : '—'}</td>
         ${catMonths.map(v => `<td class="py-2 px-2 text-right text-xs text-slate-400 font-medium">${v > 0 ? fmt(v) : ''}</td>`).join('')}
-        <td class="py-2 px-3 text-right text-xs font-semibold ${colors.text}">${catAvg > 0 ? fmt(catAvg) : '—'}</td>
       </tr>`;
 
     // Lignes items
@@ -2578,8 +2578,8 @@ function expenseTable(year) {
               <span class="text-sm text-slate-300">${esc(item.nom)}</span>
             </div>
           </td>
+          <td class="py-1.5 px-3 text-right text-xs font-medium border-r border-slate-600 text-slate-400">${itemAvg > 0 ? fmt(itemAvg) : '—'}</td>
           ${cells.join('')}
-          <td class="py-1.5 px-3 text-right text-xs font-medium text-slate-400">${itemAvg > 0 ? fmt(itemAvg) : '—'}</td>
         </tr>`;
     }).join('');
 
@@ -2604,41 +2604,46 @@ function expenseTable(year) {
   const totalRow = `
     <tr class="border-t-2 border-slate-500 bg-slate-800/60">
       <td class="py-2.5 px-3 sticky left-0 bg-slate-800 font-bold text-white text-sm">Total brut</td>
+      <td class="py-2.5 px-3 text-right text-sm font-bold border-r border-slate-600 text-white">${fmt(grandAvg)}</td>
       ${monthTotals.map(v => `<td class="py-2.5 px-2 text-right text-xs font-bold text-white">${v > 0 ? fmt(v) : '—'}</td>`).join('')}
-      <td class="py-2.5 px-3 text-right text-sm font-bold text-white">${fmt(grandAvg)}</td>
     </tr>
     <tr class="bg-slate-800/40">
       <td class="py-2 px-3 sticky left-0 bg-slate-800/40 text-emerald-400 text-xs pl-6">↳ dont vital</td>
+      <td class="py-2 px-3 text-right text-xs border-r border-slate-600 text-emerald-400">${vitalAvgRow > 0 ? fmt(vitalAvgRow) : '—'}</td>
       ${vitalMonths.map(v => `<td class="py-2 px-2 text-right text-xs text-emerald-400/70">${v > 0 ? fmt(v) : ''}</td>`).join('')}
-      <td class="py-2 px-3 text-right text-xs text-emerald-400">${vitalAvgRow > 0 ? fmt(vitalAvgRow) : '—'}</td>
     </tr>
     ${totalAids > 0 ? `
     <tr class="bg-slate-800/30 border-t border-slate-700/50">
-      <td class="py-2 px-3 sticky left-0 bg-slate-800/30 text-blue-400 text-xs font-medium">
+      <td class="py-2 px-3 sticky left-0 bg-slate-800/30 text-blue-400 text-xs font-medium cursor-pointer hover:bg-slate-700/40 transition"
+        onclick="openExpenseAidModal()">
         Aides mensuelles
-        <button onclick="openExpenseAidModal()" class="text-slate-600 hover:text-slate-400 ml-1 text-xs">✏</button>
       </td>
+      <td class="py-2 px-3 text-right text-xs font-medium border-r border-slate-600 text-blue-400">−${fmt(totalAids)}</td>
       ${MONTHS.map(() => `<td class="py-2 px-2 text-right text-xs text-blue-400">−${fmt(totalAids)}</td>`).join('')}
-      <td class="py-2 px-3 text-right text-xs font-medium text-blue-400">−${fmt(totalAids)}</td>
     </tr>
     <tr class="bg-amber-500/8 border-t border-amber-500/20">
       <td class="py-2.5 px-3 sticky left-0 bg-amber-500/8 font-bold text-amber-400 text-sm">Reste à financer</td>
+      <td class="py-2.5 px-3 text-right text-sm font-bold border-r border-slate-600 text-amber-400">${fmt(Math.max(0, grandAvg - totalAids))}</td>
       ${monthTotals.map(v => {
         const net = v - totalAids;
         return `<td class="py-2.5 px-2 text-right text-xs font-bold ${net > 0 ? 'text-amber-400' : 'text-emerald-400'}">${v > 0 || totalAids > 0 ? fmt(Math.max(0, net)) : '—'}</td>`;
       }).join('')}
-      <td class="py-2.5 px-3 text-right text-sm font-bold text-amber-400">${fmt(Math.max(0, grandAvg - totalAids))}</td>
+    </tr>
+    <tr class="bg-amber-500/5">
+      <td class="py-2 px-3 sticky left-0 bg-amber-500/5 text-amber-300/70 text-xs pl-6">↳ dont vital</td>
+      <td class="py-2 px-3 text-right text-xs border-r border-slate-600 text-amber-300/70">${Math.max(0, vitalAvgRow - totalAids) > 0 ? fmt(Math.max(0, vitalAvgRow - totalAids)) : '—'}</td>
+      ${vitalMonths.map(v => { const net = Math.max(0, v - totalAids); return `<td class="py-2 px-2 text-right text-xs text-amber-300/50">${net > 0 ? fmt(net) : ''}</td>`; }).join('')}
     </tr>` : ''}`;
 
   return `
     <div class="bg-slate-900 rounded-xl overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="text-sm" style="min-width:1240px;width:100%">
+        <table class="text-sm" style="min-width:1320px;width:100%">
           <thead class="bg-slate-900 sticky top-0 z-20">
             <tr class="text-slate-400 text-xs border-b border-slate-700">
-              <th class="py-3 px-3 text-left sticky left-0 bg-slate-900 font-medium min-w-[190px]">Poste</th>
+              <th class="py-3 px-3 text-left sticky left-0 bg-slate-900 font-medium min-w-[260px]">Poste</th>
+              <th class="py-3 px-3 text-right font-medium whitespace-nowrap border-r border-slate-600">Moy./mois</th>
               ${MONTHS.map(m => `<th class="py-3 px-2 text-right font-medium w-20">${m}</th>`).join('')}
-              <th class="py-3 px-3 text-right font-medium whitespace-nowrap">Moy./mois</th>
             </tr>
           </thead>
           <tbody>${bodyRows}${totalRow}</tbody>
