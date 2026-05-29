@@ -1744,7 +1744,7 @@ function fireDashboardCards() {
 function renderFire(app) {
   _fpInit();
   app.innerHTML = `
-    ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8">
       <div class="flex items-center gap-3 mb-6">
         <span class="text-4xl leading-none">🔥</span>
