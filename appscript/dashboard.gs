@@ -217,20 +217,40 @@ function writeGlobalStats(sheet, row, total, invested, pv, pvPct, totalCharges) 
   const nette   = total - totalCharges;
   const pvColor = pv >= 0 ? C.GREEN : C.RED;
 
-  // Labels
-  ['Valeur totale', 'Investi', 'Plus-value'].forEach((label, i) => {
-    mergeWrite(sheet, row, i * 3 + 1, 2, label,
-      { size: 8, fg: C.MUTED, bg: C.CARD, align: 'center' });
+  // Labels — couvre toute la ligne d'abord pour éviter les cases blanches (cols 3 et 6)
+  setBg(sheet, row, 1, 1, 8, C.CARD);
+  const valLabel = totalCharges > 0 ? 'Valeur nette' : 'Valeur totale';
+  [valLabel, 'Valeur brute', 'Investi', 'Plus-value'].forEach((label, i) => {
+    const col = i < 2 ? i + 1 : i * 2 + 1; // cols 1, 2, 5, 7
+    sheet.getRange(row, col).setValue(label)
+      .setFontColor(C.MUTED).setFontSize(8).setBackground(C.CARD)
+      .setHorizontalAlignment('center');
   });
+  // Masque "Valeur brute" si pas de charges
+  if (!totalCharges) {
+    sheet.getRange(row, 2).setValue('').setBackground(C.CARD);
+    mergeWrite(sheet, row, 1, 2, valLabel, { size: 8, fg: C.MUTED, bg: C.CARD, align: 'center' });
+  }
+  mergeWrite(sheet, row, 3, 2, 'Investi',      { size: 8, fg: C.MUTED, bg: C.CARD, align: 'center' });
+  mergeWrite(sheet, row, 5, 2, 'Plus-value',   { size: 8, fg: C.MUTED, bg: C.CARD, align: 'center' });
   setBg(sheet, row, 7, 1, 2, C.CARD);
   row++;
 
-  // Valeurs
-  const valLabel = totalCharges > 0
-    ? `${fmtEur(nette)}  (brut ${fmtEur(total)})`
-    : fmtEur(total);
-  mergeWrite(sheet, row, 1, 2, valLabel,
-    { size: 13, bold: true, fg: C.WHITE, bg: C.CARD, align: 'center' });
+  // Valeurs — col 1 : nombre brut sans € (utilisable en formule), col 2 : brut si charges
+  const mainVal = totalCharges > 0 ? nette : total;
+  sheet.getRange(row, 1)
+    .setValue(mainVal)
+    .setFontSize(13).setFontWeight('bold').setFontColor(C.WHITE)
+    .setBackground(C.CARD).setHorizontalAlignment('center')
+    .setNumberFormat('#,##0');
+  if (totalCharges > 0) {
+    sheet.getRange(row, 2)
+      .setValue(total)
+      .setFontSize(10).setFontColor(C.MUTED).setBackground(C.CARD)
+      .setHorizontalAlignment('center').setNumberFormat('#,##0');
+  } else {
+    sheet.getRange(row, 2).setValue('').setBackground(C.CARD);
+  }
   mergeWrite(sheet, row, 3, 2, fmtEur(invested),
     { size: 13, bold: true, fg: C.WHITE, bg: C.CARD, align: 'center' });
   mergeWrite(sheet, row, 5, 2,
