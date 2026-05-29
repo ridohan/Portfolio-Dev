@@ -104,6 +104,7 @@ function renderDashboard(app) {
         <h2 class="text-lg font-semibold text-white">Portfolios</h2>
         <button onclick="openModal('portfolio')" class="btn-primary text-sm">+ Nouveau</button>
       </div>
+      ${envelopeTypeAllocBar(STATE.envelopes)}
       <div class="grid gap-4 sm:grid-cols-2">
         ${STATE.portfolios.map(p => portfolioCard(p)).join('') || empty('Aucun portfolio — crée-en un.')}
       </div>
@@ -163,6 +164,7 @@ function renderPortfolio(app, portfolioId) {
       ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
       <h2 class="text-lg font-semibold text-white">Enveloppes</h2>
+      ${envelopeTypeAllocBar(STATE.envelopes.filter(e => e.portfolio_id === portfolioId))}
       ${envelopesSection(portfolioId)}
       ${chargesSection(portfolioId)}
     </div>
@@ -855,6 +857,35 @@ function statCards(total, invested, totalCharges = 0) {
     </div>` : ''}`;
 }
 
+function envelopeTypeAllocBar(envelopes) {
+  let bourse = 0, crypto = 0, epargne = 0;
+  envelopes.forEach(env => {
+    const { total } = envelopeStats(env.id);
+    if (env.type === 'bourse')  bourse  += total;
+    if (env.type === 'crypto')  crypto  += total;
+    if (env.type === 'épargne') epargne += total;
+  });
+  const total = bourse + crypto + epargne;
+  if (!total) return '';
+
+  const items = [
+    bourse  > 0 ? { color: 'bg-blue-500',    dot: 'bg-blue-500',    label: 'Bourse',  pct: (bourse  / total * 100).toFixed(1), val: bourse  } : null,
+    crypto  > 0 ? { color: 'bg-purple-500',  dot: 'bg-purple-500',  label: 'Crypto',  pct: (crypto  / total * 100).toFixed(1), val: crypto  } : null,
+    epargne > 0 ? { color: 'bg-emerald-500', dot: 'bg-emerald-500', label: 'Épargne', pct: (epargne / total * 100).toFixed(1), val: epargne } : null,
+  ].filter(Boolean);
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-4">
+      <p class="text-slate-400 text-xs mb-2">Répartition par type d'enveloppe</p>
+      <div class="flex rounded-full overflow-hidden h-3 gap-0.5">
+        ${items.map(i => `<div class="${i.color} transition-all" style="width:${i.pct}%"></div>`).join('')}
+      </div>
+      <div class="flex gap-4 text-xs text-slate-400 mt-2 flex-wrap">
+        ${items.map(i => `<span><span class="inline-block w-2 h-2 rounded-full ${i.dot} mr-1"></span>${i.label} ${i.pct}% — ${fmt(i.val)}</span>`).join('')}
+      </div>
+    </div>`;
+}
+
 function allocBar(alloc, title, size = 'md', cible = null, total = null) {
   const h = size === 'sm' ? 'h-2' : 'h-3';
   const amt = (pct) => total ? ` — ${fmt(total * pct / 100)}` : '';
@@ -911,11 +942,13 @@ function envelopesSection(portfolioId) {
   return typeConfig
     .filter(tc => envs.some(e => e.type === tc.key))
     .map(tc => {
-      const group = envs.filter(e => e.type === tc.key);
+      const group      = envs.filter(e => e.type === tc.key);
+      const groupTotal = group.reduce((sum, e) => sum + envelopeStats(e.id).total, 0);
       return `
         <div class="space-y-3">
           <h3 class="flex items-center gap-2 text-sm font-semibold text-slate-400">
             <span class="px-2.5 py-0.5 rounded-full border text-xs ${tc.cls}">${tc.label}</span>
+            <span class="text-slate-300 font-semibold">${fmt(groupTotal)}</span>
           </h3>
           <div class="grid gap-4 sm:grid-cols-2">
             ${group.map(e => envelopeCard(e)).join('')}
