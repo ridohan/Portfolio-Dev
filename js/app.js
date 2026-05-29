@@ -1,6 +1,9 @@
 // État global
 let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [] };
 
+// État du tri des positions (persisté pendant la session)
+let _posSort = { col: 'type', dir: 'asc' };
+
 // ─── ROUTER ──────────────────────────────────────────────────────────────────
 
 function navigate(hash) { location.hash = hash; }
@@ -125,8 +128,8 @@ function portfolioCard(p) {
           ${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)
         </span>
       </div>
-      <p class="text-white text-xl font-bold ${totalCharges > 0 ? 'mb-1' : 'mb-3'}">${fmt(total)}${totalCharges > 0 ? `<span class="text-slate-400 text-xs font-normal ml-1">brut</span>` : ''}</p>
-      ${totalCharges > 0 ? `<p class="text-slate-400 text-xs mb-3">Net de charges : <span class="text-white font-semibold">${fmt(total - totalCharges)}</span></p>` : ''}
+      <p class="text-white text-xl font-bold mb-1">${fmt(totalCharges > 0 ? total - totalCharges : total)}</p>
+      ${totalCharges > 0 ? `<p class="text-slate-500 text-xs mb-3">Brut : ${fmt(total)} · Charges : −${fmt(totalCharges)}</p>` : '<div class="mb-3"></div>'}
       ${allocBar(alloc, null, 'sm')}
     </div>`;
 }
@@ -160,9 +163,7 @@ function renderPortfolio(app, portfolioId) {
       ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
       <h2 class="text-lg font-semibold text-white">Enveloppes</h2>
-      <div class="grid gap-4 sm:grid-cols-2">
-        ${envs.map(e => envelopeCard(e)).join('') || empty('Aucune enveloppe.')}
-      </div>
+      ${envelopesSection(portfolioId)}
       ${chargesSection(portfolioId)}
     </div>
     ${modalEnvelope()}
@@ -225,14 +226,42 @@ function renderEnvelope(app, envelopeId) {
 function positionsTable(positions, type) {
   if (!positions.length) return empty('Aucune position — ajoutes-en une.');
   const isEpargne = type === 'épargne';
+  const isBourse  = type === 'bourse';
 
-  // Tri : actions d'abord, puis bonds, puis reste
-  const order = { action: 0, bond: 1 };
+  // Tri selon _posSort
+  const typeOrder = { action: 0, bond: 1 };
+  const dir = _posSort.dir === 'asc' ? 1 : -1;
+
   const sorted = [...positions].sort((a, b) => {
-    const tA = STATE.prices.find(p => p.isin === a.identifiant)?.type || 'z';
-    const tB = STATE.prices.find(p => p.isin === b.identifiant)?.type || 'z';
-    return (order[tA] ?? 2) - (order[tB] ?? 2);
+    const col = _posSort.col;
+    // col 'type' sans bourse → fallback identifiant
+    if (col === 'type' && isBourse) {
+      const tA = STATE.prices.find(p => p.isin === a.identifiant)?.type || 'z';
+      const tB = STATE.prices.find(p => p.isin === b.identifiant)?.type || 'z';
+      return dir * ((typeOrder[tA] ?? 2) - (typeOrder[tB] ?? 2));
+    }
+    if (col === 'identifiant' || (col === 'type' && !isBourse)) {
+      return dir * String(a.identifiant).toLowerCase().localeCompare(String(b.identifiant).toLowerCase());
+    }
+    if (col === 'valeur') {
+      const vA = isEpargne ? Number(a.prix_achat) : currentPrice(a.identifiant, type) * Number(a.quantite);
+      const vB = isEpargne ? Number(b.prix_achat) : currentPrice(b.identifiant, type) * Number(b.quantite);
+      return dir * (vA - vB);
+    }
+    if (col === 'pv') {
+      const pvA = isEpargne ? 0 : (currentPrice(a.identifiant, type) - Number(a.prix_achat)) * Number(a.quantite);
+      const pvB = isEpargne ? 0 : (currentPrice(b.identifiant, type) - Number(b.prix_achat)) * Number(b.quantite);
+      return dir * (pvA - pvB);
+    }
+    return 0;
   });
+
+  // Helper header cliquable
+  const th = (col, label) => {
+    const active = _posSort.col === col;
+    const icon = active ? (_posSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th class="py-3 px-4 cursor-pointer select-none hover:text-slate-200 transition whitespace-nowrap" onclick="sortPositions('${col}')">${label}${icon}</th>`;
+  };
 
     const rows = sorted.map(pos => {
     const prix = currentPrice(pos.identifiant, type);
@@ -307,11 +336,11 @@ function positionsTable(positions, type) {
       <table class="w-full text-sm">
         <thead>
           <tr class="text-slate-400 text-left">
-            <th class="py-3 px-4">${type === 'épargne' ? 'Compte' : 'Identifiant'}</th>
-            ${type === 'bourse' ? '<th class="py-3 px-4">Type</th>' : ''}
-            <th class="py-3 px-4">${type === 'épargne' ? 'Taux' : 'Quantité × Prix achat'}</th>
-            <th class="py-3 px-4">Valeur actuelle</th>
-            <th class="py-3 px-4">Plus-value</th>
+            ${th('identifiant', isEpargne ? 'Compte' : 'Identifiant')}
+            ${isBourse ? th('type', 'Type') : ''}
+            <th class="py-3 px-4">${isEpargne ? 'Taux' : 'Quantité × Prix achat'}</th>
+            ${th('valeur', 'Valeur actuelle')}
+            ${th('pv', 'Plus-value')}
             <th class="py-3 px-4"></th>
           </tr>
         </thead>
@@ -800,24 +829,28 @@ function statCards(total, invested, totalCharges = 0) {
   return `
     <div class="grid grid-cols-3 gap-4">
       <div class="bg-slate-800 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">${totalCharges > 0 ? 'Valeur brute' : 'Valeur totale'}</p>
-        <p class="text-white text-2xl font-bold">${fmt(total)}</p>
+        <p class="text-slate-400 text-xs mb-1">${totalCharges > 0 ? 'Valeur nette' : 'Valeur totale'}</p>
+        <p class="text-white text-2xl font-bold">${fmt(totalCharges > 0 ? nette : total)}</p>
       </div>
-      <div class="bg-slate-800 rounded-xl p-4"><p class="text-slate-400 text-xs mb-1">Investi</p><p class="text-white text-2xl font-bold">${fmt(invested)}</p></div>
-      <div class="bg-slate-800 rounded-xl p-4"><p class="text-slate-400 text-xs mb-1">Plus-value</p>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Investi</p>
+        <p class="text-white text-2xl font-bold">${fmt(invested)}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Plus-value</p>
         <p class="text-2xl font-bold ${pv >= 0 ? 'text-emerald-400' : 'text-red-400'}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
         <p class="text-xs ${pv >= 0 ? 'text-emerald-500' : 'text-red-500'}">${pvPct}%</p>
       </div>
     </div>
     ${totalCharges > 0 ? `
     <div class="grid grid-cols-2 gap-4">
-      <div class="bg-slate-800 border border-red-500/20 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Charges à venir</p>
-        <p class="text-red-400 text-xl font-bold">−${fmt(totalCharges)}</p>
+      <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
+        <p class="text-slate-500 text-xs mb-1">Valeur brute</p>
+        <p class="text-slate-400 text-lg font-semibold">${fmt(total)}</p>
       </div>
-      <div class="bg-slate-800 border border-emerald-500/20 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Valeur nette</p>
-        <p class="text-white text-xl font-bold">${fmt(nette)}</p>
+      <div class="bg-slate-800/50 border border-red-500/20 rounded-xl p-3">
+        <p class="text-slate-500 text-xs mb-1">Charges à venir</p>
+        <p class="text-red-400 text-lg font-semibold">−${fmt(totalCharges)}</p>
       </div>
     </div>` : ''}`;
 }
@@ -863,6 +896,39 @@ function rebalancingCard(suggestions) {
 
 function empty(msg) {
   return `<div class="col-span-2 text-slate-500 text-sm text-center py-8 bg-slate-800 rounded-xl">${msg}</div>`;
+}
+
+function envelopesSection(portfolioId) {
+  const envs = STATE.envelopes.filter(e => e.portfolio_id === portfolioId);
+  if (!envs.length) return empty('Aucune enveloppe.');
+
+  const typeConfig = [
+    { key: 'bourse',  label: 'Bourse',  cls: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+    { key: 'crypto',  label: 'Crypto',  cls: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
+    { key: 'épargne', label: 'Épargne', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  ];
+
+  return typeConfig
+    .filter(tc => envs.some(e => e.type === tc.key))
+    .map(tc => {
+      const group = envs.filter(e => e.type === tc.key);
+      return `
+        <div class="space-y-3">
+          <h3 class="flex items-center gap-2 text-sm font-semibold text-slate-400">
+            <span class="px-2.5 py-0.5 rounded-full border text-xs ${tc.cls}">${tc.label}</span>
+          </h3>
+          <div class="grid gap-4 sm:grid-cols-2">
+            ${group.map(e => envelopeCard(e)).join('')}
+          </div>
+        </div>`;
+    }).join('');
+}
+
+function sortPositions(col) {
+  _posSort.col === col
+    ? (_posSort.dir = _posSort.dir === 'asc' ? 'desc' : 'asc')
+    : (_posSort.col = col, _posSort.dir = (col === 'valeur' || col === 'pv') ? 'desc' : 'asc');
+  render();
 }
 
 function chargesSection(portfolioId) {
