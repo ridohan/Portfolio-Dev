@@ -1680,17 +1680,18 @@ function fireDashboardCards() {
         <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">FIRE Classique · SWR ${_fp.swr}%</p>
       </div>
       ${cFireYear
-        ? `<p class="text-amber-400 text-xl sm:text-2xl font-bold leading-tight">
-             An ${cFireYear}
-             <span class="text-slate-500 text-sm font-normal">(${curYear + cFireYear})</span>
+        ? `<p class="text-amber-400 text-xl sm:text-2xl font-bold leading-tight break-all">
+             ${fmt(cRetMensuel)}<span class="text-slate-500 text-sm font-normal">/mois</span>
            </p>
-           <p class="text-slate-300 text-sm mt-1">
-             ${fmt(cRetMensuel)}<span class="text-slate-500">/mois</span>
-             <span class="text-slate-600 text-xs ml-2">· ${fmt(cRetAnnuel)}/an</span>
+           <p class="text-slate-400 text-sm mt-1">
+             ${fmt(cRetAnnuel)}<span class="text-slate-500">/an</span>
+           </p>
+           <p class="text-slate-600 text-xs mt-3">
+             🔥 An ${cFireYear} <span class="text-slate-700">(${curYear + cFireYear})</span>
+             · Objectif : ${fmt(_fp.depenses)}/mois
            </p>`
         : `<p class="text-slate-400 font-semibold">Non atteint sur ${_fp.duree} ans</p>
            <p class="text-slate-600 text-xs mt-1">↑ versements ou durée de simulation</p>`}
-      <p class="text-slate-600 text-xs mt-3">Objectif : ${fmt(_fp.depenses)}/mois</p>
     </a>`;
 
   const dwzCard = `
@@ -1701,17 +1702,18 @@ function fireDashboardCards() {
         <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Die with Zero · ${_fp.dureeFire} ans</p>
       </div>
       ${dFireYear
-        ? `<p class="text-orange-400 text-xl sm:text-2xl font-bold leading-tight">
-             An ${dFireYear}
-             <span class="text-slate-500 text-sm font-normal">(${curYear + dFireYear})</span>
+        ? `<p class="text-orange-400 text-xl sm:text-2xl font-bold leading-tight break-all">
+             ${fmt(dRetMensuel)}<span class="text-slate-500 text-sm font-normal">/mois</span>
            </p>
-           <p class="text-slate-300 text-sm mt-1">
-             ${fmt(dRetMensuel)}<span class="text-slate-500">/mois</span>
-             <span class="text-slate-600 text-xs ml-2">· ${fmt(dRetMensuel * 12)}/an</span>
+           <p class="text-slate-400 text-sm mt-1">
+             ${fmt(dRetMensuel * 12)}<span class="text-slate-500">/an</span>
+           </p>
+           <p class="text-slate-600 text-xs mt-3">
+             💀 An ${dFireYear} <span class="text-slate-700">(${curYear + dFireYear})</span>
+             · Objectif : ${fmt(_fp.depenses)}/mois
            </p>`
         : `<p class="text-slate-400 font-semibold">Non atteint sur ${_fp.duree} ans</p>
            <p class="text-slate-600 text-xs mt-1">↑ versements ou durée de simulation</p>`}
-      <p class="text-slate-600 text-xs mt-3">Objectif : ${fmt(_fp.depenses)}/mois</p>
     </a>`;
 
   // Carte VPW — affichée seulement si les données sont disponibles dans Google Sheets
