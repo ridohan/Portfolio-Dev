@@ -113,6 +113,10 @@ function renderDashboard(app) {
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}
       <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">📅 Projection fin d'année</h2>
+      </div>
+      <div id="eoy-card-wrapper">${eoyCard()}</div>
+      <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">🔥 Simulation FIRE</h2>
         <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-sm">Configurer →</a>
       </div>
@@ -134,7 +138,8 @@ function renderDashboard(app) {
         ${STATE.portfolios.map(p => portfolioCard(p)).join('') || empty('Aucun portfolio — crée-en un.')}
       </div>
     </div>
-    ${modalPortfolio()}`;
+    ${modalPortfolio()}
+    ${modalEoy()}`;
 }
 
 function portfolioCard(p) {
@@ -1584,6 +1589,121 @@ function estimateAnnualReturn() {
   const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
   // Arrondi au 0.5 % le plus proche, borné entre 0 et 20 %
   return Math.max(0, Math.min(20, Math.round(annualized * 2) / 2));
+}
+
+// ─── PROJECTION FIN D'ANNÉE (EOY) ────────────────────────────────────────────
+
+const EOY_KEY = 'eoy_forecast';
+let _eoy = { rate: null, pmt: 0 };
+
+function _eoyInit() {
+  try {
+    const raw = localStorage.getItem(EOY_KEY);
+    if (raw) _eoy = { ..._eoy, ...JSON.parse(raw) };
+  } catch {}
+  if (_eoy.rate === null) _eoy.rate = estimateAnnualReturn();
+}
+
+function _eoySave() {
+  try { localStorage.setItem(EOY_KEY, JSON.stringify(_eoy)); } catch {}
+}
+
+function eoyCalc() {
+  _eoyInit();
+  const { total, totalCharges } = globalStats();
+  const pv  = Math.max(0, total - totalCharges);
+  const now = new Date();
+  const t   = 12 - (now.getMonth() + 1); // mois restants après le mois courant
+  const r   = (_eoy.rate || 0) / 100 / 12;
+  const pmt = _eoy.pmt || 0;
+  const eoy = r === 0
+    ? pv + pmt * t
+    : pv * Math.pow(1 + r, t) + pmt * (Math.pow(1 + r, t) - 1) / r;
+  return { pv, eoy: Math.round(eoy), gain: Math.round(eoy - pv), t };
+}
+
+function eoyCard() {
+  const { pv, eoy, gain, t } = eoyCalc();
+  const gainPct   = pv > 0 ? ((gain / pv) * 100).toFixed(1) : '0.0';
+  const gainColor = gain >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const pmtLine   = _eoy.pmt > 0 ? ` · +${fmt(_eoy.pmt)}/mois` : '';
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 cursor-pointer hover:bg-slate-750 transition" onclick="openEoyModal()">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-slate-400 text-xs mb-1">Valeur estimée au 31 déc.</p>
+          <p class="text-white text-2xl font-bold">${fmt(eoy)}</p>
+          <p class="${gainColor} text-sm mt-1">${gain >= 0 ? '+' : ''}${fmt(gain)} <span class="text-xs">(${gain >= 0 ? '+' : ''}${gainPct}%)</span></p>
+        </div>
+        <div class="text-right flex-shrink-0 ml-4">
+          <p class="text-slate-500 text-xs">${_eoy.rate}%/an${pmtLine}</p>
+          <p class="text-slate-600 text-xs mt-0.5">${t} mois restants</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+function openEoyModal() {
+  _eoyInit();
+  document.getElementById('eoy-rate').value = _eoy.rate;
+  document.getElementById('eoy-pmt').value  = _eoy.pmt;
+  document.getElementById('modal-eoy').classList.remove('hidden');
+  refreshEoyPreview();
+}
+
+function closeEoyModal() {
+  document.getElementById('modal-eoy').classList.add('hidden');
+}
+
+function refreshEoyPreview() {
+  const rate = parseFloat(document.getElementById('eoy-rate').value) || 0;
+  const pmt  = parseFloat(String(document.getElementById('eoy-pmt').value).replace(',', '.')) || 0;
+  const { total, totalCharges } = globalStats();
+  const pv   = Math.max(0, total - totalCharges);
+  const t    = 12 - (new Date().getMonth() + 1);
+  const r    = rate / 100 / 12;
+  const eoy  = r === 0 ? pv + pmt * t : pv * Math.pow(1 + r, t) + pmt * (Math.pow(1 + r, t) - 1) / r;
+  const gain = eoy - pv;
+  const el   = document.getElementById('eoy-preview');
+  if (el) el.innerHTML = `${fmt(Math.round(eoy))} <span class="${gain >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm">(${gain >= 0 ? '+' : ''}${fmt(Math.round(gain))})</span>`;
+}
+
+function saveEoy() {
+  _eoy.rate = parseFloat(document.getElementById('eoy-rate').value) || 0;
+  _eoy.pmt  = parseFloat(String(document.getElementById('eoy-pmt').value).replace(',', '.')) || 0;
+  _eoySave();
+  closeEoyModal();
+  setEl('eoy-card-wrapper', eoyCard());
+}
+
+function modalEoy() {
+  return `
+    <div id="modal-eoy" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeEoyModal()">
+      <div class="modal-box w-full max-w-sm">
+        <h3 class="text-lg font-bold text-white mb-4">📅 Projection fin d'année</h3>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-slate-400 text-sm mb-1">Rendement annuel estimé (%)</label>
+            <input id="eoy-rate" type="number" step="0.1" min="0" max="100" oninput="refreshEoyPreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-sm mb-1">Versements mensuels jusqu'en décembre (€)</label>
+            <input id="eoy-pmt" type="number" step="100" min="0" oninput="refreshEoyPreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="bg-slate-700/50 rounded-lg p-3">
+            <p class="text-slate-400 text-xs mb-1">Projection calculée</p>
+            <p id="eoy-preview" class="text-white font-bold text-lg">—</p>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-6">
+          <button onclick="saveEoy()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeEoyModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 function _fpInit() {
