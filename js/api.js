@@ -1,9 +1,19 @@
-const CACHE_KEY = 'portfolio_cache';
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_KEY     = 'portfolio_cache';
+const CACHE_TTL_KEY = 'portfolio_cache_ttl';
+const CACHE_TTL_DEFAULT = 5 * 60 * 1000; // 5 minutes
 
 const API = {
   get url()   { return localStorage.getItem('appscript_url'); },
   get token() { return localStorage.getItem('appscript_token'); },
+
+  get cacheTTL() {
+    const v = localStorage.getItem(CACHE_TTL_KEY);
+    return v ? Number(v) : CACHE_TTL_DEFAULT;
+  },
+  getCacheTTLMinutes() { return Math.round(this.cacheTTL / 60000); },
+  setCacheTTL(minutes) {
+    localStorage.setItem(CACHE_TTL_KEY, Math.max(1, Number(minutes)) * 60000);
+  },
 
   isConfigured() { return !!(this.url && this.token); },
 
@@ -19,7 +29,7 @@ const API = {
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       const { data, timestamp } = JSON.parse(raw);
-      if (Date.now() - timestamp > CACHE_TTL) return null;
+      if (Date.now() - timestamp > this.cacheTTL) return null;
       return data;
     } catch { return null; }
   },
@@ -113,6 +123,7 @@ const API = {
   createExpenseCategory(data) { return this.post('createExpenseCategory', data); },
   updateExpenseCategory(data) { return this.post('updateExpenseCategory', data); },
   deleteExpenseCategory(id)   { return this.post('deleteExpenseCategory', { id }); },
+  reorderCategories(data)     { return this.postSilent('reorderCategories', data); },
 
   createExpenseItem(data)     { return this.post('createExpenseItem', data); },
   updateExpenseItem(data)     { return this.post('updateExpenseItem', data); },

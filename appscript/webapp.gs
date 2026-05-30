@@ -86,11 +86,42 @@ function doPost(e) {
 
       createExpenseCategory: () => {
         const ss2 = SpreadsheetApp.getActiveSpreadsheet();
-        ensureSheet(ss2, 'expense_categories', ['id','nom','type','couleur']);
-        return createRow('expense_categories', { id: newId('ec'), nom: payload.nom, type: payload.type, couleur: payload.couleur || 'slate' });
+        ensureSheet(ss2, 'expense_categories', ['id','nom','type','couleur','ordre']);
+        const maxOrdre = (() => {
+          const sh = ss2.getSheetByName('expense_categories');
+          if (!sh || sh.getLastRow() < 2) return 0;
+          const hdrs = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
+          const oIdx = hdrs.indexOf('ordre');
+          if (oIdx === -1) return 0;
+          const vals = sh.getRange(2, oIdx+1, sh.getLastRow()-1, 1).getValues().flat();
+          return vals.reduce((m,v) => Math.max(m, Number(v)||0), -1) + 1;
+        })();
+        return createRow('expense_categories', { id: newId('ec'), nom: payload.nom, type: payload.type, couleur: payload.couleur || 'slate', ordre: maxOrdre });
       },
       updateExpenseCategory: () => updateRow('expense_categories', payload.id, { nom: payload.nom, type: payload.type, couleur: payload.couleur || 'slate' }),
       deleteExpenseCategory: () => deleteRow('expense_categories', payload.id),
+
+      reorderCategories: () => {
+        const ss2   = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss2.getSheetByName('expense_categories');
+        if (!sheet || sheet.getLastRow() < 2) return { ok: true };
+        const numCols = sheet.getLastColumn();
+        const allHdrs = sheet.getRange(1, 1, 1, numCols).getValues()[0];
+        // Ajoute la colonne 'ordre' si absente
+        let ordreCol = allHdrs.indexOf('ordre');
+        if (ordreCol === -1) {
+          ordreCol = numCols;
+          sheet.getRange(1, ordreCol + 1).setValue('ordre');
+          allHdrs.push('ordre');
+        }
+        const idCol  = allHdrs.indexOf('id');
+        const data   = sheet.getRange(2, 1, sheet.getLastRow() - 1, allHdrs.length).getValues();
+        payload.items.forEach(({ id, ordre }) => {
+          const rowIdx = data.findIndex(row => String(row[idCol]) === String(id));
+          if (rowIdx !== -1) sheet.getRange(rowIdx + 2, ordreCol + 1).setValue(Number(ordre));
+        });
+        return { ok: true };
+      },
 
       createExpenseItem: () => {
         const ss2 = SpreadsheetApp.getActiveSpreadsheet();
@@ -337,12 +368,13 @@ function ensureSheet(ss, name, headers) {
 
 function upsertExpenseEntry(payload) {
   const ss      = SpreadsheetApp.getActiveSpreadsheet();
-  const headers = ['id', 'item_id', 'annee', 'mois', 'montant'];
+  const headers = ['id', 'item_id', 'annee', 'mois', 'montant', 'note'];
   const sheet   = ensureSheet(ss, 'expense_entries', headers);
 
   const lastRow = sheet.getLastRow();
+  const numCols = Math.max(headers.length, sheet.getLastColumn());
   const data    = lastRow >= 2
-    ? sheet.getRange(1, 1, lastRow, headers.length).getValues()
+    ? sheet.getRange(1, 1, lastRow, numCols).getValues()
     : [headers];
 
   const hdrs       = data[0];
@@ -350,7 +382,9 @@ function upsertExpenseEntry(payload) {
   const anneeCol   = hdrs.indexOf('annee');
   const moisCol    = hdrs.indexOf('mois');
   const montantCol = hdrs.indexOf('montant');
+  const noteCol    = hdrs.indexOf('note');
   const idCol      = hdrs.indexOf('id');
+  const note       = payload.note !== undefined ? String(payload.note || '') : '';
 
   const rowIdx = data.findIndex((row, i) =>
     i > 0 &&
@@ -361,11 +395,12 @@ function upsertExpenseEntry(payload) {
 
   if (rowIdx === -1) {
     const id = newId('ee');
-    sheet.appendRow([id, payload.item_id, Number(payload.annee), Number(payload.mois), Number(payload.montant)]);
-    return { id, item_id: payload.item_id, annee: payload.annee, mois: payload.mois, montant: payload.montant };
+    sheet.appendRow([id, payload.item_id, Number(payload.annee), Number(payload.mois), Number(payload.montant), note]);
+    return { id, item_id: payload.item_id, annee: payload.annee, mois: payload.mois, montant: payload.montant, note };
   } else {
     sheet.getRange(rowIdx + 1, montantCol + 1).setValue(Number(payload.montant));
-    return { id: data[rowIdx][idCol], item_id: payload.item_id, annee: payload.annee, mois: payload.mois, montant: payload.montant };
+    if (noteCol !== -1) sheet.getRange(rowIdx + 1, noteCol + 1).setValue(note);
+    return { id: data[rowIdx][idCol], item_id: payload.item_id, annee: payload.annee, mois: payload.mois, montant: payload.montant, note };
   }
 }
 

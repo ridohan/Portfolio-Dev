@@ -48,6 +48,48 @@ async function render() {
   renderDashboard(app);
 }
 
+// ─── PARAMÈTRES CACHE ────────────────────────────────────────────────────────
+
+function openCacheSettings() {
+  if (!document.getElementById('modal-cache-settings')) {
+    const div = document.createElement('div');
+    div.id        = 'modal-cache-settings';
+    div.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4';
+    div.innerHTML = `
+      <div class="modal-box w-full max-w-xs" onclick="event.stopPropagation()">
+        <h3 class="text-base font-bold text-white mb-4">⚙ Durée du cache</h3>
+        <div class="mb-4">
+          <label class="block text-slate-400 text-sm mb-1">Durée (minutes)</label>
+          <input id="cache-ttl-input" type="number" min="1" max="120" step="1"
+            onkeydown="if(event.key==='Enter')saveCacheSettings()"
+            class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <p class="text-slate-500 text-xs mt-1">Les données sont rechargées depuis le serveur après cette durée.</p>
+        </div>
+        <div class="flex gap-3">
+          <button onclick="saveCacheSettings()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeCacheSettings()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>`;
+    div.addEventListener('click', e => { if (e.target === div) closeCacheSettings(); });
+    document.body.appendChild(div);
+  }
+  document.getElementById('cache-ttl-input').value = API.getCacheTTLMinutes();
+  document.getElementById('modal-cache-settings').classList.remove('hidden');
+  setTimeout(() => document.getElementById('cache-ttl-input').focus(), 50);
+}
+
+function closeCacheSettings() {
+  const el = document.getElementById('modal-cache-settings');
+  if (el) el.classList.add('hidden');
+}
+
+function saveCacheSettings() {
+  const val = parseInt(document.getElementById('cache-ttl-input').value, 10);
+  if (val >= 1) API.setCacheTTL(val);
+  closeCacheSettings();
+  render(); // rafraîchit la navbar pour afficher le nouveau TTL
+}
+
 async function forceRefresh() {
   const app = document.getElementById('app');
   app.innerHTML = `<div class="flex items-center justify-center h-64 text-slate-400">Actualisation…</div>`;
@@ -853,7 +895,7 @@ function navbar(left = '') {
         <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition whitespace-nowrap">💰 Dépenses</a>
       </div>
       <div class="flex items-center gap-3 flex-shrink-0">
-        <span class="hidden sm:inline text-slate-500 text-xs whitespace-nowrap" title="Âge du cache">Cache : ${ageLabel}</span>
+        <button onclick="openCacheSettings()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
         <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition whitespace-nowrap" title="Cache : ${ageLabel}">↻ <span class="hidden sm:inline">Actualiser</span></button>
         <button onclick="localStorage.clear();location.reload()" class="text-slate-500 hover:text-white text-xs transition whitespace-nowrap" title="Déconnexion">⏻ <span class="hidden sm:inline">Déconnexion</span></button>
       </div>
@@ -2462,13 +2504,16 @@ function setEl(id, html) {
 }
 
 function expLookup() {
-  const catMap  = Object.fromEntries(STATE.expense_categories.map(c => [c.id, c]));
-  const itemMap = Object.fromEntries(STATE.expense_items.map(i => [i.id, i]));
+  const catMap   = Object.fromEntries(STATE.expense_categories.map(c => [c.id, c]));
+  const itemMap  = Object.fromEntries(STATE.expense_items.map(i => [i.id, i]));
   const entryMap = {};
+  const noteMap  = {};
   STATE.expense_entries.forEach(e => {
-    entryMap[`${e.item_id}_${e.annee}_${e.mois}`] = Number(e.montant);
+    const key = `${e.item_id}_${e.annee}_${e.mois}`;
+    entryMap[key] = Number(e.montant);
+    if (e.note) noteMap[key] = String(e.note);
   });
-  return { catMap, itemMap, entryMap };
+  return { catMap, itemMap, entryMap, noteMap };
 }
 
 function expMonthTotal(year, month) {
@@ -2506,6 +2551,31 @@ function expTypeAvg(year, type) {
 
 function expTotalAids() {
   return STATE.expense_aids.reduce((s, a) => s + Number(a.montant), 0);
+}
+
+async function moveCat(catId, direction) {
+  // Tri courant (même logique que expenseTable)
+  const sorted = [...STATE.expense_categories].sort((a, b) => {
+    const oa = (a.ordre !== undefined && a.ordre !== '') ? Number(a.ordre) : Infinity;
+    const ob = (b.ordre !== undefined && b.ordre !== '') ? Number(b.ordre) : Infinity;
+    return oa - ob;
+  });
+  const idx     = sorted.findIndex(c => c.id === catId);
+  const swapIdx = idx + direction;
+  if (idx < 0 || swapIdx < 0 || swapIdx >= sorted.length) return;
+
+  // Réassigne des ordres propres 0..n puis échange les deux
+  sorted.forEach((c, i) => { c.ordre = i; });
+  sorted[idx].ordre     = swapIdx;
+  sorted[swapIdx].ordre = idx;
+
+  // Met à jour STATE (les objets sont des références)
+  setEl('exp-table', expenseTable(_expYear));
+
+  // Persistance silencieuse
+  try {
+    await API.reorderCategories({ items: sorted.map(c => ({ id: c.id, ordre: c.ordre })) });
+  } catch (err) { console.error('Erreur réordonnancement catégories:', err); }
 }
 
 // ── Dashboard card ────────────────────────────────────────────────────────────
@@ -2561,7 +2631,8 @@ function renderExpenses(app) {
     </div>
     ${modalExpenseCategory()}
     ${modalExpenseItem()}
-    ${modalExpenseAid()}`;
+    ${modalExpenseAid()}
+    ${modalExpenseCell()}`;
 }
 
 function refreshExpenses(year) {
@@ -2628,9 +2699,13 @@ function expenseStatsCards(year) {
 // ── Tableau mensuel ───────────────────────────────────────────────────────────
 
 function expenseTable(year) {
-  const { entryMap } = expLookup();
+  const { entryMap, noteMap } = expLookup();
   const MONTHS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
-  const cats   = STATE.expense_categories;
+  const cats   = [...STATE.expense_categories].sort((a, b) => {
+    const oa = (a.ordre !== undefined && a.ordre !== '') ? Number(a.ordre) : Infinity;
+    const ob = (b.ordre !== undefined && b.ordre !== '') ? Number(b.ordre) : Infinity;
+    return oa - ob;
+  });
   const items  = STATE.expense_items;
 
   if (!cats.length) {
@@ -2666,12 +2741,17 @@ function expenseTable(year) {
     // Ligne header catégorie
     const catRow = `
       <tr class="border-t border-slate-600">
-        <td class="py-2 px-3 sticky left-0 z-10 bg-slate-900 min-w-[260px] cursor-pointer hover:bg-slate-800 transition"
-          onclick="openExpenseCategoryModal('${cat.id}')">
-          <div class="flex items-center gap-1.5 flex-wrap">
-            <span class="w-2.5 h-2.5 rounded-full ${colors.dot} flex-shrink-0"></span>
-            <span class="font-semibold ${colors.text} text-sm">${esc(cat.nom)}</span>
-            ${typeBadge}
+        <td class="py-2 px-3 sticky left-0 z-10 bg-slate-900 min-w-[260px] hover:bg-slate-800 transition">
+          <div class="flex items-center justify-between gap-1">
+            <div class="flex items-center gap-1.5 flex-wrap min-w-0 cursor-pointer" onclick="openExpenseCategoryModal('${cat.id}')">
+              <span class="w-2.5 h-2.5 rounded-full ${colors.dot} flex-shrink-0"></span>
+              <span class="font-semibold ${colors.text} text-sm">${esc(cat.nom)}</span>
+              ${typeBadge}
+            </div>
+            <div class="flex flex-col flex-shrink-0 gap-0">
+              <button onclick="event.stopPropagation();moveCat('${cat.id}',-1)" class="text-slate-600 hover:text-slate-300 transition leading-none px-1 py-0" title="Monter">▲</button>
+              <button onclick="event.stopPropagation();moveCat('${cat.id}',1)"  class="text-slate-600 hover:text-slate-300 transition leading-none px-1 py-0" title="Descendre">▼</button>
+            </div>
           </div>
         </td>
         <td class="py-2 px-3 text-right text-xs font-semibold border-r border-slate-600 ${colors.text}">${catAvg > 0 ? fmt(catAvg) : '—'}</td>
@@ -2681,11 +2761,15 @@ function expenseTable(year) {
     // Lignes items
     const itemRows = catItems.map(item => {
       const cells = MONTHS.map((_, mi) => {
-        const month = mi + 1;
-        const val   = entryMap[`${item.id}_${year}_${month}`] || 0;
-        return `<td class="py-1.5 px-2 text-right text-xs text-slate-300 cursor-pointer hover:bg-slate-700 transition select-none"
-          onclick="editExpenseCell('${item.id}',${year},${month},${val})"
-          id="ecell-${item.id}-${year}-${month}">${val > 0 ? fmt(val) : ''}</td>`;
+        const month   = mi + 1;
+        const key     = `${item.id}_${year}_${month}`;
+        const val     = entryMap[key] || 0;
+        const note    = noteMap[key] || '';
+        const dotHtml = note ? `<span class="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-sky-400/80 pointer-events-none"></span>` : '';
+        const titleAttr = note ? ` title="${note.replace(/"/g, '&quot;').replace(/\n/g, ' ')}"` : '';
+        return `<td class="py-1.5 px-2 text-right text-xs text-slate-300 cursor-pointer hover:bg-slate-700 transition select-none relative"
+          onclick="openExpenseCellModal('${item.id}',${year},${month})"
+          id="ecell-${item.id}-${year}-${month}"${titleAttr}>${val > 0 ? fmt(val) : ''}${dotHtml}</td>`;
       });
       const itemTotal = MONTHS.reduce((s, _, mi) => s + (entryMap[`${item.id}_${year}_${mi + 1}`] || 0), 0);
       const itemAvg   = trackedMonths > 0 ? itemTotal / trackedMonths : 0;
@@ -2772,78 +2856,137 @@ function expenseTable(year) {
     </div>`;
 }
 
-// ── Édition inline d'une cellule ──────────────────────────────────────────────
+// ── Modal saisie dépense ──────────────────────────────────────────────────────
 
-function editExpenseCell(itemId, year, month, currentVal) {
-  const cellId = `ecell-${itemId}-${year}-${month}`;
-  const cell   = document.getElementById(cellId);
-  if (!cell || cell.querySelector('input')) return; // déjà en édition
+let _cellEdit = { itemId: null, year: null, month: null, currentVal: 0, currentNote: '', mode: 'add' };
 
-  let done = false;
+const MONTH_NAMES_LONG = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 
-  const commit = async (rawVal) => {
-    if (done) return;
-    done = true;
-    const val = Math.max(0, parseFloat(String(rawVal).replace(',', '.')) || 0);
-
-    // Mise à jour optimiste du STATE
-    const idx = STATE.expense_entries.findIndex(
-      e => e.item_id === itemId && Number(e.annee) === year && Number(e.mois) === month
-    );
-    if (val === 0) {
-      if (idx !== -1) STATE.expense_entries.splice(idx, 1);
-    } else if (idx !== -1) {
-      STATE.expense_entries[idx].montant = val;
-    } else {
-      STATE.expense_entries.push({ id: `ee_${Date.now()}`, item_id: itemId, annee: year, mois: month, montant: val });
-    }
-
-    // Rafraîchissement ciblé des totaux et stats
-    setEl('exp-stats', expenseStatsCards(year));
-    setEl('exp-table', expenseTable(year));
-
-    // Persistance
-    try {
-      if (val === 0) {
-        await API.deleteExpenseEntry({ item_id: itemId, annee: year, mois: month });
-      } else {
-        await API.upsertExpenseEntry({ item_id: itemId, annee: year, mois: month, montant: val });
-      }
-      const cached = API._getCache();
-      if (cached) { cached.expense_entries = STATE.expense_entries; API._setCache(cached); }
-    } catch (err) {
-      console.error('Erreur sauvegarde dépense:', err);
-    }
+function openExpenseCellModal(itemId, year, month) {
+  const entry = STATE.expense_entries.find(
+    e => e.item_id === itemId && Number(e.annee) === year && Number(e.mois) === month
+  );
+  _cellEdit = {
+    itemId, year, month,
+    currentVal:  entry ? Number(entry.montant) : 0,
+    currentNote: entry ? (entry.note || '') : '',
+    mode: 'add',
   };
+  const item = STATE.expense_items.find(i => i.id === itemId);
+  document.getElementById('ecell-modal-title').textContent =
+    `${item ? item.nom : '?'} — ${MONTH_NAMES_LONG[month - 1]} ${year}`;
+  document.getElementById('ecell-current').textContent =
+    _cellEdit.currentVal > 0 ? fmt(_cellEdit.currentVal) : '—';
+  document.getElementById('ecell-amount').value = '';
+  document.getElementById('ecell-note').value   = _cellEdit.currentNote;
+  setEcellMode('add');
+  document.getElementById('modal-expense-cell').classList.remove('hidden');
+  setTimeout(() => document.getElementById('ecell-amount').focus(), 50);
+}
 
-  const input = document.createElement('input');
-  input.type  = 'number';
-  input.value = currentVal || '';
-  input.min   = '0';
-  input.step  = '1';
-  input.className = 'w-full bg-slate-600 text-white text-xs text-right rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-blue-500';
+function closeExpenseCellModal() {
+  document.getElementById('modal-expense-cell').classList.add('hidden');
+}
 
-  cell.textContent = '';
-  cell.appendChild(input);
-  input.focus();
-  input.select();
+function setEcellMode(mode) {
+  _cellEdit.mode = mode;
+  document.getElementById('ecell-mode-add').className =
+    `btn-${mode === 'add' ? 'primary' : 'secondary'} text-sm flex-1`;
+  document.getElementById('ecell-mode-set').className =
+    `btn-${mode === 'set' ? 'primary' : 'secondary'} text-sm flex-1`;
+  refreshCellPreview();
+}
 
-  input.addEventListener('blur', () => commit(input.value));
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
-    if (e.key === 'Escape') {
-      done = true;
-      cell.textContent = currentVal > 0 ? fmt(currentVal) : '';
-      cell.onclick = () => editExpenseCell(itemId, year, month, currentVal);
+function refreshCellPreview() {
+  const added = parseFloat(String(document.getElementById('ecell-amount').value).replace(',', '.')) || 0;
+  const total = _cellEdit.mode === 'add' ? _cellEdit.currentVal + added : added;
+  const el    = document.getElementById('ecell-preview');
+  if (el) el.textContent = fmt(Math.max(0, total));
+}
+
+async function saveExpenseCell() {
+  const added = parseFloat(String(document.getElementById('ecell-amount').value).replace(',', '.')) || 0;
+  const val   = Math.max(0, _cellEdit.mode === 'add' ? _cellEdit.currentVal + added : added);
+  const note  = document.getElementById('ecell-note').value.trim();
+  const { itemId, year, month } = _cellEdit;
+  closeExpenseCellModal();
+
+  // Mise à jour optimiste
+  const idx = STATE.expense_entries.findIndex(
+    e => e.item_id === itemId && Number(e.annee) === year && Number(e.mois) === month
+  );
+  if (val === 0 && !note) {
+    if (idx !== -1) STATE.expense_entries.splice(idx, 1);
+  } else if (idx !== -1) {
+    STATE.expense_entries[idx].montant = val;
+    STATE.expense_entries[idx].note    = note;
+  } else {
+    STATE.expense_entries.push({ id: `ee_${Date.now()}`, item_id: itemId, annee: year, mois: month, montant: val, note });
+  }
+  setEl('exp-stats', expenseStatsCards(year));
+  setEl('exp-table', expenseTable(year));
+
+  // Persistance
+  try {
+    if (val === 0 && !note) {
+      await API.deleteExpenseEntry({ item_id: itemId, annee: year, mois: month });
+    } else {
+      await API.upsertExpenseEntry({ item_id: itemId, annee: year, mois: month, montant: val, note });
     }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const nextMonth = month < 12 ? month + 1 : 1;
-      const nextYear  = month < 12 ? year : year + 1;
-      input.blur(); // commit d'abord
-      requestAnimationFrame(() => editExpenseCell(itemId, nextYear, nextMonth, 0));
-    }
-  });
+    const cached = API._getCache();
+    if (cached) { cached.expense_entries = STATE.expense_entries; API._setCache(cached); }
+  } catch (err) { console.error('Erreur sauvegarde dépense:', err); }
+}
+
+async function clearExpenseCell() {
+  const { itemId, year, month } = _cellEdit;
+  closeExpenseCellModal();
+  const idx = STATE.expense_entries.findIndex(
+    e => e.item_id === itemId && Number(e.annee) === year && Number(e.mois) === month
+  );
+  if (idx !== -1) STATE.expense_entries.splice(idx, 1);
+  setEl('exp-stats', expenseStatsCards(year));
+  setEl('exp-table', expenseTable(year));
+  try {
+    await API.deleteExpenseEntry({ item_id: itemId, annee: year, mois: month });
+    const cached = API._getCache();
+    if (cached) { cached.expense_entries = STATE.expense_entries; API._setCache(cached); }
+  } catch (err) { console.error('Erreur suppression dépense:', err); }
+}
+
+function modalExpenseCell() {
+  return `
+    <div id="modal-expense-cell" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeExpenseCellModal()">
+      <div class="modal-box w-full max-w-sm">
+        <h3 id="ecell-modal-title" class="text-base font-bold text-white mb-1">—</h3>
+        <p class="text-slate-400 text-sm mb-4">Montant actuel : <span id="ecell-current" class="text-white font-semibold">—</span></p>
+
+        <div class="flex gap-2 mb-3">
+          <button id="ecell-mode-add" onclick="setEcellMode('add')" class="btn-primary text-sm flex-1">+ Ajouter</button>
+          <button id="ecell-mode-set" onclick="setEcellMode('set')" class="btn-secondary text-sm flex-1">= Définir</button>
+        </div>
+
+        <input id="ecell-amount" type="number" min="0" step="1" placeholder="Montant (€)"
+          oninput="refreshCellPreview()"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();saveExpenseCell();}"
+          class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3">
+
+        <div class="bg-slate-700/40 rounded-lg px-3 py-2 mb-3 flex items-center justify-between">
+          <span class="text-slate-400 text-xs">Total résultant</span>
+          <span id="ecell-preview" class="text-white font-bold text-sm">—</span>
+        </div>
+
+        <textarea id="ecell-note" rows="2" placeholder="Note (optionnelle)…"
+          class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none mb-4"></textarea>
+
+        <div class="flex gap-2">
+          <button onclick="saveExpenseCell()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="clearExpenseCell()" class="btn-secondary text-red-400 flex-1">Effacer</button>
+          <button onclick="closeExpenseCellModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 // ── Import moyenne → FIRE ─────────────────────────────────────────────────────
@@ -2919,7 +3062,7 @@ function modalExpenseCategory() {
           <button onclick="saveExpenseCategory()" class="btn-primary flex-1">Enregistrer</button>
           <button onclick="closeModal('expense-cat')" class="btn-secondary flex-1">Annuler</button>
         </div>
-        <div id="exp-cat-list" class="mt-5 space-y-1"></div>
+        <div id="exp-cat-list" class="mt-5 space-y-1 max-h-64 overflow-y-auto pr-1"></div>
       </div>
     </div>`;
 }
@@ -3029,7 +3172,7 @@ function modalExpenseItem() {
           <button onclick="saveExpenseItem()" class="btn-primary flex-1">Enregistrer</button>
           <button onclick="closeModal('expense-item')" class="btn-secondary flex-1">Annuler</button>
         </div>
-        <div id="exp-item-list" class="mt-5 space-y-1"></div>
+        <div id="exp-item-list" class="mt-5 space-y-1 max-h-64 overflow-y-auto pr-1"></div>
       </div>
     </div>`;
 }
@@ -3133,7 +3276,7 @@ function modalExpenseAid() {
           <button onclick="saveExpenseAid()" class="btn-primary flex-1">Enregistrer</button>
           <button onclick="closeModal('expense-aid')" class="btn-secondary flex-1">Annuler</button>
         </div>
-        <div id="exp-aid-list" class="mt-5 space-y-1"></div>
+        <div id="exp-aid-list" class="mt-5 space-y-1 max-h-64 overflow-y-auto pr-1"></div>
       </div>
     </div>`;
 }
