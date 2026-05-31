@@ -135,4 +135,12 @@ const API = {
   createExpenseAid(data)      { return this.post('createExpenseAid', data); },
   updateExpenseAid(data)      { return this.post('updateExpenseAid', data); },
   deleteExpenseAid(id)        { return this.post('deleteExpenseAid', { id }); },
+
+  // ─── IMMOBILIER LOCATIF ─────────────────────────────────────────────────────
+  addBienImmo(data)           { return this.post('addBienImmo', data); },
+  updateBienImmo(data)        { return this.post('updateBienImmo', data); },
+  deleteBienImmo(id)          { return this.post('deleteBienImmo', { id }); },
+  addDepenseImmo(data)        { return this.post('addDepenseImmo', data); },
+  updateDepenseImmo(data)     { return this.post('updateDepenseImmo', data); },
+  deleteDepenseImmo(id)       { return this.post('deleteDepenseImmo', { id }); },
 };

@@ -37,6 +37,8 @@ function doGet(e) {
       expense_items:       sheetToObjects(ss, 'expense_items'),
       expense_entries:     sheetToObjects(ss, 'expense_entries'),
       expense_aids:        sheetToObjects(ss, 'expense_aids'),
+      biens_immo:          sheetToObjects(ss, 'biens_immo'),
+      depenses_immo:       sheetToObjects(ss, 'depenses_immo'),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -141,6 +143,75 @@ function doPost(e) {
       },
       updateExpenseAid: () => updateRow('expense_aids', payload.id, { nom: payload.nom, montant: Number(payload.montant) }),
       deleteExpenseAid: () => deleteRow('expense_aids', payload.id),
+
+      // ─── IMMOBILIER LOCATIF ──────────────────────────────────────────────────
+      addBienImmo: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        ensureSheet(ss2, 'biens_immo', ['id','nom','surface_m2','prix_achat','loyer_annuel_ht','taxe_fonciere','charges_annuelles','montant_credit','duree_credit_mois','taux_credit','mensualite_assurance','numero_pret','date_debut_credit']);
+        return createRow('biens_immo', {
+          id: newId('bi'), nom: payload.nom,
+          surface_m2: Number(payload.surface_m2 || 0),
+          prix_achat: Number(payload.prix_achat || 0),
+          loyer_annuel_ht: Number(payload.loyer_annuel_ht || 0),
+          taxe_fonciere: Number(payload.taxe_fonciere || 0),
+          charges_annuelles: Number(payload.charges_annuelles || 0),
+          montant_credit: Number(payload.montant_credit || 0),
+          duree_credit_mois: Number(payload.duree_credit_mois || 0),
+          taux_credit: Number(payload.taux_credit || 0),
+          mensualite_assurance: Number(payload.mensualite_assurance || 0),
+          numero_pret: payload.numero_pret || '',
+          date_debut_credit: payload.date_debut_credit || '',
+        });
+      },
+      updateBienImmo: () => updateRow('biens_immo', payload.id, {
+        nom: payload.nom,
+        surface_m2: Number(payload.surface_m2 || 0),
+        prix_achat: Number(payload.prix_achat || 0),
+        loyer_annuel_ht: Number(payload.loyer_annuel_ht || 0),
+        taxe_fonciere: Number(payload.taxe_fonciere || 0),
+        charges_annuelles: Number(payload.charges_annuelles || 0),
+        montant_credit: Number(payload.montant_credit || 0),
+        duree_credit_mois: Number(payload.duree_credit_mois || 0),
+        taux_credit: Number(payload.taux_credit || 0),
+        mensualite_assurance: Number(payload.mensualite_assurance || 0),
+        numero_pret: payload.numero_pret || '',
+        date_debut_credit: payload.date_debut_credit || '',
+      }),
+      deleteBienImmo: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        deleteRow('biens_immo', payload.id);
+        deleteWhere(ss2, 'depenses_immo', 'bien_id', payload.id);
+        return { deleted: payload.id };
+      },
+
+      addDepenseImmo: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        ensureSheet(ss2, 'depenses_immo', ['id','bien_id','type','date','montant_ttc','tva_rate','montant_ht','periode_debut','periode_fin','note']);
+        return createRow('depenses_immo', {
+          id: newId('di'), bien_id: payload.bien_id,
+          type: payload.type, date: payload.date || '',
+          montant_ttc: Number(payload.montant_ttc || 0),
+          tva_rate:    payload.tva_rate !== null && payload.tva_rate !== undefined ? Number(payload.tva_rate) : '',
+          montant_ht:  Number(payload.montant_ht || 0),
+          periode_debut: payload.periode_debut || '',
+          periode_fin:   payload.periode_fin || '',
+          note: payload.note || '',
+        });
+      },
+      updateDepenseImmo: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        ensureSheet(ss2, 'depenses_immo', ['id','bien_id','type','date','montant_ttc','tva_rate','montant_ht','periode_debut','periode_fin','note']);
+        return updateRow('depenses_immo', payload.id, {
+          type: payload.type, date: payload.date || '',
+          montant_ttc: Number(payload.montant_ttc || 0),
+          tva_rate:    payload.tva_rate !== null && payload.tva_rate !== undefined ? Number(payload.tva_rate) : '',
+          montant_ht:  Number(payload.montant_ht || 0),
+          periode_debut: payload.periode_debut || '',
+          periode_fin:   payload.periode_fin || '',
+          note: payload.note || '',
+        });
+      },
+      deleteDepenseImmo: () => deleteRow('depenses_immo', payload.id),
     };
 
     if (!handlers[action]) {
@@ -321,6 +392,17 @@ function upsertFireProfile(payload) {
   }
 
   return { saved: true };
+}
+
+function deleteWhere(ss, tabName, colName, value) {
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  const data   = sheet.getDataRange().getValues();
+  const colIdx = data[0].indexOf(colName);
+  if (colIdx === -1) return;
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][colIdx]) === String(value)) sheet.deleteRow(i + 1);
+  }
 }
 
 // ─── HISTORIQUE ───────────────────────────────────────────────────────────────

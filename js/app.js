@@ -1,5 +1,5 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [], biens_immo: [], depenses_immo: [] };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
@@ -45,6 +45,8 @@ async function render() {
   if (route === 'hist-global') return renderHistoryGlobal(app);
   if (route === 'fire')        return renderFire(app);
   if (route === 'expenses')    return renderExpenses(app);
+  if (route === 'immo' && !id) return renderImmo(app);
+  if (route === 'immo' &&  id) return renderImmoDetail(app, id);
   renderDashboard(app);
 }
 
@@ -88,6 +90,25 @@ function saveCacheSettings() {
   if (val >= 1) API.setCacheTTL(val);
   closeCacheSettings();
   render(); // rafraîchit la navbar pour afficher le nouveau TTL
+}
+
+// ─── LOADER GLOBAL ───────────────────────────────────────────────────────────
+
+function setGlobalLoader(on, msg = 'Enregistrement…') {
+  let el = document.getElementById('global-loader');
+  if (!el) {
+    el = document.createElement('div');
+    el.id        = 'global-loader';
+    el.className = 'fixed bottom-5 right-5 z-[200] flex items-center gap-2.5 bg-slate-700 border border-slate-600 text-white text-sm px-4 py-2.5 rounded-full shadow-xl transition-opacity duration-200';
+    document.body.appendChild(el);
+  }
+  if (on) {
+    el.innerHTML = `<span class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0"></span><span>${msg}</span>`;
+    el.style.opacity = '1';
+    el.style.pointerEvents = 'none';
+  } else {
+    el.style.opacity = '0';
+  }
 }
 
 async function forceRefresh() {
@@ -154,6 +175,11 @@ function renderDashboard(app) {
       ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">🏠 Immobilier locatif</h2>
+        <a href="#immo" onclick="navigate('#immo');return false;" class="btn-secondary text-sm">Détail →</a>
+      </div>
+      ${immoDashboardCard()}
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">📅 Projection fin d'année</h2>
       </div>
@@ -893,6 +919,7 @@ function navbar(left = '') {
         <a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-white font-bold text-sm hover:text-slate-300 transition whitespace-nowrap">Portfolio Manager</a>
         <a href="#fire" onclick="navigate('#fire');return false;" class="text-orange-400 hover:text-orange-300 text-sm font-medium transition whitespace-nowrap">🔥 FIRE</a>
         <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition whitespace-nowrap">💰 Dépenses</a>
+        <a href="#immo" onclick="navigate('#immo');return false;" class="text-blue-400 hover:text-blue-300 text-sm font-medium transition whitespace-nowrap">🏠 Immo</a>
       </div>
       <div class="flex items-center gap-3 flex-shrink-0">
         <button onclick="openCacheSettings()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
@@ -3345,4 +3372,864 @@ async function confirmDeleteExpenseAid(id) {
     closeModal('expense-aid');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// IMMOBILIER LOCATIF
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _immoFilter      = { year: new Date().getFullYear(), type: '' };
+let _editingBienId   = null;
+let _editingDepId    = null;
+let _depBienId       = null;
+
+// ── Calculs financiers ────────────────────────────────────────────────────────
+
+function immoMensualite(bien) {
+  const C  = Number(bien.montant_credit || 0);
+  const tm = Number(bien.taux_credit || 0) / 12;
+  const n  = Number(bien.duree_credit_mois || 0);
+  if (!C || !n) return 0;
+  if (tm === 0) return C / n;
+  return (C * tm) / (1 - Math.pow(1 + tm, -n));
+}
+
+function immoCapitalRestantDu(bien, now = new Date()) {
+  const C = Number(bien.montant_credit || 0);
+  const n = Number(bien.duree_credit_mois || 0);
+  if (!C || !n || !bien.date_debut_credit) return C;
+  const tm    = Number(bien.taux_credit || 0) / 12;
+  const start = new Date(bien.date_debut_credit);
+  const k     = Math.min(Math.max(0, (now.getFullYear() - start.getFullYear()) * 12 + now.getMonth() - start.getMonth()), n);
+  if (tm === 0) return C * (1 - k / n);
+  return C * (Math.pow(1 + tm, n) - Math.pow(1 + tm, k)) / (Math.pow(1 + tm, n) - 1);
+}
+
+function immoCapitalRembourse(bien, now = new Date()) {
+  const C = Number(bien.montant_credit || 0);
+  return C > 0 ? Math.max(0, C - immoCapitalRestantDu(bien, now)) : 0;
+}
+
+function immoRentabilite(bien) {
+  const mens    = immoMensualite(bien);
+  const assur   = Number(bien.mensualite_assurance || 0);
+  const loyer   = Number(bien.loyer_annuel_ht || 0);
+  const taxe    = Number(bien.taxe_fonciere || 0);
+  const charges = Number(bien.charges_annuelles || 0);
+  const prix    = Number(bien.prix_achat || 0);
+  const creditAn  = (mens + assur) * 12;
+  const cfAnnCred = loyer - taxe - charges - creditAn;
+  const cfAnnPost = loyer - taxe - charges;
+  return {
+    mensCredit: mens, creditAn,
+    rendBrut:       prix > 0 ? loyer / prix * 100 : 0,
+    cfAnnCredit:    cfAnnCred,  cfMensCredit: cfAnnCred / 12,
+    rendNetCredit:  prix > 0 ? cfAnnCred / prix * 100 : 0,
+    cfAnnPost,      cfMensPost: cfAnnPost / 12,
+    rendNetPost:    prix > 0 ? cfAnnPost / prix * 100 : 0,
+  };
+}
+
+function immoLoyersHtYtd(bienId, year) {
+  const yStart = new Date(year, 0, 1);
+  const yEnd   = new Date(year, 11, 31, 23, 59, 59);
+  return STATE.depenses_immo
+    .filter(d => d.bien_id === bienId && d.type === 'loyer' && d.periode_debut && d.periode_fin)
+    .reduce((sum, d) => {
+      const s = new Date(d.periode_debut), e = new Date(d.periode_fin);
+      if (e < yStart || s > yEnd) return sum;
+      const oS = s < yStart ? yStart : s, oE = e > yEnd ? yEnd : e;
+      const tot = (e - s) / 86400000 + 1, ov = (oE - oS) / 86400000 + 1;
+      return sum + Number(d.montant_ht || 0) * (ov / tot);
+    }, 0);
+}
+
+function immoDepensesYtd(bienId, year) {
+  return STATE.depenses_immo
+    .filter(d => d.bien_id === bienId && d.type !== 'loyer' && d.date && new Date(d.date).getFullYear() === year)
+    .reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+}
+
+function immoTrackedMonths(bienId, year) {
+  const months = new Set();
+  STATE.depenses_immo.filter(d => d.bien_id === bienId).forEach(d => {
+    const ref = d.date || d.periode_debut;
+    if (ref && new Date(ref).getFullYear() === year) months.add(new Date(ref).getMonth());
+  });
+  return months.size;
+}
+
+function immoRentabiliteReelle(bienId, year) {
+  const bien = STATE.biens_immo.find(b => b.id === bienId);
+  if (!bien) return null;
+  const loyersHt = immoLoyersHtYtd(bienId, year);
+  const depenses = immoDepensesYtd(bienId, year);
+  const taxe     = Number(bien.taxe_fonciere || 0);
+  const prix     = Number(bien.prix_achat || 0);
+  const mois     = immoTrackedMonths(bienId, year);
+  const cfReel   = loyersHt - depenses - taxe;
+  let cfProjete = 0, rendProjete = 0;
+  if (mois > 0) {
+    cfProjete   = (loyersHt / mois) * 12 - (depenses / mois) * 12 - taxe;
+    rendProjete = prix > 0 ? cfProjete / prix * 100 : 0;
+  }
+  return { loyersHt, depenses, taxe, cfReel, mois, cfProjete, rendProjete };
+}
+
+// ── Dashboard card ────────────────────────────────────────────────────────────
+
+function immoDashboardCard() {
+  if (!STATE.biens_immo.length) return `
+    <div class="bg-slate-800 rounded-xl p-5 text-center cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#immo')">
+      <p class="text-slate-400 text-sm">Aucun bien immobilier enregistré</p>
+      <p class="text-slate-500 text-xs mt-1">Cliquer pour ajouter</p>
+    </div>`;
+  const now = new Date();
+  let brute = 0, crd = 0, cf = 0;
+  STATE.biens_immo.forEach(b => {
+    brute += Number(b.prix_achat || 0);
+    crd   += immoCapitalRestantDu(b, now);
+    cf    += immoRentabilite(b).cfMensCredit;
+  });
+  const equity = brute - crd;
+  const cfCol  = cf >= 0 ? 'text-emerald-400' : 'text-red-400';
+  return `
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#immo')">
+        <p class="text-slate-400 text-xs mb-1">Valeur brute</p>
+        <p class="text-white font-bold text-lg">${fmt(brute)}</p>
+        <p class="text-slate-500 text-xs">${STATE.biens_immo.length} bien${STATE.biens_immo.length > 1 ? 's' : ''}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#immo')">
+        <p class="text-slate-400 text-xs mb-1">Equity</p>
+        <p class="text-emerald-400 font-bold text-lg">${fmt(equity)}</p>
+        <p class="text-slate-500 text-xs">Capital remboursé</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#immo')">
+        <p class="text-slate-400 text-xs mb-1">Engagement crédit</p>
+        <p class="text-amber-400 font-bold text-lg">${fmt(crd)}</p>
+        <p class="text-slate-500 text-xs">Restant dû total</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#immo')">
+        <p class="text-slate-400 text-xs mb-1">Cashflow / mois</p>
+        <p class="${cfCol} font-bold text-lg">${cf >= 0 ? '+' : ''}${fmt(cf)}</p>
+        <p class="text-slate-500 text-xs">Théorique (crédit)</p>
+      </div>
+    </div>`;
+}
+
+// ── Vue liste ─────────────────────────────────────────────────────────────────
+
+function renderImmo(app) {
+  app.innerHTML = `
+    ${navbar(`<a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-white">🏠 Immobilier Locatif</h1>
+        <button onclick="openBienImmoModal()" class="btn-primary text-sm">+ Ajouter un bien</button>
+      </div>
+      ${STATE.biens_immo.length ? `
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          ${STATE.biens_immo.map(b => bienImmoCard(b)).join('')}
+        </div>` : `
+        <div class="bg-slate-800 rounded-xl p-12 text-center">
+          <p class="text-4xl mb-4">🏠</p>
+          <p class="text-slate-300 text-lg font-medium mb-2">Aucun bien immobilier</p>
+          <p class="text-slate-500 text-sm mb-6">Ajoutez votre premier bien pour démarrer le suivi de rentabilité</p>
+          <button onclick="openBienImmoModal()" class="btn-primary">+ Ajouter un bien</button>
+        </div>`}
+    </div>
+    ${modalBienImmo()}`;
+}
+
+function bienImmoCard(bien) {
+  const r    = immoRentabilite(bien);
+  const cap  = immoCapitalRembourse(bien);
+  const prix = Number(bien.prix_achat || 0);
+  const surf = Number(bien.surface_m2 || 0);
+  const hasCr = Number(bien.montant_credit || 0) > 0;
+  const cfCol = r.cfMensCredit >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const rdCol = r.rendNetCredit >= 0 ? 'text-emerald-400' : 'text-red-400';
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer" onclick="navigate('#immo/${bien.id}')">
+      <div class="flex items-start justify-between mb-4">
+        <div class="min-w-0">
+          <h3 class="text-white font-semibold text-base truncate">${esc(bien.nom)}</h3>
+          <p class="text-slate-400 text-xs mt-0.5">
+            ${surf ? surf + ' m²' : ''}${surf && prix ? ' · ' : ''}${prix ? fmt(prix) : ''}
+            ${surf && prix ? ' <span class="text-slate-600">· ' + Math.round(prix / surf) + '€/m²</span>' : ''}
+          </p>
+        </div>
+        <span class="text-blue-400 text-xs ml-2 flex-shrink-0">Voir →</span>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <p class="text-slate-500 text-xs">CF mensuel</p>
+          <p class="${cfCol} font-bold text-sm">${r.cfMensCredit >= 0 ? '+' : ''}${fmt(r.cfMensCredit)}</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs">Rdt net</p>
+          <p class="${rdCol} font-bold text-sm">${r.rendNetCredit.toFixed(2)}%</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs">Capital remb.</p>
+          <p class="text-white font-bold text-sm">${hasCr ? fmt(cap) : '—'}</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Vue détail ────────────────────────────────────────────────────────────────
+
+function renderImmoDetail(app, bienId) {
+  const bien = STATE.biens_immo.find(b => b.id === bienId);
+  if (!bien) { navigate('#immo'); return; }
+  _immoFilter.type = '';
+  const hasCr = Number(bien.montant_credit || 0) > 0;
+  app.innerHTML = `
+    ${navbar(`<a href="#immo" onclick="navigate('#immo');return false;" class="text-slate-400 hover:text-white text-sm">← Mes biens</a>`)}
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-white">${esc(bien.nom)}</h1>
+          <p class="text-slate-400 text-sm mt-0.5">${bien.surface_m2 ? bien.surface_m2 + ' m²' : ''} · Acheté ${fmt(Number(bien.prix_achat))}</p>
+        </div>
+        <div class="flex gap-2 flex-shrink-0">
+          <button onclick="openBienImmoModal('${bienId}')" class="btn-secondary text-sm">✏ Modifier</button>
+          <button onclick="confirmDeleteBienImmo('${bienId}')" class="btn-secondary text-sm text-red-400">✕</button>
+        </div>
+      </div>
+      ${immoBloc1(bien)}
+      <div class="grid gap-6 lg:grid-cols-2">
+        ${immoBloc2(bien)}
+        <div id="immo-reel">${immoBloc3(bienId)}</div>
+      </div>
+      ${hasCr ? immoBloc4(bien) : ''}
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-white">📋 Dépenses & Loyers</h2>
+          <button onclick="openDepenseImmoModal('${bienId}')" class="btn-primary text-sm">+ Ajouter</button>
+        </div>
+        <div id="immo-dep-table">${immoDepensesTable(bienId)}</div>
+      </div>
+    </div>
+    ${modalBienImmo()}
+    ${modalDepenseImmo()}`;
+}
+
+function immoBloc1(bien) {
+  const mens  = immoMensualite(bien);
+  const hasCr = Number(bien.montant_credit || 0) > 0;
+  const row   = (label, val) => `<div><p class="text-slate-500 text-xs">${label}</p><p class="text-white font-medium text-sm">${val}</p></div>`;
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Caractéristiques</h2>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        ${row('Surface', bien.surface_m2 ? bien.surface_m2 + ' m²' : '—')}
+        ${row("Prix d'achat", fmt(Number(bien.prix_achat || 0)))}
+        ${row('Loyer HT / mois', '<span class="text-emerald-400">' + fmt(Number(bien.loyer_annuel_ht || 0) / 12) + '</span>')}
+        ${row('Loyer annuel HT', fmt(Number(bien.loyer_annuel_ht || 0)))}
+        ${row('Taxe foncière', fmt(Number(bien.taxe_fonciere || 0)) + '/an')}
+        ${row('Charges prévis.', fmt(Number(bien.charges_annuelles || 0)) + '/an')}
+        ${hasCr ? `
+        ${row('Montant emprunté', fmt(Number(bien.montant_credit)))}
+        ${row('Durée crédit', bien.duree_credit_mois + ' mois')}
+        ${row('Taux annuel', (Number(bien.taux_credit) * 100).toFixed(2) + '%')}
+        ${row('Mensualité crédit', '<span class="text-amber-400">' + fmt(mens) + '/mois</span>')}
+        ${row('Assurance', fmt(Number(bien.mensualite_assurance || 0)) + '/mois')}
+        ${bien.numero_pret ? row('N° prêt', esc(bien.numero_pret)) : ''}
+        ${bien.date_debut_credit ? row('Début crédit', bien.date_debut_credit) : ''}
+        ` : ''}
+      </div>
+    </div>`;
+}
+
+function immoBloc2(bien) {
+  const r     = immoRentabilite(bien);
+  const hasCr = Number(bien.montant_credit || 0) > 0;
+  const cc    = v => v >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const fmtCf = v => (v >= 0 ? '+' : '') + fmt(v);
+  const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Rentabilité théorique</h2>
+      <table class="w-full text-sm">
+        <thead class="text-slate-400 text-xs border-b border-slate-700">
+          <tr>
+            <th class="text-left py-2 font-medium">Indicateur</th>
+            ${hasCr ? '<th class="text-right py-2 font-medium">Pendant crédit</th>' : ''}
+            <th class="text-right py-2 font-medium">Post crédit</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-700/40">
+          <tr>
+            <td class="py-2.5 text-slate-300">Rendement brut</td>
+            ${hasCr ? '<td class="py-2.5 text-right text-emerald-400">' + r.rendBrut.toFixed(2) + '%</td>' : ''}
+            <td class="py-2.5 text-right text-emerald-400">${r.rendBrut.toFixed(2)}%</td>
+          </tr>
+          <tr>
+            <td class="py-2.5 text-slate-300">Rendement net</td>
+            ${hasCr ? '<td class="py-2.5 text-right font-semibold ' + cc(r.rendNetCredit) + '">' + fmtPct(r.rendNetCredit) + '</td>' : ''}
+            <td class="py-2.5 text-right font-semibold ${cc(r.rendNetPost)}">${fmtPct(r.rendNetPost)}</td>
+          </tr>
+          <tr>
+            <td class="py-2.5 text-slate-300">Cashflow annuel</td>
+            ${hasCr ? '<td class="py-2.5 text-right ' + cc(r.cfAnnCredit) + '">' + fmtCf(r.cfAnnCredit) + '</td>' : ''}
+            <td class="py-2.5 text-right ${cc(r.cfAnnPost)}">${fmtCf(r.cfAnnPost)}</td>
+          </tr>
+          <tr>
+            <td class="py-2.5 text-slate-300">Cashflow mensuel</td>
+            ${hasCr ? '<td class="py-2.5 text-right font-semibold ' + cc(r.cfMensCredit) + '">' + fmtCf(r.cfMensCredit) + '/mois</td>' : ''}
+            <td class="py-2.5 text-right font-semibold ${cc(r.cfMensPost)}">${fmtCf(r.cfMensPost)}/mois</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function immoBloc3(bienId) {
+  const year = _immoFilter.year;
+  const r    = immoRentabiliteReelle(bienId, year);
+  if (!r) return '';
+  const cc    = v => v >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const fmtCf = v => (v >= 0 ? '+' : '') + fmt(v);
+  const yBtns = [year - 1, year, year + 1].map(y =>
+    `<button onclick="_immoFilter.year=${y};setEl('immo-reel',immoBloc3('${bienId}'))"
+      class="px-2 py-1 rounded text-xs ${y === year ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`).join('');
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 h-full">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Réel ${year}</h2>
+        <div class="flex gap-1">${yBtns}</div>
+      </div>
+      ${r.mois === 0 ? `<p class="text-slate-500 text-sm py-6 text-center">Aucune dépense saisie pour ${year}</p>` : `
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-slate-700/40 rounded-lg p-3">
+          <p class="text-slate-400 text-xs mb-1">Loyers HT perçus</p>
+          <p class="text-emerald-400 font-bold">${fmt(r.loyersHt)}</p>
+          <p class="text-slate-600 text-xs">${r.mois} mois de données</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-lg p-3">
+          <p class="text-slate-400 text-xs mb-1">Dépenses + TF</p>
+          <p class="text-red-400 font-bold">−${fmt(r.depenses + r.taxe)}</p>
+          <p class="text-slate-600 text-xs">dont TF ${fmt(r.taxe)}</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-lg p-3">
+          <p class="text-slate-400 text-xs mb-1">Cashflow réel YTD</p>
+          <p class="${cc(r.cfReel)} font-bold">${fmtCf(r.cfReel)}</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-lg p-3">
+          <p class="text-slate-400 text-xs mb-1">Cashflow projeté</p>
+          <p class="${cc(r.cfProjete)} font-bold">${fmtCf(r.cfProjete)}/an</p>
+          <p class="text-slate-600 text-xs">Rdt ${r.rendProjete.toFixed(2)}%</p>
+        </div>
+      </div>`}
+    </div>`;
+}
+
+function immoBloc4(bien) {
+  const C    = Number(bien.montant_credit || 0);
+  const rdu  = immoCapitalRestantDu(bien);
+  const remb = Math.max(0, C - rdu);
+  const pct  = C > 0 ? Math.round(remb / C * 100) : 0;
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Capital crédit</h2>
+      <div class="grid grid-cols-3 gap-4 text-center mb-4">
+        <div><p class="text-slate-500 text-xs">Emprunté</p><p class="text-white font-bold text-base">${fmt(C)}</p></div>
+        <div><p class="text-slate-500 text-xs">Remboursé</p><p class="text-emerald-400 font-bold text-base">${fmt(remb)}</p></div>
+        <div><p class="text-slate-500 text-xs">Restant dû</p><p class="text-amber-400 font-bold text-base">${fmt(rdu)}</p></div>
+      </div>
+      <div class="w-full bg-slate-700 rounded-full h-2.5">
+        <div class="bg-emerald-500 h-2.5 rounded-full" style="width:${pct}%"></div>
+      </div>
+      <p class="text-slate-500 text-xs mt-1.5 text-right">${pct}% remboursé</p>
+    </div>`;
+}
+
+function fmtPeriode(debut, fin) {
+  if (!debut && !fin) return '—';
+  const MOIS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const parse = s => { const p = s.split('-'); return { y: parseInt(p[0]), m: parseInt(p[1]) - 1 }; };
+  const d = debut ? parse(debut) : null;
+  const f = fin   ? parse(fin)   : null;
+  if (d && f) {
+    if (d.m === f.m && d.y === f.y) return `${MOIS[d.m]} ${d.y}`;
+    if (d.y === f.y) return `${MOIS[d.m]} → ${MOIS[f.m]} ${f.y}`;
+    return `${MOIS[d.m]} ${d.y} → ${MOIS[f.m]} ${f.y}`;
+  }
+  if (d) return `${MOIS[d.m]} ${d.y}`;
+  return `${MOIS[f.m]} ${f.y}`;
+}
+
+function immoDepensesTable(bienId) {
+  const year  = _immoFilter.year;
+  const type  = _immoFilter.type;
+  const TYPES = { echeance_pret: 'Échéance prêt', charge: 'Charge', assurance: 'Assurance', loyer: 'Loyer' };
+  const TCOLS = { echeance_pret: 'text-amber-400', charge: 'text-red-400', assurance: 'text-orange-400', loyer: 'text-emerald-400' };
+  const deps  = STATE.depenses_immo
+    .filter(d => {
+      if (d.bien_id !== bienId) return false;
+      const ref = d.date || d.periode_debut;
+      if (!ref || new Date(ref).getFullYear() !== year) return false;
+      return !type || d.type === type;
+    })
+    .sort((a, b) => new Date(b.date || b.periode_debut) - new Date(a.date || a.periode_debut));
+  const yBtns = [year - 1, year, year + 1].map(y =>
+    `<button onclick="_immoFilter.year=${y};setEl('immo-dep-table',immoDepensesTable('${bienId}'))"
+      class="px-2 py-1 rounded text-xs ${y === _immoFilter.year ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`).join('');
+  const tBtns = ['', 'loyer', 'echeance_pret', 'charge', 'assurance'].map(t =>
+    `<button onclick="_immoFilter.type='${t}';setEl('immo-dep-table',immoDepensesTable('${bienId}'))"
+      class="px-2 py-1 rounded text-xs ${_immoFilter.type === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">${t ? TYPES[t] : 'Tous'}</button>`).join('');
+  return `
+    <div>
+      <div class="flex flex-wrap gap-2 mb-3 items-center">
+        <div class="flex gap-1">${yBtns}</div>
+        <div class="w-px h-4 bg-slate-700"></div>
+        <div class="flex flex-wrap gap-1">${tBtns}</div>
+      </div>
+      ${deps.length ? `
+      <div class="bg-slate-900 rounded-xl overflow-x-auto">
+        <table class="w-full text-sm" style="min-width:700px">
+          <thead class="bg-slate-800 text-slate-400 text-xs border-b border-slate-700">
+            <tr>
+              <th class="py-3 px-4 text-left font-medium">Date paiement</th>
+              <th class="py-3 px-4 text-left font-medium">Type</th>
+              <th class="py-3 px-4 text-right font-medium">Montant TTC</th>
+              <th class="py-3 px-4 text-right font-medium">Montant HT</th>
+              <th class="py-3 px-4 text-left font-medium">Période couverte</th>
+              <th class="py-3 px-4 text-left font-medium">Note</th>
+              <th class="py-3 px-4 w-16"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800">
+            ${deps.map(d => {
+              const tc     = TCOLS[d.type] || 'text-slate-300';
+              const htDiff = d.montant_ht && Math.abs(Number(d.montant_ht) - Number(d.montant_ttc)) > 0.01;
+              return `
+                <tr class="hover:bg-slate-800/50 transition">
+                  <td class="py-2.5 px-4 text-slate-300 text-xs whitespace-nowrap">${d.date ? fmtDate(d.date) : '—'}</td>
+                  <td class="py-2.5 px-4"><span class="${tc} text-xs font-medium">${TYPES[d.type] || d.type}</span></td>
+                  <td class="py-2.5 px-4 text-right text-white font-medium">${fmt(Number(d.montant_ttc || 0))}</td>
+                  <td class="py-2.5 px-4 text-right text-slate-400 text-xs">${htDiff ? fmt(Number(d.montant_ht)) : '—'}</td>
+                  <td class="py-2.5 px-4 text-slate-400 text-xs whitespace-nowrap">${fmtPeriode(d.periode_debut, d.periode_fin)}</td>
+                  <td class="py-2.5 px-4 text-slate-500 text-xs max-w-[160px] truncate" title="${esc(d.note || '')}">${esc(d.note || '')}</td>
+                  <td class="py-2.5 px-4 text-right whitespace-nowrap">
+                    <button onclick="openDepenseImmoModal('${bienId}','${d.id}')" class="text-slate-500 hover:text-blue-400 text-xs mr-2">✏</button>
+                    <button onclick="confirmDeleteDepenseImmo('${d.id}','${bienId}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
+                  </td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>` : `
+      <div class="bg-slate-900 rounded-xl p-8 text-center">
+        <p class="text-slate-500 text-sm">Aucune entrée pour ${year}${type ? ' · ' + (TYPES[type] || type) : ''}</p>
+      </div>`}
+    </div>`;
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
+
+function modalBienImmo() {
+  return `
+    <div id="modal-bien-immo" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeBienImmoModal()">
+      <div class="modal-box w-full max-w-lg overflow-y-auto" style="max-height:90vh">
+        <h3 id="bien-modal-title" class="text-lg font-bold text-white mb-5">Nouveau bien</h3>
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="col-span-2">
+              <label class="block text-slate-400 text-xs mb-1">Nom du bien *</label>
+              <input id="bi-nom" type="text" placeholder="Ex : Appart Lyon 3ème"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Surface (m²)</label>
+              <input id="bi-surface" type="number" min="0"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Prix d'achat (€) *</label>
+              <input id="bi-prix" type="number" min="0"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <div class="border-t border-slate-700 pt-3">
+            <p class="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">Revenus & Charges prévisionnels</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Loyer annuel HT (€)</label>
+                <input id="bi-loyer" type="number" min="0"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Taxe foncière (€/an)</label>
+                <input id="bi-taxe" type="number" min="0"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Charges annuelles (€)</label>
+                <input id="bi-charges" type="number" min="0"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+          </div>
+          <div class="border-t border-slate-700 pt-3">
+            <p class="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">Crédit immobilier (optionnel)</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Montant emprunté (€)</label>
+                <input id="bi-credit" type="number" min="0" oninput="previewMensualite()"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Durée (mois)</label>
+                <input id="bi-duree" type="number" min="0" oninput="previewMensualite()"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Taux annuel (ex : 3.5 pour 3,5%)</label>
+                <input id="bi-taux" type="number" min="0" step="0.01" oninput="previewMensualite()"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Assurance mensuelle (€)</label>
+                <input id="bi-assur" type="number" min="0"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">N° de prêt</label>
+                <input id="bi-numpret" type="text"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Date 1ère échéance</label>
+                <input id="bi-datecredit" type="date"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+            <div id="bi-mens-preview" class="hidden mt-3 bg-slate-700/40 rounded-lg px-3 py-2 flex items-center justify-between">
+              <span class="text-slate-400 text-xs">Mensualité crédit calculée</span>
+              <span id="bi-mens-val" class="text-amber-400 font-bold">—</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-6">
+          <button onclick="saveBienImmo()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeBienImmoModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function modalDepenseImmo() {
+  const cy = new Date().getFullYear();
+  const years = [cy - 1, cy, cy + 1, cy + 2];
+  const MOIS_OPTS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+    .map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  const YEAR_OPTS = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  const moisSel = id => `<select id="${id}" class="flex-1 bg-slate-700 text-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">${MOIS_OPTS}</select>`;
+  const yearSel = id => `<select id="${id}" class="w-[74px] bg-slate-700 text-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">${YEAR_OPTS}</select>`;
+
+  return `
+    <div id="modal-dep-immo" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeDepenseImmoModal()">
+      <div class="modal-box w-full max-w-sm overflow-y-auto" style="max-height:90vh">
+        <h3 id="dep-modal-title" class="text-base font-bold text-white mb-4">Dépense / Loyer</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Type *</label>
+            <select id="dep-type" onchange="toggleTvaFields()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="loyer">Loyer</option>
+              <option value="echeance_pret">Échéance prêt</option>
+              <option value="charge">Charge</option>
+              <option value="assurance">Assurance</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Date de paiement *</label>
+            <input id="dep-date" type="date"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label id="dep-montant-label" class="block text-slate-400 text-xs mb-1">Montant TTC (€) *</label>
+            <input id="dep-montant" type="number" min="0" step="0.01" oninput="refreshDepPreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div id="dep-tva-section" class="hidden space-y-3 bg-slate-700/30 rounded-lg p-3">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input id="dep-tva-toggle" type="checkbox" onchange="toggleTvaFields()">
+              <span class="text-slate-300 text-sm">Montant TTC (appliquer TVA)</span>
+            </label>
+            <div id="dep-tva-rate-row" class="hidden">
+              <label class="block text-slate-400 text-xs mb-1">Taux TVA (%)</label>
+              <input id="dep-tva-rate" type="number" value="10" min="0" max="100" step="0.1" oninput="refreshDepPreview()"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div id="dep-ht-preview" class="hidden flex items-center justify-between">
+              <span class="text-slate-400 text-xs">Montant HT calculé</span>
+              <span id="dep-ht-val" class="text-emerald-400 font-semibold text-sm">—</span>
+            </div>
+            <div class="space-y-2">
+              <label class="block text-slate-400 text-xs">Période couverte</label>
+              <div>
+                <p class="text-slate-500 text-xs mb-1">Début</p>
+                <div class="flex gap-1">${moisSel('dep-periode-mois-debut')}${yearSel('dep-periode-annee-debut')}</div>
+              </div>
+              <div>
+                <p class="text-slate-500 text-xs mb-1">Fin</p>
+                <div class="flex gap-1">${moisSel('dep-periode-mois-fin')}${yearSel('dep-periode-annee-fin')}</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Note (optionnelle)</label>
+            <textarea id="dep-note" rows="2" placeholder="Commentaire…"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button onclick="saveDepenseImmo()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeDepenseImmoModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── CRUD biens ────────────────────────────────────────────────────────────────
+
+function openBienImmoModal(id = null) {
+  _editingBienId = id;
+  const bien = id ? STATE.biens_immo.find(b => b.id === id) : null;
+  document.getElementById('bien-modal-title').textContent = bien ? 'Modifier — ' + bien.nom : 'Nouveau bien';
+  const set = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = (val ?? ''); };
+  set('bi-nom',        bien?.nom || '');
+  set('bi-surface',    bien?.surface_m2 || '');
+  set('bi-prix',       bien?.prix_achat || '');
+  set('bi-loyer',      bien?.loyer_annuel_ht || '');
+  set('bi-taxe',       bien?.taxe_fonciere || '');
+  set('bi-charges',    bien?.charges_annuelles || '');
+  set('bi-credit',     bien?.montant_credit || '');
+  set('bi-duree',      bien?.duree_credit_mois || '');
+  set('bi-taux',       bien ? (Number(bien.taux_credit || 0) * 100).toFixed(2) : '');
+  set('bi-assur',      bien?.mensualite_assurance || '');
+  set('bi-numpret',    bien?.numero_pret || '');
+  set('bi-datecredit', bien?.date_debut_credit || '');
+  previewMensualite();
+  document.getElementById('modal-bien-immo').classList.remove('hidden');
+  setTimeout(() => document.getElementById('bi-nom')?.focus(), 50);
+}
+
+function closeBienImmoModal() {
+  document.getElementById('modal-bien-immo').classList.add('hidden');
+}
+
+function previewMensualite() {
+  const C  = parseFloat(document.getElementById('bi-credit')?.value) || 0;
+  const n  = parseFloat(document.getElementById('bi-duree')?.value) || 0;
+  const ta = parseFloat(document.getElementById('bi-taux')?.value) || 0;
+  const tm = ta / 100 / 12;
+  const m  = C > 0 && n > 0 ? (tm === 0 ? C / n : (C * tm) / (1 - Math.pow(1 + tm, -n))) : 0;
+  const prev = document.getElementById('bi-mens-preview');
+  const val  = document.getElementById('bi-mens-val');
+  if (prev && val) {
+    if (C > 0 && n > 0) { prev.classList.remove('hidden'); val.textContent = fmt(m) + '/mois'; }
+    else prev.classList.add('hidden');
+  }
+}
+
+async function saveBienImmo() {
+  const nom = document.getElementById('bi-nom')?.value?.trim();
+  if (!nom) { alert('Le nom est obligatoire.'); return; }
+  const ta   = parseFloat(document.getElementById('bi-taux')?.value) || 0;
+  const data = {
+    nom,
+    surface_m2:           parseFloat(document.getElementById('bi-surface')?.value) || 0,
+    prix_achat:           parseFloat(document.getElementById('bi-prix')?.value) || 0,
+    loyer_annuel_ht:      parseFloat(document.getElementById('bi-loyer')?.value) || 0,
+    taxe_fonciere:        parseFloat(document.getElementById('bi-taxe')?.value) || 0,
+    charges_annuelles:    parseFloat(document.getElementById('bi-charges')?.value) || 0,
+    montant_credit:       parseFloat(document.getElementById('bi-credit')?.value) || 0,
+    duree_credit_mois:    parseFloat(document.getElementById('bi-duree')?.value) || 0,
+    taux_credit:          ta / 100,
+    mensualite_assurance: parseFloat(document.getElementById('bi-assur')?.value) || 0,
+    numero_pret:          document.getElementById('bi-numpret')?.value?.trim() || '',
+    date_debut_credit:    document.getElementById('bi-datecredit')?.value || '',
+  };
+  closeBienImmoModal();
+  setGlobalLoader(true, _editingBienId ? 'Mise à jour…' : 'Enregistrement…');
+  try {
+    if (_editingBienId) {
+      await API.updateBienImmo({ id: _editingBienId, ...data });
+      const idx = STATE.biens_immo.findIndex(b => b.id === _editingBienId);
+      if (idx !== -1) STATE.biens_immo[idx] = { ...STATE.biens_immo[idx], ...data };
+      const cached = API._getCache();
+      if (cached) { cached.biens_immo = STATE.biens_immo; API._setCache(cached); }
+      navigate(location.hash.slice(1));
+    } else {
+      const result = await API.addBienImmo(data);
+      STATE.biens_immo.push(result);
+      const cached = API._getCache();
+      if (cached) { cached.biens_immo = STATE.biens_immo; API._setCache(cached); }
+      navigate('#immo');
+    }
+  } catch (err) { alert('Erreur : ' + err.message); }
+  finally { setGlobalLoader(false); }
+}
+
+async function confirmDeleteBienImmo(id) {
+  const bien = STATE.biens_immo.find(b => b.id === id);
+  if (!confirm('Supprimer "' + (bien?.nom || '') + '" et toutes ses dépenses associées ?')) return;
+  setGlobalLoader(true, 'Suppression…');
+  try {
+    await API.deleteBienImmo(id);
+    STATE.biens_immo    = STATE.biens_immo.filter(b => b.id !== id);
+    STATE.depenses_immo = STATE.depenses_immo.filter(d => d.bien_id !== id);
+    const cached = API._getCache();
+    if (cached) { cached.biens_immo = STATE.biens_immo; cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    navigate('#immo');
+  } catch (err) { alert('Erreur : ' + err.message); }
+  finally { setGlobalLoader(false); }
+}
+
+// ── CRUD dépenses ─────────────────────────────────────────────────────────────
+
+function openDepenseImmoModal(bienId, depId = null) {
+  _depBienId    = bienId;
+  _editingDepId = depId;
+  const dep  = depId ? STATE.depenses_immo.find(d => d.id === depId) : null;
+  const now  = new Date();
+  const cy   = now.getFullYear();
+  const cm   = now.getMonth() + 1;
+
+  document.getElementById('dep-modal-title').textContent = dep ? 'Modifier la dépense' : 'Nouvelle dépense';
+  document.getElementById('dep-type').value    = dep?.type || 'loyer';
+  document.getElementById('dep-date').value    = dep?.date || now.toISOString().slice(0, 10);
+  document.getElementById('dep-montant').value = dep?.montant_ttc || '';
+  document.getElementById('dep-note').value    = dep?.note || '';
+
+  // TVA : cochée par défaut pour un nouveau loyer, sinon basé sur les données existantes
+  const hasTva = dep ? !!dep.tva_rate : true;
+  document.getElementById('dep-tva-toggle').checked = hasTva;
+  document.getElementById('dep-tva-rate').value = dep?.tva_rate
+    ? (Number(dep.tva_rate) * 100).toFixed(1) : '10';
+
+  // Période : sélecteurs mois/année
+  const setMoisAnnee = (moisId, anneeId, dateStr, defaultMois, defaultAnnee) => {
+    const m = dateStr ? parseInt(dateStr.split('-')[1]) : defaultMois;
+    const y = dateStr ? parseInt(dateStr.split('-')[0]) : defaultAnnee;
+    const mEl = document.getElementById(moisId), yEl = document.getElementById(anneeId);
+    if (mEl) mEl.value = m;
+    if (yEl) {
+      // Ajouter l'année si elle n'est pas dans les options
+      if (![...yEl.options].some(o => Number(o.value) === y)) {
+        const opt = document.createElement('option');
+        opt.value = y; opt.textContent = y;
+        yEl.appendChild(opt);
+      }
+      yEl.value = y;
+    }
+  };
+  setMoisAnnee('dep-periode-mois-debut', 'dep-periode-annee-debut', dep?.periode_debut, cm, cy);
+  setMoisAnnee('dep-periode-mois-fin',   'dep-periode-annee-fin',   dep?.periode_fin,   cm, cy);
+
+  toggleTvaFields();
+  document.getElementById('modal-dep-immo').classList.remove('hidden');
+  setTimeout(() => document.getElementById('dep-montant')?.focus(), 50);
+}
+
+function closeDepenseImmoModal() {
+  document.getElementById('modal-dep-immo').classList.add('hidden');
+}
+
+function toggleTvaFields() {
+  const type    = document.getElementById('dep-type')?.value;
+  const tvaTog  = document.getElementById('dep-tva-toggle');
+  const isLoyer = type === 'loyer';
+  document.getElementById('dep-tva-section')?.classList.toggle('hidden', !isLoyer);
+  const withTva = isLoyer && tvaTog?.checked;
+  document.getElementById('dep-tva-rate-row')?.classList.toggle('hidden', !withTva);
+  document.getElementById('dep-ht-preview')?.classList.toggle('hidden', !withTva);
+  const label = document.getElementById('dep-montant-label');
+  if (label) label.textContent = withTva ? 'Montant TTC (€) *' : isLoyer ? 'Montant HT (€) *' : 'Montant (€) *';
+  refreshDepPreview();
+}
+
+function refreshDepPreview() {
+  const type   = document.getElementById('dep-type')?.value;
+  const m      = parseFloat(document.getElementById('dep-montant')?.value) || 0;
+  const hasTva = document.getElementById('dep-tva-toggle')?.checked;
+  const rate   = parseFloat(document.getElementById('dep-tva-rate')?.value) || 10;
+  if (type === 'loyer' && hasTva && m > 0) {
+    const el = document.getElementById('dep-ht-val');
+    if (el) el.textContent = fmt(m / (1 + rate / 100));
+  }
+}
+
+async function saveDepenseImmo() {
+  const type   = document.getElementById('dep-type')?.value;
+  const date   = document.getElementById('dep-date')?.value;
+  const rawVal = document.getElementById('dep-montant')?.value || '';
+  const m      = parseFloat(String(rawVal).replace(',', '.')) || 0;
+  const note   = document.getElementById('dep-note')?.value?.trim() || '';
+  if (!type || !date || !m) { alert('Type, date et montant sont obligatoires.'); return; }
+  const isLoyer = type === 'loyer';
+  const hasTva  = isLoyer && document.getElementById('dep-tva-toggle')?.checked;
+  const tvaRate = hasTva ? parseFloat(document.getElementById('dep-tva-rate')?.value) / 100 : null;
+  const ht      = hasTva ? m / (1 + tvaRate) : m;
+  const bienId  = _depBienId; // capture avant fermeture
+  const editId  = _editingDepId;
+  const data = {
+    bien_id: bienId, type, date,
+    montant_ttc:   m,
+    tva_rate:      tvaRate,
+    montant_ht:    isLoyer ? ht : m,
+    periode_debut: isLoyer ? (() => {
+      const mois  = parseInt(document.getElementById('dep-periode-mois-debut')?.value) || 1;
+      const annee = parseInt(document.getElementById('dep-periode-annee-debut')?.value) || new Date().getFullYear();
+      return `${annee}-${String(mois).padStart(2,'0')}-01`;
+    })() : '',
+    periode_fin: isLoyer ? (() => {
+      const mois  = parseInt(document.getElementById('dep-periode-mois-fin')?.value) || 1;
+      const annee = parseInt(document.getElementById('dep-periode-annee-fin')?.value) || new Date().getFullYear();
+      const lastDay = new Date(annee, mois, 0).getDate();
+      return `${annee}-${String(mois).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+    })() : '',
+    note,
+  };
+  setGlobalLoader(true, editId ? 'Mise à jour…' : 'Enregistrement…');
+  try {
+    closeDepenseImmoModal();
+    if (editId) {
+      await API.updateDepenseImmo({ id: editId, ...data });
+      const idx = STATE.depenses_immo.findIndex(d => d.id === editId);
+      if (idx !== -1) STATE.depenses_immo[idx] = { ...STATE.depenses_immo[idx], ...data };
+    } else {
+      const result = await API.addDepenseImmo(data);
+      if (result) STATE.depenses_immo.push({ ...data, ...result });
+    }
+    const cached = API._getCache();
+    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    setEl('immo-dep-table', immoDepensesTable(bienId));
+    setEl('immo-reel',      immoBloc3(bienId));
+  } catch (err) {
+    console.error('saveDepenseImmo error:', err);
+    alert('Erreur : ' + (err.message || err));
+  } finally { setGlobalLoader(false); }
+}
+
+async function confirmDeleteDepenseImmo(id, bienId) {
+  if (!confirm('Supprimer cette entrée ?')) return;
+  setGlobalLoader(true, 'Suppression…');
+  try {
+    await API.deleteDepenseImmo(id);
+    STATE.depenses_immo = STATE.depenses_immo.filter(d => d.id !== id);
+    const cached = API._getCache();
+    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    setEl('immo-dep-table', immoDepensesTable(bienId));
+    setEl('immo-reel',      immoBloc3(bienId));
+  } catch (err) { alert('Erreur : ' + err.message); }
+  finally { setGlobalLoader(false); }
 }
