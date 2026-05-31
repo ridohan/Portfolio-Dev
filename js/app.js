@@ -4633,16 +4633,16 @@ async function saveBienImmo() {
       await API.updateBienImmo({ id: _editingBienId, ...data });
       const idx = STATE.biens_immo.findIndex(b => b.id === _editingBienId);
       if (idx !== -1) STATE.biens_immo[idx] = { ...STATE.biens_immo[idx], ...data };
-      const cached = API._getCache();
-      if (cached) { cached.biens_immo = STATE.biens_immo; API._setCache(cached); }
-      navigate(location.hash.slice(1));
     } else {
       const result = await API.addBienImmo(data);
-      STATE.biens_immo.push(result);
-      const cached = API._getCache();
-      if (cached) { cached.biens_immo = STATE.biens_immo; API._setCache(cached); }
-      navigate('#immo');
+      STATE.biens_immo.push({ ...data, ...result });
+      // Changer l'URL silencieusement sans déclencher hashchange
+      history.replaceState(null, '', '#immo');
     }
+    // Reconstruire le cache depuis STATE puis forcer le re-render
+    // (navigate() ne suffit pas si le hash n'a pas changé)
+    API._setCache({ ...STATE });
+    render();
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
 }
@@ -4655,9 +4655,9 @@ async function confirmDeleteBienImmo(id) {
     await API.deleteBienImmo(id);
     STATE.biens_immo    = STATE.biens_immo.filter(b => b.id !== id);
     STATE.depenses_immo = STATE.depenses_immo.filter(d => d.bien_id !== id);
-    const cached = API._getCache();
-    if (cached) { cached.biens_immo = STATE.biens_immo; cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
-    navigate('#immo');
+    history.replaceState(null, '', '#immo');
+    API._setCache({ ...STATE });
+    render();
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
 }
