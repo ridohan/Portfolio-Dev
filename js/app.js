@@ -3379,9 +3379,13 @@ async function confirmDeleteExpenseAid(id) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 let _immoFilter      = { year: new Date().getFullYear(), type: '' };
+let _immoGlobalYear  = new Date().getFullYear();
+let _tvaFilter       = { year: new Date().getFullYear() };
+let _loyerFreq       = 'mensuel'; // 'mensuel' | 'trimestriel' | 'personnalise'
 let _editingBienId   = null;
 let _editingDepId    = null;
 let _depBienId       = null;
+let _editingTvaId    = null;
 
 // ── Calculs financiers ────────────────────────────────────────────────────────
 
@@ -3433,10 +3437,12 @@ function immoRentabilite(bien) {
 function immoLoyersHtYtd(bienId, year) {
   const yStart = new Date(year, 0, 1);
   const yEnd   = new Date(year, 11, 31, 23, 59, 59);
+  // parseLocalDate : évite le décalage UTC en parsant yyyy-MM-dd comme date locale
+  const parseLocalDate = s => { const p = String(s).split('T')[0].split('-'); return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])); };
   return STATE.depenses_immo
     .filter(d => d.bien_id === bienId && d.type === 'loyer' && d.periode_debut && d.periode_fin)
     .reduce((sum, d) => {
-      const s = new Date(d.periode_debut), e = new Date(d.periode_fin);
+      const s = parseLocalDate(d.periode_debut), e = parseLocalDate(d.periode_fin);
       if (e < yStart || s > yEnd) return sum;
       const oS = s < yStart ? yStart : s, oE = e > yEnd ? yEnd : e;
       const tot = (e - s) / 86400000 + 1, ov = (oE - oS) / 86400000 + 1;
@@ -3450,33 +3456,260 @@ function immoDepensesYtd(bienId, year) {
     .reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
 }
 
-function immoTrackedMonths(bienId, year) {
+// Mois avec au moins 1 loyer reçu (basé sur la période couverte, pas la date de paiement)
+function immoLoyerTrackedMonths(bienId, year) {
   const months = new Set();
-  STATE.depenses_immo.filter(d => d.bien_id === bienId).forEach(d => {
-    const ref = d.date || d.periode_debut;
-    if (ref && new Date(ref).getFullYear() === year) months.add(new Date(ref).getMonth());
-  });
+  const parseLD = s => { const p = String(s).split('T')[0].split('-'); return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])); };
+  const yStart = new Date(year, 0, 1), yEnd = new Date(year, 11, 31, 23, 59, 59);
+  STATE.depenses_immo
+    .filter(d => d.bien_id === bienId && d.type === 'loyer' && d.periode_debut && d.periode_fin)
+    .forEach(d => {
+      const s = parseLD(d.periode_debut), e = parseLD(d.periode_fin);
+      if (e < yStart || s > yEnd) return;
+      // Compter chaque mois calendaire de l'année couvert par ce loyer
+      let cur = new Date(Math.max(s, yStart));
+      cur = new Date(cur.getFullYear(), cur.getMonth(), 1);
+      const fin = new Date(Math.min(e, yEnd));
+      while (cur <= fin) {
+        if (cur.getFullYear() === year) months.add(cur.getMonth());
+        cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+      }
+    });
+  return months.size;
+}
+
+// Mois avec au moins 1 charge/échéance/assurance payée
+function immoChargesTrackedMonths(bienId, year) {
+  const months = new Set();
+  STATE.depenses_immo
+    .filter(d => d.bien_id === bienId && d.type !== 'loyer' && d.date)
+    .forEach(d => {
+      if (new Date(d.date).getFullYear() === year) months.add(new Date(d.date).getMonth());
+    });
   return months.size;
 }
 
 function immoRentabiliteReelle(bienId, year) {
   const bien = STATE.biens_immo.find(b => b.id === bienId);
   if (!bien) return null;
-  const loyersHt = immoLoyersHtYtd(bienId, year);
-  const depenses = immoDepensesYtd(bienId, year);
-  const taxe     = Number(bien.taxe_fonciere || 0);
-  const prix     = Number(bien.prix_achat || 0);
-  const mois     = immoTrackedMonths(bienId, year);
-  const cfReel   = loyersHt - depenses - taxe;
-  let cfProjete = 0, rendProjete = 0;
-  if (mois > 0) {
-    cfProjete   = (loyersHt / mois) * 12 - (depenses / mois) * 12 - taxe;
+  const loyersHt    = immoLoyersHtYtd(bienId, year);
+  const depenses    = immoDepensesYtd(bienId, year);
+  const taxe        = Number(bien.taxe_fonciere || 0);
+  const prix        = Number(bien.prix_achat || 0);
+  const moisLoyers  = immoLoyerTrackedMonths(bienId, year);
+  const moisCharges = immoChargesTrackedMonths(bienId, year);
+  const cfReel      = loyersHt - depenses - taxe;
+
+  // Projection : chaque flux divisé par SES PROPRES mois déclarés → extrapolé sur 12
+  let loyersAnn = 0, depAnn = 0, cfProjete = 0, rendProjete = 0;
+  if (moisLoyers > 0)  loyersAnn = (loyersHt  / moisLoyers)  * 12;
+  if (moisCharges > 0) depAnn    = (depenses   / moisCharges) * 12;
+  if (moisLoyers > 0 || moisCharges > 0) {
+    cfProjete   = loyersAnn - depAnn - taxe;
     rendProjete = prix > 0 ? cfProjete / prix * 100 : 0;
   }
-  return { loyersHt, depenses, taxe, cfReel, mois, cfProjete, rendProjete };
+
+  return { loyersHt, depenses, taxe, cfReel, moisLoyers, moisCharges, loyersAnn, depAnn, cfProjete, rendProjete };
 }
 
 // ── Dashboard card ────────────────────────────────────────────────────────────
+
+// ── Vue globale consolidée ────────────────────────────────────────────────────
+
+function immoGlobalStats(year) {
+  const now = new Date();
+  const parseLD = s => { const p = String(s).split('T')[0].split('-'); return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])); };
+
+  // Patrimoine
+  let brut = 0, crd = 0, loyerAnnHtTot = 0, taxeTot = 0;
+  let cfAnnCredit = 0, cfAnnPost = 0;
+  STATE.biens_immo.forEach(b => {
+    brut          += Number(b.prix_achat || 0);
+    crd           += immoCapitalRestantDu(b, now);
+    loyerAnnHtTot += Number(b.loyer_annuel_ht || 0);
+    taxeTot       += Number(b.taxe_fonciere || 0);
+    const r = immoRentabilite(b);
+    cfAnnCredit += r.cfAnnCredit;
+    cfAnnPost   += r.cfAnnPost;
+  });
+  const equity        = brut - crd;
+  const rendBrut      = brut > 0 ? loyerAnnHtTot / brut * 100 : 0;
+  const rendNetCredit = brut > 0 ? cfAnnCredit / brut * 100 : 0;
+  const rendNetPost   = brut > 0 ? cfAnnPost   / brut * 100 : 0;
+  const pctRemb       = brut > 0 ? Math.round(equity / brut * 100) : 0; // equity = capital remboursé uniquement si brut = montant crédit
+
+  // Réel global — on agrège tous les biens
+  let loyersHtTot = 0, depTot = 0;
+  STATE.biens_immo.forEach(b => {
+    loyersHtTot += immoLoyersHtYtd(b.id, year);
+    depTot      += immoDepensesYtd(b.id, year);
+  });
+  const cfReelTot = loyersHtTot - depTot - taxeTot;
+
+  // Mois loyers globaux (union des mois couverts par n'importe quel bien)
+  const moisLoyerSet = new Set();
+  const yStart = new Date(year, 0, 1), yEnd = new Date(year, 11, 31, 23, 59, 59);
+  STATE.depenses_immo
+    .filter(d => d.type === 'loyer' && d.bien_id !== '__tva__' && d.periode_debut && d.periode_fin)
+    .forEach(d => {
+      const s = parseLD(d.periode_debut), e = parseLD(d.periode_fin);
+      if (e < yStart || s > yEnd) return;
+      let cur = new Date(Math.max(s, yStart));
+      cur = new Date(cur.getFullYear(), cur.getMonth(), 1);
+      const fin = new Date(Math.min(e, yEnd));
+      while (cur <= fin) { if (cur.getFullYear() === year) moisLoyerSet.add(cur.getMonth()); cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1); }
+    });
+  const moisLoyers = moisLoyerSet.size;
+
+  // Mois charges globaux
+  const moisChargeSet = new Set();
+  STATE.depenses_immo
+    .filter(d => d.type !== 'loyer' && d.bien_id !== '__tva__' && d.date)
+    .forEach(d => { if (new Date(d.date).getFullYear() === year) moisChargeSet.add(new Date(d.date).getMonth()); });
+  const moisCharges = moisChargeSet.size;
+
+  let loyersAnn = 0, depAnn = 0, cfProjete = 0, rendProjete = 0;
+  if (moisLoyers  > 0) loyersAnn = (loyersHtTot / moisLoyers)  * 12;
+  if (moisCharges > 0) depAnn    = (depTot      / moisCharges) * 12;
+  if (moisLoyers > 0 || moisCharges > 0) {
+    cfProjete   = loyersAnn - depAnn - taxeTot;
+    rendProjete = brut > 0 ? cfProjete / brut * 100 : 0;
+  }
+
+  return {
+    brut, crd, equity, pctRemb,
+    rendBrut, rendNetCredit, rendNetPost, cfAnnCredit, cfAnnPost,
+    loyersHtTot, depTot, taxeTot, cfReelTot,
+    moisLoyers, moisCharges, loyersAnn, depAnn, cfProjete, rendProjete,
+    nbBiens: STATE.biens_immo.length,
+  };
+}
+
+function immoGlobalBloc() {
+  if (!STATE.biens_immo.length) return '';
+  const year = _immoGlobalYear;
+  const g    = immoGlobalStats(year);
+  const cc   = v => v >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const fmtC = v => (v >= 0 ? '+' : '') + fmt(Math.round(v));
+  const fmtP = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  const yBtns = [year - 1, year, year + 1].map(y =>
+    `<button onclick="_immoGlobalYear=${y};setEl('immo-global-bloc',immoGlobalBloc())"
+      class="px-2 py-1 rounded text-xs ${y === year ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`).join('');
+  const hasCr = g.crd > 0;
+
+  return `
+  <div id="immo-global-bloc" class="space-y-4">
+
+    <!-- Patrimoine -->
+    <div class="bg-slate-800 rounded-xl p-5">
+      <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">🏦 Patrimoine immobilier · ${g.nbBiens} bien${g.nbBiens > 1 ? 's' : ''}</h2>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Valeur brute</p>
+          <p class="text-white font-bold text-lg">${fmt(g.brut)}</p>
+          <p class="text-slate-600 text-xs">Prix d'achat total</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Capital remboursé</p>
+          <p class="text-emerald-400 font-bold text-lg">${fmt(Math.round(g.equity))}</p>
+          <p class="text-slate-600 text-xs">Equity constituée</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Capital restant dû</p>
+          <p class="${hasCr ? 'text-amber-400' : 'text-slate-400'} font-bold text-lg">${fmt(Math.round(g.crd))}</p>
+          <p class="text-slate-600 text-xs">Engagement crédit</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Valeur nette</p>
+          <p class="text-white font-bold text-lg">${fmt(Math.round(g.brut - g.crd))}</p>
+          <p class="text-slate-600 text-xs">Brut − restant dû</p>
+        </div>
+      </div>
+      ${hasCr ? `
+      <div class="w-full bg-slate-700 rounded-full h-2">
+        <div class="bg-emerald-500 h-2 rounded-full transition-all" style="width:${Math.min(g.pctRemb, 100)}%"></div>
+      </div>
+      <p class="text-slate-500 text-xs mt-1.5 text-right">${g.pctRemb}% du capital remboursé</p>` : ''}
+    </div>
+
+    <!-- Rentabilité théorique + réelle côte à côte -->
+    <div class="grid gap-4 lg:grid-cols-2">
+
+      <!-- Théorique -->
+      <div class="bg-slate-800 rounded-xl p-5">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">📈 Rentabilité théorique</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-xs border-b border-slate-700">
+            <tr>
+              <th class="text-left py-2 font-medium">Indicateur</th>
+              ${hasCr ? '<th class="text-right py-2 font-medium">Pendant crédit</th>' : ''}
+              <th class="text-right py-2 font-medium">Post crédit</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-700/40">
+            <tr>
+              <td class="py-2.5 text-slate-300">Rendement brut</td>
+              ${hasCr ? `<td class="py-2.5 text-right text-emerald-400">${g.rendBrut.toFixed(2)}%</td>` : ''}
+              <td class="py-2.5 text-right text-emerald-400">${g.rendBrut.toFixed(2)}%</td>
+            </tr>
+            <tr>
+              <td class="py-2.5 text-slate-300">Rendement net</td>
+              ${hasCr ? `<td class="py-2.5 text-right font-semibold ${cc(g.rendNetCredit)}">${fmtP(g.rendNetCredit)}</td>` : ''}
+              <td class="py-2.5 text-right font-semibold ${cc(g.rendNetPost)}">${fmtP(g.rendNetPost)}</td>
+            </tr>
+            <tr>
+              <td class="py-2.5 text-slate-300">Cashflow annuel</td>
+              ${hasCr ? `<td class="py-2.5 text-right ${cc(g.cfAnnCredit)}">${fmtC(g.cfAnnCredit)}</td>` : ''}
+              <td class="py-2.5 text-right ${cc(g.cfAnnPost)}">${fmtC(g.cfAnnPost)}</td>
+            </tr>
+            <tr>
+              <td class="py-2.5 text-slate-300">Cashflow mensuel</td>
+              ${hasCr ? `<td class="py-2.5 text-right font-semibold ${cc(g.cfAnnCredit / 12)}">${fmtC(g.cfAnnCredit / 12)}/mois</td>` : ''}
+              <td class="py-2.5 text-right font-semibold ${cc(g.cfAnnPost / 12)}">${fmtC(g.cfAnnPost / 12)}/mois</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Réel -->
+      <div class="bg-slate-800 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">📊 Réel ${year}</h2>
+          <div class="flex gap-1">${yBtns}</div>
+        </div>
+        ${(g.moisLoyers === 0 && g.moisCharges === 0) ? `
+          <p class="text-slate-500 text-sm py-6 text-center">Aucune donnée saisie pour ${year}</p>` : `
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-slate-700/40 rounded-lg p-3">
+            <p class="text-slate-400 text-xs mb-1">Loyers HT perçus</p>
+            <p class="text-emerald-400 font-bold">${fmt(Math.round(g.loyersHtTot))}</p>
+            <p class="text-slate-600 text-xs">${g.moisLoyers} loyer${g.moisLoyers > 1 ? 's' : ''} saisi${g.moisLoyers > 1 ? 's' : ''}</p>
+          </div>
+          <div class="bg-slate-700/40 rounded-lg p-3">
+            <p class="text-slate-400 text-xs mb-1">Dépenses + TF</p>
+            <p class="text-red-400 font-bold">−${fmt(Math.round(g.depTot + g.taxeTot))}</p>
+            <p class="text-slate-600 text-xs">${g.moisCharges} mois · TF ${fmt(g.taxeTot)}</p>
+          </div>
+          <div class="bg-slate-700/40 rounded-lg p-3">
+            <p class="text-slate-400 text-xs mb-1">Cashflow réel YTD</p>
+            <p class="${cc(g.cfReelTot)} font-bold">${fmtC(Math.round(g.cfReelTot))}</p>
+            <p class="text-slate-500 text-xs mt-0.5">${g.moisLoyers > 0 && g.moisCharges > 0 ? fmtC(Math.round(g.cfReelTot / Math.max(g.moisLoyers, g.moisCharges))) + '/mois moy.' : 'données partielles'}</p>
+          </div>
+          <div class="bg-slate-700/40 rounded-lg p-3 ${g.moisLoyers !== g.moisCharges ? 'border border-blue-500/30' : ''}">
+            <p class="text-slate-400 text-xs mb-1">Cashflow projeté</p>
+            <p class="${cc(g.cfProjete)} font-bold">${fmtC(Math.round(g.cfProjete / 12))}/mois</p>
+            <p class="text-slate-500 text-xs mt-0.5">${fmtC(Math.round(g.cfProjete))}/an · ${g.rendProjete.toFixed(2)}%</p>
+            ${g.moisLoyers !== g.moisCharges ? `
+            <div class="mt-1.5 pt-1.5 border-t border-slate-600/50 space-y-0.5">
+              <p class="text-slate-600 text-xs">↑ ${fmtC(Math.round(g.loyersAnn / 12))}/mois loyers (${g.moisLoyers}m)</p>
+              <p class="text-slate-600 text-xs">↓ ${fmt(Math.round(g.depAnn / 12))}/mois charges (${g.moisCharges}m)</p>
+            </div>` : ''}
+          </div>
+        </div>`}
+      </div>
+    </div>
+  </div>`;
+}
 
 function immoDashboardCard() {
   if (!STATE.biens_immo.length) return `
@@ -3528,9 +3761,15 @@ function renderImmo(app) {
         <h1 class="text-2xl font-bold text-white">🏠 Immobilier Locatif</h1>
         <button onclick="openBienImmoModal()" class="btn-primary text-sm">+ Ajouter un bien</button>
       </div>
+
       ${STATE.biens_immo.length ? `
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          ${STATE.biens_immo.map(b => bienImmoCard(b)).join('')}
+        ${immoGlobalBloc()}
+
+        <div>
+          <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Mes biens</h2>
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            ${STATE.biens_immo.map(b => bienImmoCard(b)).join('')}
+          </div>
         </div>` : `
         <div class="bg-slate-800 rounded-xl p-12 text-center">
           <p class="text-4xl mb-4">🏠</p>
@@ -3538,8 +3777,11 @@ function renderImmo(app) {
           <p class="text-slate-500 text-sm mb-6">Ajoutez votre premier bien pour démarrer le suivi de rentabilité</p>
           <button onclick="openBienImmoModal()" class="btn-primary">+ Ajouter un bien</button>
         </div>`}
+
+      <div id="immo-tva-bloc">${immoTvaBloc()}</div>
     </div>
-    ${modalBienImmo()}`;
+    ${modalBienImmo()}
+    ${modalTvaVersement()}`;
 }
 
 function bienImmoCard(bien) {
@@ -3614,7 +3856,8 @@ function renderImmoDetail(app, bienId) {
       </div>
     </div>
     ${modalBienImmo()}
-    ${modalDepenseImmo()}`;
+    ${modalDepenseImmo()}
+    ${modalTvaVersement()}`;
 }
 
 function immoBloc1(bien) {
@@ -3702,26 +3945,32 @@ function immoBloc3(bienId) {
         <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Réel ${year}</h2>
         <div class="flex gap-1">${yBtns}</div>
       </div>
-      ${r.mois === 0 ? `<p class="text-slate-500 text-sm py-6 text-center">Aucune dépense saisie pour ${year}</p>` : `
+      ${(r.moisLoyers === 0 && r.moisCharges === 0) ? `<p class="text-slate-500 text-sm py-6 text-center">Aucune dépense saisie pour ${year}</p>` : `
       <div class="grid grid-cols-2 gap-3">
         <div class="bg-slate-700/40 rounded-lg p-3">
           <p class="text-slate-400 text-xs mb-1">Loyers HT perçus</p>
-          <p class="text-emerald-400 font-bold">${fmt(r.loyersHt)}</p>
-          <p class="text-slate-600 text-xs">${r.mois} mois de données</p>
+          <p class="text-emerald-400 font-bold">${fmt(Math.round(r.loyersHt))}</p>
+          <p class="text-slate-600 text-xs">${r.moisLoyers} loyer${r.moisLoyers > 1 ? 's' : ''} saisi${r.moisLoyers > 1 ? 's' : ''}</p>
         </div>
         <div class="bg-slate-700/40 rounded-lg p-3">
           <p class="text-slate-400 text-xs mb-1">Dépenses + TF</p>
-          <p class="text-red-400 font-bold">−${fmt(r.depenses + r.taxe)}</p>
-          <p class="text-slate-600 text-xs">dont TF ${fmt(r.taxe)}</p>
+          <p class="text-red-400 font-bold">−${fmt(Math.round(r.depenses + r.taxe))}</p>
+          <p class="text-slate-600 text-xs">${r.moisCharges} mois · TF ${fmt(r.taxe)}</p>
         </div>
         <div class="bg-slate-700/40 rounded-lg p-3">
           <p class="text-slate-400 text-xs mb-1">Cashflow réel YTD</p>
-          <p class="${cc(r.cfReel)} font-bold">${fmtCf(r.cfReel)}</p>
+          <p class="${cc(r.cfReel)} font-bold">${fmtCf(Math.round(r.cfReel))}</p>
+          <p class="text-slate-500 text-xs mt-0.5">${r.moisLoyers > 0 && r.moisCharges > 0 ? fmtCf(Math.round(r.cfReel / Math.max(r.moisLoyers, r.moisCharges))) + '/mois moy.' : 'données partielles'}</p>
         </div>
-        <div class="bg-slate-700/40 rounded-lg p-3">
+        <div class="bg-slate-700/40 rounded-lg p-3 ${r.moisLoyers !== r.moisCharges ? 'border border-blue-500/30' : ''}">
           <p class="text-slate-400 text-xs mb-1">Cashflow projeté</p>
-          <p class="${cc(r.cfProjete)} font-bold">${fmtCf(r.cfProjete)}/an</p>
-          <p class="text-slate-600 text-xs">Rdt ${r.rendProjete.toFixed(2)}%</p>
+          <p class="${cc(r.cfProjete)} font-bold">${fmtCf(Math.round(r.cfProjete / 12))}/mois</p>
+          <p class="text-slate-500 text-xs mt-0.5">${fmtCf(Math.round(r.cfProjete))}/an · ${r.rendProjete.toFixed(2)}%</p>
+          ${r.moisLoyers !== r.moisCharges ? `
+          <div class="mt-1.5 pt-1.5 border-t border-slate-600/50 space-y-0.5">
+            <p class="text-slate-600 text-xs">↑ ${fmtCf(Math.round(r.loyersAnn / 12))}/mois loyers (${r.moisLoyers}m)</p>
+            <p class="text-slate-600 text-xs">↓ ${fmt(Math.round(r.depAnn / 12))}/mois charges (${r.moisCharges}m)</p>
+          </div>` : ''}
         </div>
       </div>`}
     </div>`;
@@ -3747,10 +3996,280 @@ function immoBloc4(bien) {
     </div>`;
 }
 
+// ── TVA globale immobilier ────────────────────────────────────────────────────
+
+function immoTvaCollectee(year) {
+  const yStart = new Date(year, 0, 1);
+  const yEnd   = new Date(year, 11, 31, 23, 59, 59);
+  const parseLocalDate = s => { const p = String(s).split('T')[0].split('-'); return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])); };
+  return STATE.depenses_immo
+    .filter(d => d.type === 'loyer' && d.tva_rate && Number(d.tva_rate) > 0 && d.periode_debut && d.periode_fin)
+    .reduce((sum, d) => {
+      const s = parseLocalDate(d.periode_debut), e = parseLocalDate(d.periode_fin);
+      if (e < yStart || s > yEnd) return sum;
+      const oS = s < yStart ? yStart : s, oE = e > yEnd ? yEnd : e;
+      const tot = (e - s) / 86400000 + 1, ov = (oE - oS) / 86400000 + 1;
+      const tva = Number(d.montant_ttc || 0) - Number(d.montant_ht || 0);
+      return sum + tva * (ov / tot);
+    }, 0);
+}
+
+function immoTvaVersee(year) {
+  return STATE.depenses_immo
+    .filter(d => d.bien_id === '__tva__' && d.type === 'tva_reversee' && d.date && new Date(d.date).getFullYear() === year)
+    .reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+}
+
+function immoTvaVersements(year) {
+  return STATE.depenses_immo
+    .filter(d => d.bien_id === '__tva__' && d.type === 'tva_reversee' && d.date && new Date(d.date).getFullYear() === year)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function immoTvaTrackedMonths(year) {
+  const months = new Set();
+  STATE.depenses_immo
+    .filter(d => d.type === 'loyer' && d.tva_rate && Number(d.tva_rate) > 0)
+    .forEach(d => {
+      const ref = d.periode_debut || d.date;
+      if (ref && new Date(ref).getFullYear() === year) months.add(new Date(ref).getMonth());
+    });
+  return months.size;
+}
+
+function immoTvaBloc() {
+  const year    = _tvaFilter.year;
+  const collectee = immoTvaCollectee(year);
+  const versee    = immoTvaVersee(year);
+  const solde     = collectee - versee;
+  const mois      = immoTvaTrackedMonths(year);
+  const projete   = mois > 0 ? (collectee / mois) * 12 : 0;
+  const versements = immoTvaVersements(year);
+  const cc = v => v > 0 ? 'text-amber-400' : (v < 0 ? 'text-emerald-400' : 'text-slate-300');
+  const yBtns = [year - 1, year, year + 1].map(y =>
+    `<button onclick="_tvaFilter.year=${y};setEl('immo-tva-bloc',immoTvaBloc())"
+      class="px-2 py-1 rounded text-xs ${y === year ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`).join('');
+
+  // Détail TVA par bien
+  const loyersAvecTva = STATE.depenses_immo.filter(d =>
+    d.type === 'loyer' && d.tva_rate && Number(d.tva_rate) > 0 && d.periode_debut && d.periode_fin
+  );
+  const bienIds = [...new Set(loyersAvecTva.map(d => d.bien_id))];
+  const detailRows = bienIds.map(bid => {
+    const bien = STATE.biens_immo.find(b => b.id === bid);
+    const yStart = new Date(year, 0, 1), yEnd = new Date(year, 11, 31, 23, 59, 59);
+    let tvaHt = 0, tvaTtc = 0;
+    loyersAvecTva.filter(d => d.bien_id === bid).forEach(d => {
+      const s = new Date(d.periode_debut), e = new Date(d.periode_fin);
+      if (e < yStart || s > yEnd) return;
+      const oS = s < yStart ? yStart : s, oE = e > yEnd ? yEnd : e;
+      const tot = (e - s) / 86400000 + 1, ov = (oE - oS) / 86400000 + 1;
+      const ratio = ov / tot;
+      tvaTtc += Number(d.montant_ttc || 0) * ratio;
+      tvaHt  += Number(d.montant_ht  || 0) * ratio;
+    });
+    const tvaMontant = tvaTtc - tvaHt;
+    return tvaMontant > 0 ? `
+      <tr class="border-b border-slate-800">
+        <td class="py-2 px-3 text-slate-300 text-xs">${esc(bien?.nom || bid)}</td>
+        <td class="py-2 px-3 text-right text-slate-300 text-xs">${fmt(Math.round(tvaHt))}</td>
+        <td class="py-2 px-3 text-right text-white text-xs font-medium">${fmt(Math.round(tvaTtc))}</td>
+        <td class="py-2 px-3 text-right text-amber-400 text-xs font-semibold">${fmt(Math.round(tvaMontant))}</td>
+      </tr>` : '';
+  }).join('');
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">🧾 TVA Immobilier</h2>
+          <span class="text-slate-600 text-xs">· Global tous biens</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="flex gap-1">${yBtns}</div>
+          <button onclick="openTvaVersementModal()" class="btn-secondary text-xs py-1 px-2">+ Verser TVA</button>
+        </div>
+      </div>
+
+      <!-- Cartes résumé -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <div class="bg-slate-700/40 rounded-lg p-3">
+          <p class="text-slate-400 text-xs mb-1">TVA collectée</p>
+          <p class="text-white font-bold">${fmt(Math.round(collectee))}</p>
+          <p class="text-slate-500 text-xs mt-0.5">${mois} mois de données</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-lg p-3">
+          <p class="text-slate-400 text-xs mb-1">Prévisionnel annuel</p>
+          <p class="text-blue-400 font-bold">${mois > 0 ? fmt(Math.round(projete)) : '—'}</p>
+          <p class="text-slate-500 text-xs mt-0.5">Extrapolé sur 12 mois</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-lg p-3">
+          <p class="text-slate-400 text-xs mb-1">TVA versée à l'état</p>
+          <p class="text-emerald-400 font-bold">${fmt(Math.round(versee))}</p>
+          <p class="text-slate-500 text-xs mt-0.5">${versements.length} versement${versements.length > 1 ? 's' : ''}</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-lg p-3 ${solde > 0 ? 'border border-amber-500/30' : ''}">
+          <p class="text-slate-400 text-xs mb-1">Solde à reverser</p>
+          <p class="${cc(solde)} font-bold text-lg">${fmt(Math.round(solde))}</p>
+          <p class="text-slate-500 text-xs mt-0.5">${solde > 0 ? '⚠ À régler' : solde < 0 ? '✓ Excédent' : '✓ Équilibré'}</p>
+        </div>
+      </div>
+
+      <div class="grid gap-4 lg:grid-cols-2">
+        <!-- Détail TVA collectée par bien -->
+        ${detailRows ? `
+        <div>
+          <p class="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">TVA collectée par bien</p>
+          <div class="bg-slate-900 rounded-lg overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-800 text-slate-500 text-xs">
+                <tr>
+                  <th class="py-2 px-3 text-left font-medium">Bien</th>
+                  <th class="py-2 px-3 text-right font-medium">HT</th>
+                  <th class="py-2 px-3 text-right font-medium">TTC</th>
+                  <th class="py-2 px-3 text-right font-medium">TVA</th>
+                </tr>
+              </thead>
+              <tbody>${detailRows}</tbody>
+              <tfoot class="border-t border-slate-700">
+                <tr class="bg-slate-800/50">
+                  <td class="py-2 px-3 text-slate-400 text-xs font-semibold">Total</td>
+                  <td class="py-2 px-3" colspan="2"></td>
+                  <td class="py-2 px-3 text-right text-amber-400 text-xs font-bold">${fmt(Math.round(collectee))}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>` : `
+        <div class="bg-slate-900 rounded-lg p-6 text-center">
+          <p class="text-slate-500 text-sm">Aucun loyer TTC saisi pour ${year}</p>
+          <p class="text-slate-600 text-xs mt-1">La TVA est calculée automatiquement à partir des loyers TTC</p>
+        </div>`}
+
+        <!-- Historique des versements -->
+        <div>
+          <p class="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">Versements à l'état</p>
+          ${versements.length ? `
+          <div class="bg-slate-900 rounded-lg overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-800 text-slate-500 text-xs">
+                <tr>
+                  <th class="py-2 px-3 text-left font-medium">Date</th>
+                  <th class="py-2 px-3 text-right font-medium">Montant</th>
+                  <th class="py-2 px-3 text-left font-medium">Note</th>
+                  <th class="py-2 px-3 w-8"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                ${versements.map(v => `
+                <tr class="hover:bg-slate-800/50 transition">
+                  <td class="py-2 px-3 text-slate-300 text-xs whitespace-nowrap">${fmtDate(v.date)}</td>
+                  <td class="py-2 px-3 text-right text-emerald-400 text-xs font-semibold">${fmt(Number(v.montant_ttc || 0))}</td>
+                  <td class="py-2 px-3 text-slate-500 text-xs truncate max-w-[140px]" title="${esc(v.note || '')}">${esc(v.note || '') || '—'}</td>
+                  <td class="py-2 px-3 text-right">
+                    <button onclick="confirmDeleteTvaVersement('${v.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
+                  </td>
+                </tr>`).join('')}
+              </tbody>
+              <tfoot class="border-t border-slate-700">
+                <tr class="bg-slate-800/50">
+                  <td class="py-2 px-3 text-slate-400 text-xs font-semibold">Total versé</td>
+                  <td class="py-2 px-3 text-right text-emerald-400 text-xs font-bold">${fmt(Math.round(versee))}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>` : `
+          <div class="bg-slate-900 rounded-lg p-6 text-center">
+            <p class="text-slate-500 text-sm">Aucun versement enregistré pour ${year}</p>
+            <button onclick="openTvaVersementModal()" class="mt-2 text-blue-400 hover:text-blue-300 text-xs">+ Enregistrer un versement</button>
+          </div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+function openTvaVersementModal() {
+  document.getElementById('modal-tva-versement').classList.remove('hidden');
+  document.getElementById('tva-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('tva-montant').value = '';
+  document.getElementById('tva-note').value = '';
+}
+
+function closeTvaModal() {
+  document.getElementById('modal-tva-versement').classList.add('hidden');
+  _editingTvaId = null;
+}
+
+async function saveTvaVersement() {
+  const date = document.getElementById('tva-date')?.value;
+  const m    = parseFloat(String(document.getElementById('tva-montant')?.value || '').replace(',', '.')) || 0;
+  const note = document.getElementById('tva-note')?.value?.trim() || '';
+  if (!date || !m) { alert('Date et montant sont obligatoires.'); return; }
+  const data = { bien_id: '__tva__', type: 'tva_reversee', date, montant_ttc: m, tva_rate: null, montant_ht: m, note };
+  setGlobalLoader(true, 'Enregistrement…');
+  try {
+    closeTvaModal();
+    const result = await API.addDepenseImmo(data);
+    if (result) STATE.depenses_immo.push({ ...data, ...result });
+    const cached = API._getCache();
+    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    setEl('immo-tva-bloc', immoTvaBloc());
+  } catch (err) {
+    console.error('saveTvaVersement error:', err);
+    alert('Erreur : ' + (err.message || err));
+  } finally { setGlobalLoader(false); }
+}
+
+async function confirmDeleteTvaVersement(id) {
+  if (!confirm('Supprimer ce versement TVA ?')) return;
+  setGlobalLoader(true, 'Suppression…');
+  try {
+    await API.deleteDepenseImmo(id);
+    STATE.depenses_immo = STATE.depenses_immo.filter(d => d.id !== id);
+    const cached = API._getCache();
+    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    setEl('immo-tva-bloc', immoTvaBloc());
+  } catch (err) { alert('Erreur : ' + err.message); }
+  finally { setGlobalLoader(false); }
+}
+
+function modalTvaVersement() {
+  return `
+    <div id="modal-tva-versement" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeTvaModal()">
+      <div class="modal-box w-full max-w-sm">
+        <h3 class="text-lg font-bold text-white mb-5">🧾 Versement TVA à l'état</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Date du versement *</label>
+            <input id="tva-date" type="date"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Montant versé (€) *</label>
+            <input id="tva-montant" type="number" step="0.01" min="0" placeholder="0.00"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Note (optionnel)</label>
+            <input id="tva-note" type="text" placeholder="Ex : Acompte T1 2026, Solde annuel…"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="closeTvaModal()" class="btn-secondary flex-1">Annuler</button>
+          <button onclick="saveTvaVersement()" class="btn-primary flex-1">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function fmtPeriode(debut, fin) {
   if (!debut && !fin) return '—';
   const MOIS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
-  const parse = s => { const p = s.split('-'); return { y: parseInt(p[0]), m: parseInt(p[1]) - 1 }; };
+  // Prend uniquement la partie date (avant le T) pour gérer les ISO strings UTC
+  const parse = s => { const p = String(s).split('T')[0].split('-'); return { y: parseInt(p[0]), m: parseInt(p[1]) - 1 }; };
   const d = debut ? parse(debut) : null;
   const f = fin   ? parse(fin)   : null;
   if (d && f) {
@@ -3775,6 +4294,9 @@ function immoDepensesTable(bienId) {
       return !type || d.type === type;
     })
     .sort((a, b) => new Date(b.date || b.periode_debut) - new Date(a.date || a.periode_debut));
+  const totalTtc = deps.reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+  const totalHt  = deps.reduce((s, d) => s + Number(d.montant_ht  || 0), 0);
+  const hasHtCol = deps.some(d => d.montant_ht && Math.abs(Number(d.montant_ht) - Number(d.montant_ttc)) > 0.01);
   const yBtns = [year - 1, year, year + 1].map(y =>
     `<button onclick="_immoFilter.year=${y};setEl('immo-dep-table',immoDepensesTable('${bienId}'))"
       class="px-2 py-1 rounded text-xs ${y === _immoFilter.year ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`).join('');
@@ -3821,6 +4343,16 @@ function immoDepensesTable(bienId) {
                 </tr>`;
             }).join('')}
           </tbody>
+          <tfoot class="border-t-2 border-slate-600">
+            <tr class="bg-slate-800/80">
+              <td class="py-2.5 px-4 text-slate-400 text-xs font-semibold" colspan="2">
+                Total — ${deps.length} entrée${deps.length > 1 ? 's' : ''}${type ? ' · ' + (TYPES[type] || type) : ''}
+              </td>
+              <td class="py-2.5 px-4 text-right text-white font-bold">${fmt(totalTtc)}</td>
+              <td class="py-2.5 px-4 text-right text-slate-300 text-xs font-semibold">${hasHtCol ? fmt(totalHt) : '—'}</td>
+              <td colspan="3" class="py-2.5 px-4 text-slate-500 text-xs">${hasHtCol ? 'TVA : ' + fmt(totalTtc - totalHt) : ''}</td>
+            </tr>
+          </tfoot>
         </table>
       </div>` : `
       <div class="bg-slate-900 rounded-xl p-8 text-center">
@@ -3925,12 +4457,12 @@ function modalBienImmo() {
 
 function modalDepenseImmo() {
   const cy = new Date().getFullYear();
-  const years = [cy - 1, cy, cy + 1, cy + 2];
+  const years = [cy - 2, cy - 1, cy, cy + 1, cy + 2];
   const MOIS_OPTS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
     .map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
   const YEAR_OPTS = years.map(y => `<option value="${y}">${y}</option>`).join('');
-  const moisSel = id => `<select id="${id}" class="flex-1 bg-slate-700 text-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">${MOIS_OPTS}</select>`;
-  const yearSel = id => `<select id="${id}" class="w-[74px] bg-slate-700 text-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">${YEAR_OPTS}</select>`;
+  const moisCls  = `flex-1 bg-slate-700 text-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`;
+  const anneeCls = `w-[74px] bg-slate-700 text-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`;
 
   return `
     <div id="modal-dep-immo" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
@@ -3972,17 +4504,53 @@ function modalDepenseImmo() {
               <span class="text-slate-400 text-xs">Montant HT calculé</span>
               <span id="dep-ht-val" class="text-emerald-400 font-semibold text-sm">—</span>
             </div>
+
+            <!-- ── Période couverte ──────────────────────────────────── -->
             <div class="space-y-2">
               <label class="block text-slate-400 text-xs">Période couverte</label>
-              <div>
-                <p class="text-slate-500 text-xs mb-1">Début</p>
-                <div class="flex gap-1">${moisSel('dep-periode-mois-debut')}${yearSel('dep-periode-annee-debut')}</div>
+              <!-- Sélecteur de fréquence -->
+              <div class="flex gap-1">
+                <button id="freq-btn-mensuel" type="button" onclick="setLoyerFreq('mensuel')"
+                  class="flex-1 py-1.5 rounded text-xs font-medium transition bg-blue-600 text-white">Mensuel</button>
+                <button id="freq-btn-trimestriel" type="button" onclick="setLoyerFreq('trimestriel')"
+                  class="flex-1 py-1.5 rounded text-xs font-medium transition bg-slate-700 text-slate-400 hover:text-white">Trimestriel</button>
+                <button id="freq-btn-personnalise" type="button" onclick="setLoyerFreq('personnalise')"
+                  class="flex-1 py-1.5 rounded text-xs font-medium transition bg-slate-700 text-slate-400 hover:text-white">Perso.</button>
               </div>
-              <div>
-                <p class="text-slate-500 text-xs mb-1">Fin</p>
-                <div class="flex gap-1">${moisSel('dep-periode-mois-fin')}${yearSel('dep-periode-annee-fin')}</div>
+
+              <!-- Mode mensuel : 1 seul mois -->
+              <div id="dep-freq-mensuel">
+                <p class="text-slate-500 text-xs mb-1">Mois couvert par ce loyer</p>
+                <div class="flex gap-1">
+                  <select id="dep-mois-unique" class="${moisCls}">${MOIS_OPTS}</select>
+                  <select id="dep-annee-unique" class="${anneeCls}">${YEAR_OPTS}</select>
+                </div>
+                <p class="text-slate-600 text-xs mt-1">Ex : déc. 2025 pour un loyer reçu en janv. 2026</p>
+              </div>
+
+              <!-- Mode trimestriel + personnalisé : début + fin -->
+              <div id="dep-freq-nonmensuel" class="hidden space-y-2">
+                <div>
+                  <p class="text-slate-500 text-xs mb-1">Mois de début</p>
+                  <div class="flex gap-1">
+                    <select id="dep-mois-debut" onchange="updateTrimPreview()" class="${moisCls}">${MOIS_OPTS}</select>
+                    <select id="dep-annee-debut" onchange="updateTrimPreview()" class="${anneeCls}">${YEAR_OPTS}</select>
+                  </div>
+                </div>
+                <!-- Aperçu trimestriel automatique -->
+                <p id="dep-trim-preview" class="hidden text-blue-400 text-xs font-medium"></p>
+                <!-- Fin (mode personnalisé seulement) -->
+                <div id="dep-freq-fin" class="hidden">
+                  <p class="text-slate-500 text-xs mb-1">Mois de fin</p>
+                  <div class="flex gap-1">
+                    <select id="dep-mois-fin" class="${moisCls}">${MOIS_OPTS}</select>
+                    <select id="dep-annee-fin" class="${anneeCls}">${YEAR_OPTS}</select>
+                  </div>
+                </div>
               </div>
             </div>
+            <!-- ── fin Période ──────────────────────────────────────── -->
+
           </div>
           <div>
             <label class="block text-slate-400 text-xs mb-1">Note (optionnelle)</label>
@@ -4116,14 +4684,13 @@ function openDepenseImmoModal(bienId, depId = null) {
   document.getElementById('dep-tva-rate').value = dep?.tva_rate
     ? (Number(dep.tva_rate) * 100).toFixed(1) : '10';
 
-  // Période : sélecteurs mois/année
+  // Période : initialiser les sélecteurs selon la fréquence détectée
   const setMoisAnnee = (moisId, anneeId, dateStr, defaultMois, defaultAnnee) => {
     const m = dateStr ? parseInt(dateStr.split('-')[1]) : defaultMois;
     const y = dateStr ? parseInt(dateStr.split('-')[0]) : defaultAnnee;
     const mEl = document.getElementById(moisId), yEl = document.getElementById(anneeId);
     if (mEl) mEl.value = m;
     if (yEl) {
-      // Ajouter l'année si elle n'est pas dans les options
       if (![...yEl.options].some(o => Number(o.value) === y)) {
         const opt = document.createElement('option');
         opt.value = y; opt.textContent = y;
@@ -4132,16 +4699,66 @@ function openDepenseImmoModal(bienId, depId = null) {
       yEl.value = y;
     }
   };
-  setMoisAnnee('dep-periode-mois-debut', 'dep-periode-annee-debut', dep?.periode_debut, cm, cy);
-  setMoisAnnee('dep-periode-mois-fin',   'dep-periode-annee-fin',   dep?.periode_fin,   cm, cy);
+
+  const freq = dep?.type === 'loyer' ? detectLoyerFreq(dep) : 'mensuel';
+  _loyerFreq = freq;
+  if (freq === 'mensuel') {
+    setMoisAnnee('dep-mois-unique', 'dep-annee-unique', dep?.periode_debut, cm, cy);
+  } else {
+    setMoisAnnee('dep-mois-debut', 'dep-annee-debut', dep?.periode_debut, cm, cy);
+    if (freq === 'personnalise') {
+      setMoisAnnee('dep-mois-fin', 'dep-annee-fin', dep?.periode_fin, cm, cy);
+    }
+  }
 
   toggleTvaFields();
+  // Initialiser l'affichage de la fréquence après que toggleTvaFields ait rendu la section visible
+  setTimeout(() => setLoyerFreq(_loyerFreq), 0);
   document.getElementById('modal-dep-immo').classList.remove('hidden');
   setTimeout(() => document.getElementById('dep-montant')?.focus(), 50);
 }
 
 function closeDepenseImmoModal() {
   document.getElementById('modal-dep-immo').classList.add('hidden');
+}
+
+function detectLoyerFreq(dep) {
+  if (!dep?.periode_debut || !dep?.periode_fin) return 'mensuel';
+  const pd = dep.periode_debut.split('-'), pf = dep.periode_fin.split('-');
+  const diff = (parseInt(pf[0]) - parseInt(pd[0])) * 12 + (parseInt(pf[1]) - parseInt(pd[1]));
+  if (diff === 0) return 'mensuel';
+  if (diff === 2) return 'trimestriel';
+  return 'personnalise';
+}
+
+function setLoyerFreq(freq) {
+  _loyerFreq = freq;
+  const FREQS = ['mensuel', 'trimestriel', 'personnalise'];
+  FREQS.forEach(f => {
+    const btn = document.getElementById('freq-btn-' + f);
+    if (!btn) return;
+    btn.className = btn.className
+      .replace('bg-blue-600 text-white', '')
+      .replace('bg-slate-700 text-slate-400', '').trim();
+    btn.className += f === freq ? ' bg-blue-600 text-white' : ' bg-slate-700 text-slate-400';
+  });
+  document.getElementById('dep-freq-mensuel')?.classList.toggle('hidden', freq !== 'mensuel');
+  document.getElementById('dep-freq-nonmensuel')?.classList.toggle('hidden', freq === 'mensuel');
+  document.getElementById('dep-trim-preview')?.classList.toggle('hidden', freq !== 'trimestriel');
+  document.getElementById('dep-freq-fin')?.classList.toggle('hidden', freq !== 'personnalise');
+  if (freq === 'trimestriel') updateTrimPreview();
+}
+
+function updateTrimPreview() {
+  if (_loyerFreq !== 'trimestriel') return;
+  const moisD  = parseInt(document.getElementById('dep-mois-debut')?.value) || 1;
+  const anneeD = parseInt(document.getElementById('dep-annee-debut')?.value) || new Date().getFullYear();
+  const fm     = moisD + 2;
+  const finAn  = anneeD + Math.floor((fm - 1) / 12);
+  const finM   = ((fm - 1) % 12) + 1;
+  const MOIS   = ['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
+  const prev = document.getElementById('dep-trim-preview');
+  if (prev) prev.textContent = `→ Couvre : ${MOIS[moisD-1]}. → ${MOIS[finM-1]}. ${finAn}`;
 }
 
 function toggleTvaFields() {
@@ -4187,15 +4804,33 @@ async function saveDepenseImmo() {
     tva_rate:      tvaRate,
     montant_ht:    isLoyer ? ht : m,
     periode_debut: isLoyer ? (() => {
-      const mois  = parseInt(document.getElementById('dep-periode-mois-debut')?.value) || 1;
-      const annee = parseInt(document.getElementById('dep-periode-annee-debut')?.value) || new Date().getFullYear();
+      if (_loyerFreq === 'mensuel') {
+        const mois  = parseInt(document.getElementById('dep-mois-unique')?.value) || 1;
+        const annee = parseInt(document.getElementById('dep-annee-unique')?.value) || new Date().getFullYear();
+        return `${annee}-${String(mois).padStart(2,'0')}-01`;
+      }
+      const mois  = parseInt(document.getElementById('dep-mois-debut')?.value) || 1;
+      const annee = parseInt(document.getElementById('dep-annee-debut')?.value) || new Date().getFullYear();
       return `${annee}-${String(mois).padStart(2,'0')}-01`;
     })() : '',
     periode_fin: isLoyer ? (() => {
-      const mois  = parseInt(document.getElementById('dep-periode-mois-fin')?.value) || 1;
-      const annee = parseInt(document.getElementById('dep-periode-annee-fin')?.value) || new Date().getFullYear();
-      const lastDay = new Date(annee, mois, 0).getDate();
-      return `${annee}-${String(mois).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+      if (_loyerFreq === 'mensuel') {
+        const mois  = parseInt(document.getElementById('dep-mois-unique')?.value) || 1;
+        const annee = parseInt(document.getElementById('dep-annee-unique')?.value) || new Date().getFullYear();
+        return `${annee}-${String(mois).padStart(2,'0')}-${String(new Date(annee, mois, 0).getDate()).padStart(2,'0')}`;
+      }
+      if (_loyerFreq === 'trimestriel') {
+        const moisD  = parseInt(document.getElementById('dep-mois-debut')?.value) || 1;
+        const anneeD = parseInt(document.getElementById('dep-annee-debut')?.value) || new Date().getFullYear();
+        const fm     = moisD + 2;
+        const finAn  = anneeD + Math.floor((fm - 1) / 12);
+        const finM   = ((fm - 1) % 12) + 1;
+        return `${finAn}-${String(finM).padStart(2,'0')}-${String(new Date(finAn, finM, 0).getDate()).padStart(2,'0')}`;
+      }
+      // Personnalisé
+      const mois  = parseInt(document.getElementById('dep-mois-fin')?.value) || 1;
+      const annee = parseInt(document.getElementById('dep-annee-fin')?.value) || new Date().getFullYear();
+      return `${annee}-${String(mois).padStart(2,'0')}-${String(new Date(annee, mois, 0).getDate()).padStart(2,'0')}`;
     })() : '',
     note,
   };

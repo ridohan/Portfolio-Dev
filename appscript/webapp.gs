@@ -232,7 +232,18 @@ function sheetToObjects(ss, name) {
   const sheet = ss.getSheetByName(name);
   if (!sheet || sheet.getLastRow() < 2) return [];
   const [headers, ...rows] = sheet.getDataRange().getValues();
-  return rows.map(row => Object.fromEntries(headers.map((h, i) => [h, row[i]])));
+  const tz = Session.getScriptTimeZone();
+  return rows.map(row => {
+    const obj = Object.fromEntries(headers.map((h, i) => [h, row[i]]));
+    // Convertir tous les objets Date en chaîne yyyy-MM-dd dans le fuseau horaire
+    // du script (évite le décalage UTC lors du JSON.stringify)
+    headers.forEach(h => {
+      if (obj[h] instanceof Date) {
+        obj[h] = Utilities.formatDate(obj[h], tz, 'yyyy-MM-dd');
+      }
+    });
+    return obj;
+  });
 }
 
 function getSheetAndIndex(ss, tabName, id) {
