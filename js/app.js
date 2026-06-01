@@ -830,46 +830,48 @@ function renderSetup(app) {
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
-function renderDashboard(app) {
-  const { total, invested, alloc, totalCharges } = globalStats();
-
-  app.innerHTML = `
-    ${navbar()}
-    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
+function _dashBlock(id, stats) {
+  const { total, invested, alloc, totalCharges } = stats;
+  switch (id) {
+    case 'stats': return `
       ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
-      ${historySparkline(globalHistory(), '#hist-global')}
+      ${historySparkline(globalHistory(), '#hist-global')}`;
+    case 'immo': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">🏠 Immobilier locatif</h2>
         <a href="#immo" onclick="navigate('#immo');return false;" class="btn-secondary text-sm">Détail →</a>
       </div>
-      ${immoDashboardCard()}
+      ${immoDashboardCard()}`;
+    case 'eoy': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">📅 Projection fin d'année</h2>
       </div>
-      <div id="eoy-card-wrapper">${eoyCard()}</div>
-
+      <div id="eoy-card-wrapper">${eoyCard()}</div>`;
+    case 'projections': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">🎯 Simulations</h2>
       </div>
-      <div id="proj-section">${projBlock()}</div>
-
+      <div id="proj-section">${projBlock()}</div>`;
+    case 'milestones': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">🏆 Jalons</h2>
         <button onclick="openMilestoneModal()" class="btn-secondary text-sm">+ Jalon</button>
       </div>
-      <div id="milestone-section">${milestoneGauge()}</div>
-
+      <div id="milestone-section">${milestoneGauge()}</div>`;
+    case 'fire': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">🔥 Simulation FIRE</h2>
         <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-sm">Configurer →</a>
       </div>
-      ${fireDashboardCards()}
+      ${fireDashboardCards()}`;
+    case 'expenses': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">💰 Dépenses</h2>
         <a href="#expenses" onclick="navigate('#expenses');return false;" class="btn-secondary text-sm">Détail →</a>
       </div>
-      ${expenseDashboardCard()}
+      ${expenseDashboardCard()}`;
+    case 'portfolios': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">Portfolios</h2>
         <div class="flex gap-2">
@@ -880,7 +882,24 @@ function renderDashboard(app) {
       ${envelopeTypeAllocBar(STATE.envelopes)}
       <div class="grid gap-4 sm:grid-cols-2">
         ${STATE.portfolios.map(p => portfolioCard(p)).join('') || empty('Aucun portfolio — crée-en un.')}
+      </div>`;
+    default: return '';
+  }
+}
+
+function renderDashboard(app) {
+  const stats = globalStats();
+  const order = loadDashOrder();
+
+  app.innerHTML = `
+    ${navbar()}
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
+      <div class="flex justify-end">
+        <button onclick="openDashOrderModal()" class="text-slate-600 hover:text-slate-300 text-xs flex items-center gap-1.5 transition px-2 py-1 rounded hover:bg-slate-800">
+          ⊞ <span>Réorganiser</span>
+        </button>
       </div>
+      ${order.map(id => _dashBlock(id, stats)).join('')}
     </div>
     ${modalPortfolio()}
     ${modalEoy()}
@@ -2339,6 +2358,106 @@ function estimateAnnualReturn() {
 }
 
 // ─── PROJECTION FIN D'ANNÉE (EOY) ────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ORDRE DES BLOCS DU DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const DASH_ORDER_KEY = 'dashboard_block_order';
+const DASH_BLOCKS_DEF = [
+  { id: 'stats',       label: '📊 Stats & Historique'       },
+  { id: 'immo',        label: '🏠 Immobilier locatif'        },
+  { id: 'eoy',         label: '📅 Projection fin d\'année'   },
+  { id: 'projections', label: '🎯 Simulations'               },
+  { id: 'milestones',  label: '🏆 Jalons'                    },
+  { id: 'fire',        label: '🔥 Simulation FIRE'           },
+  { id: 'expenses',    label: '💰 Dépenses'                  },
+  { id: 'portfolios',  label: '📁 Portfolios'                },
+];
+
+function loadDashOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DASH_ORDER_KEY) || 'null');
+    const allIds = DASH_BLOCKS_DEF.map(b => b.id);
+    if (!saved) return allIds;
+    const filtered = saved.filter(id => allIds.includes(id));
+    const missing  = allIds.filter(id => !filtered.includes(id));
+    return [...filtered, ...missing];
+  } catch { return DASH_BLOCKS_DEF.map(b => b.id); }
+}
+function saveDashOrder(arr) { try { localStorage.setItem(DASH_ORDER_KEY, JSON.stringify(arr)); } catch {} }
+
+function openDashOrderModal() {
+  let modal = document.getElementById('modal-dash-order');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id        = 'modal-dash-order';
+    modal.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4';
+    modal.addEventListener('click', e => { if (e.target === modal) closeDashOrderModal(); });
+    document.body.appendChild(modal);
+  }
+  modal.classList.remove('hidden');
+  _renderDashOrderModal();
+}
+
+function closeDashOrderModal() {
+  document.getElementById('modal-dash-order')?.classList.add('hidden');
+}
+
+function _renderDashOrderModal() {
+  const modal = document.getElementById('modal-dash-order');
+  if (!modal) return;
+  const order = loadDashOrder();
+  modal.innerHTML = `
+    <div class="modal-box w-full max-w-sm" onclick="event.stopPropagation()">
+      <h3 class="text-base font-bold text-white mb-1">⊞ Ordre des blocs</h3>
+      <p class="text-slate-500 text-xs mb-4">Utilisez ▲ ▼ pour réorganiser l'affichage du dashboard.</p>
+      <div class="space-y-1.5 mb-5">
+        ${order.map((id, i) => {
+          const block = DASH_BLOCKS_DEF.find(b => b.id === id);
+          if (!block) return '';
+          return `
+            <div class="flex items-center gap-2 bg-slate-700/60 rounded-lg px-3 py-2.5">
+              <span class="text-slate-600 text-xs w-4 text-center select-none">${i + 1}</span>
+              <span class="flex-1 text-sm text-white">${block.label}</span>
+              <div class="flex gap-0.5">
+                <button onclick="moveDashBlock('${id}',-1)"
+                  class="px-1.5 py-0.5 rounded text-xs transition ${i === 0 ? 'text-slate-700 cursor-not-allowed' : 'text-slate-400 hover:text-white hover:bg-slate-600'}"
+                  ${i === 0 ? 'disabled' : ''}>▲</button>
+                <button onclick="moveDashBlock('${id}',1)"
+                  class="px-1.5 py-0.5 rounded text-xs transition ${i === order.length - 1 ? 'text-slate-700 cursor-not-allowed' : 'text-slate-400 hover:text-white hover:bg-slate-600'}"
+                  ${i === order.length - 1 ? 'disabled' : ''}>▼</button>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+      <div class="flex gap-3">
+        <button onclick="applyDashOrder()" class="btn-primary flex-1">Appliquer</button>
+        <button onclick="resetDashOrder()" class="btn-secondary text-xs">Réinitialiser</button>
+        <button onclick="closeDashOrderModal()" class="btn-secondary flex-1">Fermer</button>
+      </div>
+    </div>`;
+}
+
+function moveDashBlock(id, dir) {
+  const order  = loadDashOrder();
+  const idx    = order.indexOf(id);
+  const newIdx = idx + dir;
+  if (idx < 0 || newIdx < 0 || newIdx >= order.length) return;
+  [order[idx], order[newIdx]] = [order[newIdx], order[idx]];
+  saveDashOrder(order);
+  _renderDashOrderModal();
+}
+
+function applyDashOrder() {
+  closeDashOrderModal();
+  render();
+}
+
+function resetDashOrder() {
+  saveDashOrder(DASH_BLOCKS_DEF.map(b => b.id));
+  _renderDashOrderModal();
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SIMULATIONS PERSONNALISÉES
