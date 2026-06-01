@@ -2383,10 +2383,11 @@ function projCard(sim) {
   const yearsLeft = Number(sim.annee) - new Date().getFullYear();
   const yLabel    = yearsLeft > 0 ? `dans ${yearsLeft} an${yearsLeft > 1 ? 's' : ''}` : 'cette année';
   return `
-    <div class="bg-slate-800 rounded-xl p-5 group relative hover:bg-slate-750 transition">
+    <div class="bg-slate-800 rounded-xl p-5 cursor-pointer hover:bg-slate-750 transition"
+         onclick="openProjModal('${sim.id}')">
       <div class="flex items-start justify-between">
         <div class="min-w-0 flex-1">
-          <p class="text-slate-400 text-xs mb-0.5 flex items-center gap-1">🎯 <span class="truncate font-medium text-slate-300">${esc(sim.nom)}</span></p>
+          <p class="text-slate-400 text-xs mb-0.5">🎯 <span class="font-medium text-slate-300">${esc(sim.nom)}</span></p>
           <p class="text-white text-2xl font-bold">${fmt(fv)}</p>
           <p class="${gc} text-sm mt-0.5">${gain >= 0 ? '+' : ''}${fmt(gain)} <span class="text-xs opacity-70">(${gain >= 0 ? '+' : ''}${gainPct}%)</span></p>
         </div>
@@ -2395,10 +2396,6 @@ function projCard(sim) {
           <p class="text-slate-600 text-xs mt-0.5">Fin ${sim.annee} · ${yLabel}</p>
           <p class="text-slate-700 text-xs mt-0.5">${t} mois</p>
         </div>
-      </div>
-      <div class="absolute top-2.5 right-2.5 hidden group-hover:flex gap-1">
-        <button onclick="event.stopPropagation();openProjModal('${sim.id}')" class="text-slate-500 hover:text-blue-400 text-xs p-1 rounded hover:bg-slate-700">✏</button>
-        <button onclick="event.stopPropagation();deleteProjSim('${sim.id}')" class="text-slate-500 hover:text-red-400 text-xs p-1 rounded hover:bg-slate-700">✕</button>
       </div>
     </div>`;
 }
@@ -2426,6 +2423,7 @@ function openProjModal(id = null) {
   document.getElementById('proj-annee').value = sim?.annee || (new Date().getFullYear() + 5);
   document.getElementById('proj-rate').value  = sim?.rate  ?? estimateAnnualReturn();
   document.getElementById('proj-pmt').value   = sim?.pmt   || 0;
+  document.getElementById('proj-delete-row')?.classList.toggle('hidden', !id);
   document.getElementById('modal-proj').classList.remove('hidden');
   refreshProjPreview();
   setTimeout(() => document.getElementById('proj-nom')?.focus(), 50);
@@ -2519,8 +2517,21 @@ function modalProjection() {
           <button onclick="saveProjSim()" class="btn-primary flex-1">Enregistrer</button>
           <button onclick="closeProjModal()" class="btn-secondary flex-1">Annuler</button>
         </div>
+        <div id="proj-delete-row" class="hidden mt-2">
+          <button onclick="deleteProjSimFromModal()" class="w-full text-center text-red-400 hover:text-red-300 text-xs py-1.5 rounded hover:bg-slate-700 transition">
+            🗑 Supprimer cette simulation
+          </button>
+        </div>
       </div>
     </div>`;
+}
+
+function deleteProjSimFromModal() {
+  if (!_projEdit) return;
+  if (!confirm('Supprimer cette simulation ?')) return;
+  saveProjections(loadProjections().filter(s => s.id !== _projEdit));
+  closeProjModal();
+  setEl('proj-section', projBlock());
 }
 
 // ── Jalons (milestone gauge) ─────────────────────────────────────────────────
@@ -2529,8 +2540,6 @@ function milestoneGauge() {
   const miles   = loadMilestones().sort((a, b) => Number(a.valeur) - Number(b.valeur));
   const { total, totalCharges } = globalStats();
   const current = Math.max(0, total - totalCharges);
-
-  const addBtn = `<button onclick="openMilestoneModal()" class="btn-secondary text-xs">+ Jalon</button>`;
 
   if (!miles.length) return `
     <div class="bg-slate-800 rounded-xl p-6 text-center">
@@ -2545,23 +2554,75 @@ function milestoneGauge() {
   const curLevel = unlocked[unlocked.length - 1] || null;
   const nxtLevel = locked[0] || null;
 
-  // Progress vers le prochain jalon
-  const fromVal  = Number(curLevel?.valeur || 0);
-  const toVal    = Number(nxtLevel?.valeur || current * 1.5);
-  const progPct  = toVal > fromVal ? Math.min(100, Math.round((current - fromVal) / (toVal - fromVal) * 100)) : 100;
-  const missing  = nxtLevel ? Math.max(0, Number(nxtLevel.valeur) - current) : 0;
+  // ── Frise complète ─────────────────────────────────────────────────────────
+  // Échelle : de 0 jusqu'au dernier jalon (ou au-delà si current > tout)
+  const maxVal   = Math.max(...miles.map(m => Number(m.valeur)), current) * 1.06;
+  const curPct   = Math.min(97, (current / maxVal) * 100);
 
-  // Cartes de jalons
-  const mileCards = miles.map(m => {
-    const val      = Number(m.valeur);
-    const rate     = Number(m.txRetrait || 4);
-    const fire     = Math.round(val * rate / 100 / 12);
-    const done     = current >= val;
-    const isNext   = m.id === nxtLevel?.id;
-    const distLabel = done ? '' : `−${fmt(Math.round(val - current))}`;
+  // Chaque jalon : position + étiquette alternée (pair = bas, impair = haut)
+  const markerHtml = miles.map((m, i) => {
+    const val    = Number(m.valeur);
+    const pct    = Math.min(97, (val / maxVal) * 100);
+    const fire   = Math.round(val * Number(m.txRetrait || 4) / 100 / 12);
+    const done   = current >= val;
+    const isNext = m.id === nxtLevel?.id;
+    const above  = i % 2 !== 0; // odd = au-dessus
+    const dotColor = done ? '#10b981' : isNext ? '#3b82f6' : '#475569';
+    const dotBorder = done ? '#34d399' : isNext ? '#93c5fd' : '#64748b';
+    const txtColor  = done ? '#34d399' : isNext ? '#93c5fd' : '#64748b';
+    const labelPos  = above
+      ? `bottom:18px;`
+      : `top:18px;`;
     return `
-      <div class="relative bg-slate-700/40 rounded-lg p-4 border ${done ? 'border-emerald-500/40' : isNext ? 'border-blue-500/40' : 'border-slate-700'} transition group">
-        <div class="flex items-start justify-between mb-2">
+      <div style="position:absolute;left:${pct}%;top:50%;transform:translate(-50%,-50%);z-index:10">
+        <div style="width:12px;height:12px;background:${dotColor};border:2px solid ${dotBorder};border-radius:50%;box-shadow:0 0 6px ${dotColor}55"></div>
+        <div style="position:absolute;${labelPos}left:50%;transform:translateX(-50%);text-align:center;white-space:nowrap;pointer-events:none">
+          <div style="font-size:10px;font-weight:600;color:${txtColor}">${done ? '✓ ' : isNext ? '→ ' : ''}${esc(m.nom)}</div>
+          <div style="font-size:9px;color:#64748b">${fmt(val)}</div>
+          <div style="font-size:9px;color:${txtColor}">+${fmt(fire)}/m</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const frise = `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <div style="position:relative;margin:52px 8px 52px;height:8px">
+        <!-- Piste -->
+        <div style="position:absolute;inset:0;background:#334155;border-radius:4px"></div>
+        <!-- Progression verte -->
+        <div style="position:absolute;top:0;left:0;bottom:0;width:${curPct}%;background:linear-gradient(to right,#059669,#3b82f6);border-radius:4px"></div>
+        <!-- Jalons -->
+        ${markerHtml}
+        <!-- Marqueur position actuelle -->
+        <div style="position:absolute;left:${curPct}%;top:50%;transform:translate(-50%,-50%);z-index:20">
+          <div style="width:18px;height:18px;background:white;border:3px solid #3b82f6;border-radius:50%;box-shadow:0 0 14px rgba(59,130,246,.7)"></div>
+          <div style="position:absolute;bottom:24px;left:50%;transform:translateX(-50%);white-space:nowrap">
+            <div style="background:#1d4ed8;color:white;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px">${fmt(Math.round(current))}</div>
+            <div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:5px solid #1d4ed8;margin:0 auto"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Légende statut -->
+      ${nxtLevel ? `
+        <div class="flex items-center justify-between text-xs text-slate-500 mt-1">
+          <span>${curLevel ? `🏅 Niveau actuel : <span class="text-emerald-400 font-medium">${esc(curLevel.nom)}</span>` : `🚀 En route vers le 1er jalon`}</span>
+          <span>🎯 Prochain : <span class="text-blue-400 font-medium">${esc(nxtLevel.nom)}</span> — manque <span class="text-blue-300">${fmt(Math.round(Number(nxtLevel.valeur) - current))}</span></span>
+        </div>` : `
+        <div class="text-center text-xs text-emerald-400 mt-1">🎉 Tous les jalons atteints !</div>`}
+    </div>`;
+
+  // ── Cartes jalons (cliquables) ─────────────────────────────────────────────
+  const mileCards = miles.map(m => {
+    const val    = Number(m.valeur);
+    const rate   = Number(m.txRetrait || 4);
+    const fire   = Math.round(val * rate / 100 / 12);
+    const done   = current >= val;
+    const isNext = m.id === nxtLevel?.id;
+    return `
+      <div class="bg-slate-700/40 rounded-lg p-4 border cursor-pointer hover:bg-slate-700/60 transition
+                  ${done ? 'border-emerald-500/40' : isNext ? 'border-blue-500/40' : 'border-slate-700'}"
+           onclick="openMilestoneModal('${m.id}')">
+        <div class="flex items-start justify-between">
           <div>
             <p class="text-xs font-semibold ${done ? 'text-emerald-400' : isNext ? 'text-blue-300' : 'text-slate-400'}">
               ${done ? '✅' : isNext ? '🎯' : '⬜'} ${esc(m.nom)}
@@ -2573,59 +2634,15 @@ function milestoneGauge() {
             <p class="text-sm font-semibold ${done ? 'text-emerald-400' : isNext ? 'text-blue-300' : 'text-slate-500'}">+${fmt(fire)}/mois</p>
           </div>
         </div>
-        ${!done && distLabel ? `<p class="text-xs text-slate-500">Manque : <span class="${isNext ? 'text-blue-400' : 'text-slate-400'} font-medium">${distLabel}</span></p>` : ''}
-        ${done ? `<p class="text-xs text-emerald-500">Atteint ✓</p>` : ''}
-        <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
-          <button onclick="event.stopPropagation();openMilestoneModal('${m.id}')" class="text-slate-500 hover:text-blue-400 text-xs p-0.5">✏</button>
-          <button onclick="event.stopPropagation();deleteMilestone('${m.id}')" class="text-slate-500 hover:text-red-400 text-xs p-0.5">✕</button>
-        </div>
+        ${done
+          ? `<p class="text-xs text-emerald-500 mt-1.5">Atteint ✓</p>`
+          : `<p class="text-xs text-slate-500 mt-1.5">Manque : <span class="${isNext ? 'text-blue-400' : 'text-slate-400'} font-medium">${fmt(Math.round(val - current))}</span></p>`}
       </div>`;
   }).join('');
 
-  // Barre de progression vers le prochain jalon
-  const progressBar = nxtLevel ? `
-    <div class="bg-slate-700/40 rounded-lg p-4">
-      <div class="flex items-center justify-between mb-2">
-        <div class="flex items-center gap-2">
-          <span class="text-blue-400 font-semibold text-sm">🎯 Prochain : ${esc(nxtLevel.nom)}</span>
-          <span class="text-slate-500 text-xs">${fmt(Number(nxtLevel.valeur))}</span>
-        </div>
-        <span class="text-white font-bold text-sm">${progPct}%</span>
-      </div>
-      <div class="w-full bg-slate-700 rounded-full h-3 overflow-hidden">
-        <div class="h-3 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all" style="width:${progPct}%"></div>
-      </div>
-      <div class="flex justify-between mt-1.5 text-xs text-slate-500">
-        <span>${fmt(Math.round(current))}</span>
-        <span class="text-blue-400">Il manque ${fmt(Math.round(missing))}</span>
-        <span>${fmt(Number(nxtLevel.valeur))}</span>
-      </div>
-      <p class="text-slate-500 text-xs mt-1.5">FIRE à atteindre : <span class="text-blue-300 font-medium">+${fmt(Math.round(Number(nxtLevel.valeur) * Number(nxtLevel.txRetrait||4) / 100 / 12))}/mois</span></p>
-    </div>` : `
-    <div class="bg-emerald-900/30 border border-emerald-500/30 rounded-lg p-4 text-center">
-      <p class="text-emerald-400 font-semibold">🎉 Tous les jalons atteints !</p>
-      <p class="text-slate-400 text-xs mt-1">Définissez de nouveaux objectifs pour continuer</p>
-    </div>`;
-
   return `
     <div class="space-y-4">
-      ${curLevel ? `
-        <div class="flex items-center gap-3 bg-emerald-900/20 border border-emerald-500/20 rounded-xl px-4 py-3">
-          <span class="text-2xl">🏅</span>
-          <div>
-            <p class="text-white font-semibold text-sm">Niveau actuel — ${esc(curLevel.nom)}</p>
-            <p class="text-slate-400 text-xs">FIRE : <span class="text-emerald-400 font-medium">+${fmt(Math.round(Number(curLevel.valeur) * Number(curLevel.txRetrait||4) / 100 / 12))}/mois</span>
-              · Taux retrait ${Number(curLevel.txRetrait||4)}%</p>
-          </div>
-        </div>` : `
-        <div class="flex items-center gap-3 bg-slate-700/40 rounded-xl px-4 py-3">
-          <span class="text-2xl">🚀</span>
-          <div>
-            <p class="text-white font-semibold text-sm">En route vers le premier jalon</p>
-            <p class="text-slate-400 text-xs">${fmt(Math.round(current))} accumulés</p>
-          </div>
-        </div>`}
-      ${progressBar}
+      ${frise}
       <div class="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         ${mileCards}
       </div>
@@ -2638,6 +2655,7 @@ function openMilestoneModal(id = null) {
   document.getElementById('mile-nom').value      = m?.nom      || '';
   document.getElementById('mile-valeur').value   = m?.valeur   || '';
   document.getElementById('mile-retrait').value  = m?.txRetrait ?? 4;
+  document.getElementById('mile-delete-row')?.classList.toggle('hidden', !id);
   document.getElementById('modal-milestone').classList.remove('hidden');
   refreshMilePreview();
   setTimeout(() => document.getElementById('mile-nom')?.focus(), 50);
@@ -2710,8 +2728,21 @@ function modalMilestone() {
           <button onclick="saveMilestone()" class="btn-primary flex-1">Enregistrer</button>
           <button onclick="closeMilestoneModal()" class="btn-secondary flex-1">Annuler</button>
         </div>
+        <div id="mile-delete-row" class="hidden mt-2">
+          <button onclick="deleteMilestoneFromModal()" class="w-full text-center text-red-400 hover:text-red-300 text-xs py-1.5 rounded hover:bg-slate-700 transition">
+            🗑 Supprimer ce jalon
+          </button>
+        </div>
       </div>
     </div>`;
+}
+
+function deleteMilestoneFromModal() {
+  if (!_mileEdit) return;
+  if (!confirm('Supprimer ce jalon ?')) return;
+  saveMilestones(loadMilestones().filter(m => m.id !== _mileEdit));
+  closeMilestoneModal();
+  setEl('milestone-section', milestoneGauge());
 }
 
 const EOY_KEY = 'eoy_forecast';
