@@ -58,26 +58,45 @@ function openCacheSettings() {
     div.id        = 'modal-cache-settings';
     div.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4';
     div.innerHTML = `
-      <div class="modal-box w-full max-w-xs" onclick="event.stopPropagation()">
-        <h3 class="text-base font-bold text-white mb-4">⚙ Durée du cache</h3>
-        <div class="mb-4">
-          <label class="block text-slate-400 text-sm mb-1">Durée (minutes)</label>
-          <input id="cache-ttl-input" type="number" min="1" max="120" step="1"
-            onkeydown="if(event.key==='Enter')saveCacheSettings()"
-            class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <p class="text-slate-500 text-xs mt-1">Les données sont rechargées depuis le serveur après cette durée.</p>
+      <div class="modal-box w-full max-w-sm space-y-5" onclick="event.stopPropagation()">
+        <h3 class="text-base font-bold text-white">⚙ Paramètres & Sauvegarde</h3>
+
+        <!-- Cache TTL -->
+        <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
+          <p class="text-slate-300 text-sm font-medium">Durée du cache</p>
+          <div class="flex gap-2 items-center">
+            <input id="cache-ttl-input" type="number" min="1" max="120" step="1"
+              onkeydown="if(event.key==='Enter')saveCacheSettings()"
+              class="w-24 bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <span class="text-slate-400 text-sm">minutes</span>
+            <button onclick="saveCacheSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto">Sauvegarder</button>
+          </div>
+          <p class="text-slate-500 text-xs">Les données sont rechargées depuis le serveur après cette durée.</p>
         </div>
-        <div class="flex gap-3">
-          <button onclick="saveCacheSettings()" class="btn-primary flex-1">Enregistrer</button>
-          <button onclick="closeCacheSettings()" class="btn-secondary flex-1">Annuler</button>
+
+        <!-- Export JSON -->
+        <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
+          <p class="text-slate-300 text-sm font-medium">💾 Sauvegarde JSON</p>
+          <p class="text-slate-500 text-xs">Exporte toutes vos données (biens, dépenses, portefeuille…) dans un fichier JSON horodaté.</p>
+          <button onclick="exportDataJSON()" class="btn-secondary text-sm w-full">⬇ Télécharger la sauvegarde</button>
         </div>
+
+        <!-- Import JSON -->
+        <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
+          <p class="text-slate-300 text-sm font-medium">📂 Restaurer depuis JSON</p>
+          <p class="text-slate-500 text-xs text-amber-400/80">⚠ Remplace les données affichées (session en cours). Ne modifie pas Google Sheets.</p>
+          <input id="import-json-input" type="file" accept=".json" onchange="importDataJSON(this)" class="hidden">
+          <button onclick="document.getElementById('import-json-input').click()" class="btn-secondary text-sm w-full">⬆ Charger un fichier JSON</button>
+          <p id="import-json-status" class="text-xs hidden"></p>
+        </div>
+
+        <button onclick="closeCacheSettings()" class="btn-secondary w-full text-sm">Fermer</button>
       </div>`;
     div.addEventListener('click', e => { if (e.target === div) closeCacheSettings(); });
     document.body.appendChild(div);
   }
   document.getElementById('cache-ttl-input').value = API.getCacheTTLMinutes();
   document.getElementById('modal-cache-settings').classList.remove('hidden');
-  setTimeout(() => document.getElementById('cache-ttl-input').focus(), 50);
 }
 
 function closeCacheSettings() {
@@ -88,8 +107,58 @@ function closeCacheSettings() {
 function saveCacheSettings() {
   const val = parseInt(document.getElementById('cache-ttl-input').value, 10);
   if (val >= 1) API.setCacheTTL(val);
-  closeCacheSettings();
   render(); // rafraîchit la navbar pour afficher le nouveau TTL
+}
+
+function exportDataJSON() {
+  const now      = new Date();
+  const pad      = n => String(n).padStart(2, '0');
+  const ts       = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}h${pad(now.getMinutes())}`;
+  const filename = `portfolio-backup_${ts}.json`;
+  const payload  = JSON.stringify(STATE, null, 2);
+  const blob     = new Blob([payload], { type: 'application/json' });
+  const url      = URL.createObjectURL(blob);
+  const a        = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function importDataJSON(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const status = document.getElementById('import-json-status');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      // Validation minimale : vérifier que c'est bien un objet avec au moins une clé attendue
+      const expected = ['portfolios', 'envelopes', 'biens_immo', 'expense_categories'];
+      const valid    = expected.some(k => Array.isArray(data[k]));
+      if (!valid) throw new Error('Format non reconnu — fichier invalide.');
+      // Fusionner avec le STATE existant (les clés manquantes gardent les valeurs actuelles)
+      STATE = { ...STATE, ...data };
+      API._setCache({ ...STATE });
+      if (status) {
+        status.textContent = `✅ Fichier chargé — ${file.name}`;
+        status.className   = 'text-xs text-emerald-400';
+        status.classList.remove('hidden');
+      }
+      // Réinitialiser l'input pour permettre de recharger le même fichier
+      input.value = '';
+      // Re-render la page courante
+      render();
+    } catch (err) {
+      if (status) {
+        status.textContent = `❌ Erreur : ${err.message}`;
+        status.className   = 'text-xs text-red-400';
+        status.classList.remove('hidden');
+      }
+      input.value = '';
+    }
+  };
+  reader.readAsText(file);
 }
 
 // ─── LOADER GLOBAL ───────────────────────────────────────────────────────────
