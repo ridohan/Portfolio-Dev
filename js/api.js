@@ -136,6 +136,10 @@ const API = {
   updateExpenseAid(data)      { return this.post('updateExpenseAid', data); },
   deleteExpenseAid(id)        { return this.post('deleteExpenseAid', { id }); },
 
+  // ─── PRÉFÉRENCES UI ─────────────────────────────────────────────────────────
+  // postSilent : n'invalide pas le cache — la pref UI ne modifie pas les données
+  saveUiPref(key, value)      { return this.postSilent('saveUiPref', { key, value }); },
+
   // ─── IMMOBILIER LOCATIF ─────────────────────────────────────────────────────
   addBienImmo(data)           { return this.post('addBienImmo', data); },
   updateBienImmo(data)        { return this.post('updateBienImmo', data); },

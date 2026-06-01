@@ -1,5 +1,5 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [], biens_immo: [], depenses_immo: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [], biens_immo: [], depenses_immo: [], ui_prefs: [] };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
@@ -17,6 +17,38 @@ function navigate(hash) { location.hash = hash; }
 window.addEventListener('hashchange', render);
 window.addEventListener('load', render);
 
+// ─── PRÉFÉRENCES UI CROSS-DEVICE ─────────────────────────────────────────────
+// Les prefs sont stockées dans Google Sheets (ui_prefs) ET en localStorage.
+// Au chargement, les données serveur ont priorité et synchronisent localStorage.
+
+function getUiPref(key, defaultVal = null) {
+  // Priorité 1 : STATE (chargé depuis Google Sheets)
+  if (Array.isArray(STATE.ui_prefs) && STATE.ui_prefs.length) {
+    const pref = STATE.ui_prefs.find(p => p.key === key);
+    if (pref?.value !== undefined && pref.value !== '') {
+      try { return JSON.parse(pref.value); } catch { return pref.value; }
+    }
+  }
+  // Priorité 2 : localStorage (fallback local)
+  try {
+    const raw = localStorage.getItem(key);
+    return raw !== null ? JSON.parse(raw) : defaultVal;
+  } catch { return defaultVal; }
+}
+
+function persistUiPref(key, value) {
+  const serialized = JSON.stringify(value);
+  // 1. localStorage immédiat (réactivité)
+  try { localStorage.setItem(key, serialized); } catch {}
+  // 2. Mise à jour de STATE pour cohérence session courante
+  if (!Array.isArray(STATE.ui_prefs)) STATE.ui_prefs = [];
+  const idx = STATE.ui_prefs.findIndex(p => p.key === key);
+  if (idx !== -1) STATE.ui_prefs[idx].value = serialized;
+  else STATE.ui_prefs.push({ key, value: serialized });
+  // 3. Sync serveur asynchrone (fire-and-forget, postSilent → pas d'invalidation cache)
+  API.saveUiPref(key, serialized).catch(e => console.warn('persistUiPref:', e));
+}
+
 async function render() {
   const app = document.getElementById('app');
   if (!API.isConfigured()) return renderSetup(app);
@@ -32,6 +64,15 @@ async function render() {
     } catch (e) {
       app.innerHTML = errorBanner(e.message); return;
     }
+  }
+
+  // Sync localStorage depuis les prefs serveur (cross-device)
+  if (Array.isArray(STATE.ui_prefs)) {
+    STATE.ui_prefs.forEach(p => {
+      if (p.key && p.value !== undefined && p.value !== '') {
+        try { localStorage.setItem(p.key, p.value); } catch {}
+      }
+    });
   }
 
   const hash = location.hash || '#dashboard';
@@ -2402,16 +2443,14 @@ const DASH_BLOCKS_DEF = [
 ];
 
 function loadDashOrder() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(DASH_ORDER_KEY) || 'null');
-    const allIds = DASH_BLOCKS_DEF.map(b => b.id);
-    if (!saved) return allIds;
-    const filtered = saved.filter(id => allIds.includes(id));
-    const missing  = allIds.filter(id => !filtered.includes(id));
-    return [...filtered, ...missing];
-  } catch { return DASH_BLOCKS_DEF.map(b => b.id); }
+  const allIds = DASH_BLOCKS_DEF.map(b => b.id);
+  const saved  = getUiPref(DASH_ORDER_KEY, null);
+  if (!saved || !Array.isArray(saved)) return allIds;
+  const filtered = saved.filter(id => allIds.includes(id));
+  const missing  = allIds.filter(id => !filtered.includes(id));
+  return [...filtered, ...missing];
 }
-function saveDashOrder(arr) { try { localStorage.setItem(DASH_ORDER_KEY, JSON.stringify(arr)); } catch {} }
+function saveDashOrder(arr) { persistUiPref(DASH_ORDER_KEY, arr); }
 
 function openDashOrderModal() {
   let modal = document.getElementById('modal-dash-order');
@@ -2494,15 +2533,11 @@ const MILE_KEY  = 'portfolio_milestones';
 let _projEdit   = null;
 let _mileEdit   = null;
 
-function loadProjections() {
-  try { return JSON.parse(localStorage.getItem(PROJ_KEY) || '[]'); } catch { return []; }
-}
-function saveProjections(arr) { try { localStorage.setItem(PROJ_KEY, JSON.stringify(arr)); } catch {} }
+function loadProjections() { return getUiPref(PROJ_KEY, []); }
+function saveProjections(arr) { persistUiPref(PROJ_KEY, arr); }
 
-function loadMilestones() {
-  try { return JSON.parse(localStorage.getItem(MILE_KEY) || '[]'); } catch { return []; }
-}
-function saveMilestones(arr) { try { localStorage.setItem(MILE_KEY, JSON.stringify(arr)); } catch {} }
+function loadMilestones() { return getUiPref(MILE_KEY, []); }
+function saveMilestones(arr) { persistUiPref(MILE_KEY, arr); }
 
 // ── Calcul projection ─────────────────────────────────────────────────────────
 
@@ -2894,15 +2929,13 @@ const EOY_KEY = 'eoy_forecast';
 let _eoy = { rate: null, pmt: 0 };
 
 function _eoyInit() {
-  try {
-    const raw = localStorage.getItem(EOY_KEY);
-    if (raw) _eoy = { ..._eoy, ...JSON.parse(raw) };
-  } catch {}
+  const saved = getUiPref(EOY_KEY, null);
+  if (saved) _eoy = { ..._eoy, ...saved };
   if (_eoy.rate === null) _eoy.rate = estimateAnnualReturn();
 }
 
 function _eoySave() {
-  try { localStorage.setItem(EOY_KEY, JSON.stringify(_eoy)); } catch {}
+  persistUiPref(EOY_KEY, _eoy);
 }
 
 function eoyCalc() {

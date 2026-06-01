@@ -39,6 +39,7 @@ function doGet(e) {
       expense_aids:        sheetToObjects(ss, 'expense_aids'),
       biens_immo:          sheetToObjects(ss, 'biens_immo'),
       depenses_immo:       sheetToObjects(ss, 'depenses_immo'),
+      ui_prefs:            sheetToObjects(ss, 'ui_prefs'),
     };
     return jsonResponse({ ok: true, data });
   } catch (err) {
@@ -212,6 +213,24 @@ function doPost(e) {
         });
       },
       deleteDepenseImmo: () => deleteRow('depenses_immo', payload.id),
+
+      // ─── Préférences UI (clé / valeur JSON) ─────────────────────────────────
+      saveUiPref: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        ensureSheet(ss2, 'ui_prefs', ['key', 'value']);
+        const sheet  = ss2.getSheetByName('ui_prefs');
+        const data   = sheet.getDataRange().getValues();
+        const hdrs   = data[0];
+        const keyIdx = hdrs.indexOf('key');
+        const valIdx = hdrs.indexOf('value');
+        const rowIdx = data.findIndex((row, i) => i > 0 && String(row[keyIdx]) === String(payload.key));
+        if (rowIdx !== -1) {
+          sheet.getRange(rowIdx + 1, valIdx + 1).setValue(String(payload.value ?? ''));
+        } else {
+          sheet.appendRow(hdrs.map(h => ({ key: payload.key, value: String(payload.value ?? '') }[h] ?? '')));
+        }
+        return { saved: true };
+      },
     };
 
     if (!handlers[action]) {
