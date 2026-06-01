@@ -848,6 +848,18 @@ function renderDashboard(app) {
         <h2 class="text-lg font-semibold text-white">📅 Projection fin d'année</h2>
       </div>
       <div id="eoy-card-wrapper">${eoyCard()}</div>
+
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">🎯 Simulations</h2>
+      </div>
+      <div id="proj-section">${projBlock()}</div>
+
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">🏆 Jalons</h2>
+        <button onclick="openMilestoneModal()" class="btn-secondary text-sm">+ Jalon</button>
+      </div>
+      <div id="milestone-section">${milestoneGauge()}</div>
+
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">🔥 Simulation FIRE</h2>
         <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-sm">Configurer →</a>
@@ -871,7 +883,9 @@ function renderDashboard(app) {
       </div>
     </div>
     ${modalPortfolio()}
-    ${modalEoy()}`;
+    ${modalEoy()}
+    ${modalProjection()}
+    ${modalMilestone()}`;
 }
 
 function portfolioCard(p) {
@@ -2325,6 +2339,380 @@ function estimateAnnualReturn() {
 }
 
 // ─── PROJECTION FIN D'ANNÉE (EOY) ────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIMULATIONS PERSONNALISÉES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const PROJ_KEY  = 'portfolio_projections';
+const MILE_KEY  = 'portfolio_milestones';
+let _projEdit   = null;
+let _mileEdit   = null;
+
+function loadProjections() {
+  try { return JSON.parse(localStorage.getItem(PROJ_KEY) || '[]'); } catch { return []; }
+}
+function saveProjections(arr) { try { localStorage.setItem(PROJ_KEY, JSON.stringify(arr)); } catch {} }
+
+function loadMilestones() {
+  try { return JSON.parse(localStorage.getItem(MILE_KEY) || '[]'); } catch { return []; }
+}
+function saveMilestones(arr) { try { localStorage.setItem(MILE_KEY, JSON.stringify(arr)); } catch {} }
+
+// ── Calcul projection ─────────────────────────────────────────────────────────
+
+function projCalc(sim) {
+  const { total, totalCharges } = globalStats();
+  const pv     = Math.max(0, total - totalCharges);
+  const now    = new Date();
+  const target = new Date(Number(sim.annee), 11, 31);
+  const t      = Math.max(0, Math.round((target - now) / (1000 * 60 * 60 * 24 * 30.44)));
+  const r      = (sim.rate || 0) / 100 / 12;
+  const pmt    = Number(sim.pmt) || 0;
+  const fv     = r === 0 ? pv + pmt * t : pv * Math.pow(1 + r, t) + pmt * (Math.pow(1 + r, t) - 1) / r;
+  return { pv, fv: Math.round(fv), gain: Math.round(fv - pv), t };
+}
+
+// ── Rendu carte simulation ────────────────────────────────────────────────────
+
+function projCard(sim) {
+  const { pv, fv, gain, t } = projCalc(sim);
+  const gainPct  = pv > 0 ? ((gain / pv) * 100).toFixed(1) : '0.0';
+  const gc       = gain >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const pmtLine  = sim.pmt > 0 ? ` · +${fmt(sim.pmt)}/mois` : '';
+  const yearsLeft = Number(sim.annee) - new Date().getFullYear();
+  const yLabel    = yearsLeft > 0 ? `dans ${yearsLeft} an${yearsLeft > 1 ? 's' : ''}` : 'cette année';
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 group relative hover:bg-slate-750 transition">
+      <div class="flex items-start justify-between">
+        <div class="min-w-0 flex-1">
+          <p class="text-slate-400 text-xs mb-0.5 flex items-center gap-1">🎯 <span class="truncate font-medium text-slate-300">${esc(sim.nom)}</span></p>
+          <p class="text-white text-2xl font-bold">${fmt(fv)}</p>
+          <p class="${gc} text-sm mt-0.5">${gain >= 0 ? '+' : ''}${fmt(gain)} <span class="text-xs opacity-70">(${gain >= 0 ? '+' : ''}${gainPct}%)</span></p>
+        </div>
+        <div class="text-right flex-shrink-0 ml-3">
+          <p class="text-slate-500 text-xs">${sim.rate}%/an${pmtLine}</p>
+          <p class="text-slate-600 text-xs mt-0.5">Fin ${sim.annee} · ${yLabel}</p>
+          <p class="text-slate-700 text-xs mt-0.5">${t} mois</p>
+        </div>
+      </div>
+      <div class="absolute top-2.5 right-2.5 hidden group-hover:flex gap-1">
+        <button onclick="event.stopPropagation();openProjModal('${sim.id}')" class="text-slate-500 hover:text-blue-400 text-xs p-1 rounded hover:bg-slate-700">✏</button>
+        <button onclick="event.stopPropagation();deleteProjSim('${sim.id}')" class="text-slate-500 hover:text-red-400 text-xs p-1 rounded hover:bg-slate-700">✕</button>
+      </div>
+    </div>`;
+}
+
+function projBlock() {
+  const sims = loadProjections();
+  const cards = sims.map(s => projCard(s)).join('');
+  return `
+    <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      ${cards}
+      <div class="bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-xl p-5 flex items-center justify-center cursor-pointer hover:border-slate-500 hover:bg-slate-800 transition min-h-[112px]"
+        onclick="openProjModal()">
+        <div class="text-center">
+          <p class="text-slate-500 text-2xl mb-1">+</p>
+          <p class="text-slate-500 text-xs">Nouvelle simulation</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+function openProjModal(id = null) {
+  _projEdit = id;
+  const sim = id ? loadProjections().find(s => s.id === id) : null;
+  document.getElementById('proj-nom').value   = sim?.nom   || '';
+  document.getElementById('proj-annee').value = sim?.annee || (new Date().getFullYear() + 5);
+  document.getElementById('proj-rate').value  = sim?.rate  ?? estimateAnnualReturn();
+  document.getElementById('proj-pmt').value   = sim?.pmt   || 0;
+  document.getElementById('modal-proj').classList.remove('hidden');
+  refreshProjPreview();
+  setTimeout(() => document.getElementById('proj-nom')?.focus(), 50);
+}
+
+function closeProjModal() {
+  document.getElementById('modal-proj').classList.add('hidden');
+  _projEdit = null;
+}
+
+function refreshProjPreview() {
+  const rate  = parseFloat(document.getElementById('proj-rate')?.value) || 0;
+  const pmt   = parseFloat(String(document.getElementById('proj-pmt')?.value || '').replace(',', '.')) || 0;
+  const annee = parseInt(document.getElementById('proj-annee')?.value) || new Date().getFullYear() + 5;
+  const { total, totalCharges } = globalStats();
+  const pv     = Math.max(0, total - totalCharges);
+  const target = new Date(annee, 11, 31);
+  const t      = Math.max(0, Math.round((target - new Date()) / (1000 * 60 * 60 * 24 * 30.44)));
+  const r      = rate / 100 / 12;
+  const fv     = r === 0 ? pv + pmt * t : pv * Math.pow(1 + r, t) + pmt * (Math.pow(1 + r, t) - 1) / r;
+  const gain   = fv - pv;
+  const el = document.getElementById('proj-preview');
+  if (el) el.innerHTML = `${fmt(Math.round(fv))} <span class="${gain >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm">(${gain >= 0 ? '+' : ''}${fmt(Math.round(gain))})</span>`;
+  const tEl = document.getElementById('proj-months');
+  if (tEl) tEl.textContent = `${t} mois jusqu'au 31 déc. ${annee}`;
+}
+
+function saveProjSim() {
+  const nom   = document.getElementById('proj-nom')?.value.trim();
+  const annee = parseInt(document.getElementById('proj-annee')?.value);
+  const rate  = parseFloat(document.getElementById('proj-rate')?.value) || 0;
+  const pmt   = parseFloat(String(document.getElementById('proj-pmt')?.value || '').replace(',', '.')) || 0;
+  if (!nom) { alert('Le nom est obligatoire.'); return; }
+  const sims = loadProjections();
+  if (_projEdit) {
+    const idx = sims.findIndex(s => s.id === _projEdit);
+    if (idx !== -1) sims[idx] = { ...sims[idx], nom, annee, rate, pmt };
+  } else {
+    sims.push({ id: 'proj_' + Date.now(), nom, annee, rate, pmt });
+  }
+  saveProjections(sims);
+  closeProjModal();
+  setEl('proj-section', projBlock());
+}
+
+function deleteProjSim(id) {
+  if (!confirm('Supprimer cette simulation ?')) return;
+  saveProjections(loadProjections().filter(s => s.id !== id));
+  setEl('proj-section', projBlock());
+}
+
+function modalProjection() {
+  const cy = new Date().getFullYear();
+  const yearOpts = Array.from({ length: 21 }, (_, i) => cy + i)
+    .map(y => `<option value="${y}">${y}</option>`).join('');
+  return `
+    <div id="modal-proj" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeProjModal()">
+      <div class="modal-box w-full max-w-sm">
+        <h3 class="text-lg font-bold text-white mb-4">🎯 Simulation</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Nom de la simulation *</label>
+            <input id="proj-nom" type="text" placeholder="Ex : Retraite 2032, Appart 2028…"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Année cible</label>
+            <select id="proj-annee" onchange="refreshProjPreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              ${yearOpts}
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Rendement annuel estimé (%)</label>
+            <input id="proj-rate" type="number" step="0.1" min="0" max="100" oninput="refreshProjPreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Versements mensuels (€)</label>
+            <input id="proj-pmt" type="number" step="100" min="0" oninput="refreshProjPreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="bg-slate-700/50 rounded-lg p-3 space-y-1">
+            <p class="text-slate-400 text-xs">Projection calculée</p>
+            <p id="proj-preview" class="text-white font-bold text-lg">—</p>
+            <p id="proj-months" class="text-slate-600 text-xs">—</p>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button onclick="saveProjSim()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeProjModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Jalons (milestone gauge) ─────────────────────────────────────────────────
+
+function milestoneGauge() {
+  const miles   = loadMilestones().sort((a, b) => Number(a.valeur) - Number(b.valeur));
+  const { total, totalCharges } = globalStats();
+  const current = Math.max(0, total - totalCharges);
+
+  const addBtn = `<button onclick="openMilestoneModal()" class="btn-secondary text-xs">+ Jalon</button>`;
+
+  if (!miles.length) return `
+    <div class="bg-slate-800 rounded-xl p-6 text-center">
+      <p class="text-3xl mb-2">🏆</p>
+      <p class="text-slate-300 font-medium mb-1">Jalons de progression</p>
+      <p class="text-slate-500 text-sm mb-4">Définissez des paliers de valeur et visualisez votre progression vers l'indépendance financière</p>
+      <button onclick="openMilestoneModal()" class="btn-primary text-sm">+ Créer mon premier jalon</button>
+    </div>`;
+
+  const unlocked = miles.filter(m => current >= Number(m.valeur));
+  const locked   = miles.filter(m => current < Number(m.valeur));
+  const curLevel = unlocked[unlocked.length - 1] || null;
+  const nxtLevel = locked[0] || null;
+
+  // Progress vers le prochain jalon
+  const fromVal  = Number(curLevel?.valeur || 0);
+  const toVal    = Number(nxtLevel?.valeur || current * 1.5);
+  const progPct  = toVal > fromVal ? Math.min(100, Math.round((current - fromVal) / (toVal - fromVal) * 100)) : 100;
+  const missing  = nxtLevel ? Math.max(0, Number(nxtLevel.valeur) - current) : 0;
+
+  // Cartes de jalons
+  const mileCards = miles.map(m => {
+    const val      = Number(m.valeur);
+    const rate     = Number(m.txRetrait || 4);
+    const fire     = Math.round(val * rate / 100 / 12);
+    const done     = current >= val;
+    const isNext   = m.id === nxtLevel?.id;
+    const distLabel = done ? '' : `−${fmt(Math.round(val - current))}`;
+    return `
+      <div class="relative bg-slate-700/40 rounded-lg p-4 border ${done ? 'border-emerald-500/40' : isNext ? 'border-blue-500/40' : 'border-slate-700'} transition group">
+        <div class="flex items-start justify-between mb-2">
+          <div>
+            <p class="text-xs font-semibold ${done ? 'text-emerald-400' : isNext ? 'text-blue-300' : 'text-slate-400'}">
+              ${done ? '✅' : isNext ? '🎯' : '⬜'} ${esc(m.nom)}
+            </p>
+            <p class="text-white font-bold text-base mt-0.5">${fmt(val)}</p>
+          </div>
+          <div class="text-right">
+            <p class="text-xs text-slate-500">${rate}% SWR</p>
+            <p class="text-sm font-semibold ${done ? 'text-emerald-400' : isNext ? 'text-blue-300' : 'text-slate-500'}">+${fmt(fire)}/mois</p>
+          </div>
+        </div>
+        ${!done && distLabel ? `<p class="text-xs text-slate-500">Manque : <span class="${isNext ? 'text-blue-400' : 'text-slate-400'} font-medium">${distLabel}</span></p>` : ''}
+        ${done ? `<p class="text-xs text-emerald-500">Atteint ✓</p>` : ''}
+        <div class="absolute top-2 right-2 hidden group-hover:flex gap-1">
+          <button onclick="event.stopPropagation();openMilestoneModal('${m.id}')" class="text-slate-500 hover:text-blue-400 text-xs p-0.5">✏</button>
+          <button onclick="event.stopPropagation();deleteMilestone('${m.id}')" class="text-slate-500 hover:text-red-400 text-xs p-0.5">✕</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Barre de progression vers le prochain jalon
+  const progressBar = nxtLevel ? `
+    <div class="bg-slate-700/40 rounded-lg p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-blue-400 font-semibold text-sm">🎯 Prochain : ${esc(nxtLevel.nom)}</span>
+          <span class="text-slate-500 text-xs">${fmt(Number(nxtLevel.valeur))}</span>
+        </div>
+        <span class="text-white font-bold text-sm">${progPct}%</span>
+      </div>
+      <div class="w-full bg-slate-700 rounded-full h-3 overflow-hidden">
+        <div class="h-3 rounded-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all" style="width:${progPct}%"></div>
+      </div>
+      <div class="flex justify-between mt-1.5 text-xs text-slate-500">
+        <span>${fmt(Math.round(current))}</span>
+        <span class="text-blue-400">Il manque ${fmt(Math.round(missing))}</span>
+        <span>${fmt(Number(nxtLevel.valeur))}</span>
+      </div>
+      <p class="text-slate-500 text-xs mt-1.5">FIRE à atteindre : <span class="text-blue-300 font-medium">+${fmt(Math.round(Number(nxtLevel.valeur) * Number(nxtLevel.txRetrait||4) / 100 / 12))}/mois</span></p>
+    </div>` : `
+    <div class="bg-emerald-900/30 border border-emerald-500/30 rounded-lg p-4 text-center">
+      <p class="text-emerald-400 font-semibold">🎉 Tous les jalons atteints !</p>
+      <p class="text-slate-400 text-xs mt-1">Définissez de nouveaux objectifs pour continuer</p>
+    </div>`;
+
+  return `
+    <div class="space-y-4">
+      ${curLevel ? `
+        <div class="flex items-center gap-3 bg-emerald-900/20 border border-emerald-500/20 rounded-xl px-4 py-3">
+          <span class="text-2xl">🏅</span>
+          <div>
+            <p class="text-white font-semibold text-sm">Niveau actuel — ${esc(curLevel.nom)}</p>
+            <p class="text-slate-400 text-xs">FIRE : <span class="text-emerald-400 font-medium">+${fmt(Math.round(Number(curLevel.valeur) * Number(curLevel.txRetrait||4) / 100 / 12))}/mois</span>
+              · Taux retrait ${Number(curLevel.txRetrait||4)}%</p>
+          </div>
+        </div>` : `
+        <div class="flex items-center gap-3 bg-slate-700/40 rounded-xl px-4 py-3">
+          <span class="text-2xl">🚀</span>
+          <div>
+            <p class="text-white font-semibold text-sm">En route vers le premier jalon</p>
+            <p class="text-slate-400 text-xs">${fmt(Math.round(current))} accumulés</p>
+          </div>
+        </div>`}
+      ${progressBar}
+      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        ${mileCards}
+      </div>
+    </div>`;
+}
+
+function openMilestoneModal(id = null) {
+  _mileEdit = id;
+  const m = id ? loadMilestones().find(x => x.id === id) : null;
+  document.getElementById('mile-nom').value      = m?.nom      || '';
+  document.getElementById('mile-valeur').value   = m?.valeur   || '';
+  document.getElementById('mile-retrait').value  = m?.txRetrait ?? 4;
+  document.getElementById('modal-milestone').classList.remove('hidden');
+  refreshMilePreview();
+  setTimeout(() => document.getElementById('mile-nom')?.focus(), 50);
+}
+
+function closeMilestoneModal() {
+  document.getElementById('modal-milestone').classList.add('hidden');
+  _mileEdit = null;
+}
+
+function refreshMilePreview() {
+  const val  = parseFloat(document.getElementById('mile-valeur')?.value) || 0;
+  const rate = parseFloat(document.getElementById('mile-retrait')?.value) || 4;
+  const fire = Math.round(val * rate / 100 / 12);
+  const el   = document.getElementById('mile-preview');
+  if (el) el.textContent = val > 0 ? `FIRE : +${fmt(fire)}/mois (${rate}% SWR)` : '—';
+}
+
+function saveMilestone() {
+  const nom      = document.getElementById('mile-nom')?.value.trim();
+  const valeur   = parseFloat(document.getElementById('mile-valeur')?.value) || 0;
+  const txRetrait = parseFloat(document.getElementById('mile-retrait')?.value) || 4;
+  if (!nom || !valeur) { alert('Nom et valeur sont obligatoires.'); return; }
+  const miles = loadMilestones();
+  if (_mileEdit) {
+    const idx = miles.findIndex(m => m.id === _mileEdit);
+    if (idx !== -1) miles[idx] = { ...miles[idx], nom, valeur, txRetrait };
+  } else {
+    miles.push({ id: 'mile_' + Date.now(), nom, valeur, txRetrait });
+  }
+  saveMilestones(miles);
+  closeMilestoneModal();
+  setEl('milestone-section', milestoneGauge());
+}
+
+function deleteMilestone(id) {
+  if (!confirm('Supprimer ce jalon ?')) return;
+  saveMilestones(loadMilestones().filter(m => m.id !== id));
+  setEl('milestone-section', milestoneGauge());
+}
+
+function modalMilestone() {
+  return `
+    <div id="modal-milestone" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeMilestoneModal()">
+      <div class="modal-box w-full max-w-sm">
+        <h3 class="text-lg font-bold text-white mb-4">🏆 Jalon</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Nom du jalon *</label>
+            <input id="mile-nom" type="text" placeholder="Ex : 100k Club, Mi-chemin FIRE…"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Valeur cible (€) *</label>
+            <input id="mile-valeur" type="number" step="1000" min="0" oninput="refreshMilePreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Taux de retrait SWR (%)</label>
+            <input id="mile-retrait" type="number" step="0.1" min="1" max="10" oninput="refreshMilePreview()"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <p class="text-slate-600 text-xs mt-1">Règle des 4% recommandée. Revenu FIRE = valeur × taux ÷ 12</p>
+          </div>
+          <div class="bg-slate-700/50 rounded-lg px-3 py-2">
+            <p id="mile-preview" class="text-emerald-400 font-semibold text-sm">—</p>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button onclick="saveMilestone()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeMilestoneModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
 
 const EOY_KEY = 'eoy_forecast';
 let _eoy = { rate: null, pmt: 0 };
