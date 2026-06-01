@@ -136,6 +136,11 @@ const API = {
   updateExpenseAid(data)      { return this.post('updateExpenseAid', data); },
   deleteExpenseAid(id)        { return this.post('deleteExpenseAid', { id }); },
 
+  // ─── VPW SIMULATOR ──────────────────────────────────────────────────────────
+  // postSilent : écrit B11 dans la feuille simulatrice et lit les résultats
+  // sans invalider le cache principal.
+  simulateVpw(capital)        { return this.postSilent('simulateVpw', { capital }); },
+
   // ─── PRÉFÉRENCES UI ─────────────────────────────────────────────────────────
   // postSilent : n'invalide pas le cache — la pref UI ne modifie pas les données
   saveUiPref(key, value)      { return this.postSilent('saveUiPref', { key, value }); },

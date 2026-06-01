@@ -214,6 +214,51 @@ function doPost(e) {
       },
       deleteDepenseImmo: () => deleteRow('depenses_immo', payload.id),
 
+      // ─── VPW Simulator ───────────────────────────────────────────────────────
+      // Écrit le capital en B11 de "VPW Retirement Simulator", force le recalcul,
+      // puis lit les résultats avec la même logique que getVpwData().
+      simulateVpw: () => {
+        const ss2   = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss2.getSheetByName('VPW Retirement Simulator');
+        if (!sheet) throw new Error('Feuille "VPW Retirement Simulator" introuvable. Crée-la depuis "VPW Retirement" en dupliquant l\'onglet.');
+
+        // Écriture du capital en B11
+        sheet.getRange('B11').setValue(Number(payload.capital || 0));
+        // Forcer le recalcul des formules avant lecture
+        SpreadsheetApp.flush();
+
+        const rows = Math.min(sheet.getLastRow(), 90);
+        const cols = Math.min(sheet.getLastColumn(), 8);
+        const data = sheet.getRange(1, 1, rows, cols).getValues();
+
+        const findNum = (label, rowMin, rowMax) => {
+          for (let r = rowMin - 1; r < Math.min(rowMax, rows); r++) {
+            for (let c = 0; c < cols; c++) {
+              if (String(data[r][c]).includes(label)) {
+                for (let k = c + 1; k < cols; k++) {
+                  if (data[r][k] !== null && data[r][k] !== '' && typeof data[r][k] === 'number')
+                    return data[r][k];
+                }
+              }
+            }
+          }
+          return null;
+        };
+
+        const vpwPctRaw = findNum('VPW Table Percentage', 54, 57);
+        return {
+          capital:           Number(payload.capital || 0),
+          age:               findNum('Age',                          9,  12),
+          monthlyWithdrawal: findNum('Monthly Portfolio Withdrawal', 14, 18),
+          portfolioLoss:     findNum('Portfolio Loss',               22, 24),
+          balanceAfterLoss:  findNum('Portfolio Balance After Loss', 23, 26),
+          monthlyReduction:  findNum('Monthly Income Reduction',     24, 27),
+          monthlyAfterLoss:  findNum('Monthly Income After Loss',    24, 28),
+          annualWithdrawal:  findNum('Portfolio Withdrawal',         34, 38),
+          vpwPct:            vpwPctRaw !== null ? parseFloat((vpwPctRaw * 100).toFixed(2)) : null,
+        };
+      },
+
       // ─── Préférences UI (clé / valeur JSON) ─────────────────────────────────
       saveUiPref: () => {
         const ss2 = SpreadsheetApp.getActiveSpreadsheet();

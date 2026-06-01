@@ -966,7 +966,7 @@ function portfolioCard(p) {
         </span>
       </div>
       <p class="text-white text-xl font-bold mb-1">${fmt(totalCharges > 0 ? total - totalCharges : total)}</p>
-      ${totalCharges > 0 ? `<p class="text-slate-500 text-xs mb-3">Brut : ${fmt(total)} · Charges : −${fmt(totalCharges)}</p>` : '<div class="mb-3"></div>'}
+      <p class="text-slate-500 text-xs h-4 mb-2">${totalCharges > 0 ? `Brut : ${fmt(total)} · Charges : −${fmt(totalCharges)}` : ''}</p>
       ${allocBar(alloc, null, 'sm')}
     </div>`;
 }
@@ -1905,8 +1905,12 @@ function envelopeHistory(envelopeId) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Somme quotidienne de toutes les enveloppes → courbe de valeur globale
+// Somme quotidienne de toutes les enveloppes → courbe de valeur NETTE
+// Les charges (portées au niveau portfolio) sont déduites de valeur_actuelle
+// pour éviter les chutes brutales quand une charge est saisie.
 function globalHistory() {
+  const totalCharges = STATE.charges.reduce((s, c) => s + (Number(c.montant) || 0), 0);
+
   const byDate = {};
   dedupHistory(STATE.history).forEach(h => {
     const date = normalizeDate(h.date);
@@ -1916,18 +1920,26 @@ function globalHistory() {
   });
 
   return Object.values(byDate)
-    .map(e => ({
-      ...e,
-      pv_euros: e.valeur_actuelle - e.valeur_investie,
-      pv_pct: e.valeur_investie > 0
-        ? ((e.valeur_actuelle / e.valeur_investie - 1) * 100).toFixed(2)
-        : 0,
-    }))
+    .map(e => {
+      const va = Math.max(0, e.valeur_actuelle - totalCharges); // valeur nette
+      return {
+        ...e,
+        valeur_actuelle: va,
+        pv_euros: va - e.valeur_investie,
+        pv_pct: e.valeur_investie > 0
+          ? ((va / e.valeur_investie - 1) * 100).toFixed(2)
+          : 0,
+      };
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// Somme quotidienne des enveloppes d'un portfolio → courbe de valeur globale
+// Somme quotidienne des enveloppes d'un portfolio → courbe de valeur NETTE
 function portfolioHistory(portfolioId) {
+  const totalCharges = STATE.charges
+    .filter(c => c.portfolio_id === portfolioId)
+    .reduce((s, c) => s + (Number(c.montant) || 0), 0);
+
   const envIds = STATE.envelopes
     .filter(e => e.portfolio_id === portfolioId)
     .map(e => e.id);
@@ -1941,13 +1953,17 @@ function portfolioHistory(portfolioId) {
   });
 
   return Object.values(byDate)
-    .map(e => ({
-      ...e,
-      pv_euros: e.valeur_actuelle - e.valeur_investie,
-      pv_pct: e.valeur_investie > 0
-        ? ((e.valeur_actuelle / e.valeur_investie - 1) * 100).toFixed(2)
-        : 0,
-    }))
+    .map(e => {
+      const va = Math.max(0, e.valeur_actuelle - totalCharges); // valeur nette
+      return {
+        ...e,
+        valeur_actuelle: va,
+        pv_euros: va - e.valeur_investie,
+        pv_pct: e.valeur_investie > 0
+          ? ((va / e.valeur_investie - 1) * 100).toFixed(2)
+          : 0,
+      };
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -3193,6 +3209,8 @@ function fireDashboardCards() {
 
 function renderFire(app) {
   _fpInit();
+  _vpwSim = null; _vpwSimCapital = null; // Reset pour forcer un nouveau calcul
+  _scheduleVpwSim();
   app.innerHTML = `
     ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8">
@@ -3358,6 +3376,115 @@ function refreshFireResults() {
   const el = document.getElementById('fire-results');
   if (el) el.innerHTML = fireResults();
   _scheduleSave();
+  // Déclenche la simulation VPW avec debounce (évite de spammer à chaque frappe)
+  _scheduleVpwSim();
+}
+
+// ─── VPW SIMULATOR (async) ────────────────────────────────────────────────────
+
+let _vpwSim        = null;   // Dernier résultat de simulation VPW
+let _vpwSimLoading = false;
+let _vpwSimCapital = null;   // Dernier capital simulé (évite les doublons)
+let _vpwSimTimer   = null;
+
+function _scheduleVpwSim() {
+  // La feuille simulatrice n'existe peut-être pas — on ne fait rien si pas de VPW réel
+  if (!STATE.vpw || STATE.vpw.monthlyWithdrawal == null) return;
+  clearTimeout(_vpwSimTimer);
+  _vpwSimTimer = setTimeout(_doVpwSim, 900); // 900ms debounce
+}
+
+async function _doVpwSim() {
+  const capital = _fp?.capital;
+  if (!capital || capital <= 0) return;
+  if (capital === _vpwSimCapital && _vpwSim) return; // même capital, résultat déjà en cache
+  _vpwSimCapital = capital;
+  _vpwSimLoading = true;
+  setEl('fire-vpw-sim', _vpwSimCard());
+  try {
+    const result = await API.simulateVpw(capital);
+    _vpwSim        = result;
+    _vpwSimLoading = false;
+    setEl('fire-vpw-sim', _vpwSimCard());
+  } catch (e) {
+    _vpwSimLoading = false;
+    console.warn('simulateVpw error:', e.message);
+    setEl('fire-vpw-sim', `
+      <div class="bg-slate-800/60 rounded-xl p-4 border border-red-500/20">
+        <p class="text-red-400 text-xs">⚠ Simulation VPW indisponible — vérifie que la feuille "VPW Retirement Simulator" existe dans Google Sheets.</p>
+        <p class="text-slate-600 text-xs mt-1">${e.message}</p>
+      </div>`);
+  }
+}
+
+function _vpwSimCard() {
+  if (!STATE.vpw || STATE.vpw.monthlyWithdrawal == null) return '';
+
+  if (_vpwSimLoading) return `
+    <div class="bg-slate-800 rounded-xl p-5 border border-purple-500/20 flex items-center gap-3">
+      <span class="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin flex-shrink-0"></span>
+      <div>
+        <p class="text-slate-300 text-sm font-medium">Simulation VPW en cours…</p>
+        <p class="text-slate-500 text-xs">Recalcul de "VPW Retirement Simulator" avec ${fmt(Math.round(_fp?.capital || 0))}</p>
+      </div>
+    </div>`;
+
+  const v = _vpwSim;
+  if (!v || v.monthlyWithdrawal == null) return '';
+
+  const cible  = _fp?.depenses || 0;
+  const retOk  = cible > 0 && v.monthlyWithdrawal >= cible;
+  const hasStr = v.monthlyAfterLoss != null && v.monthlyAfterLoss > 0;
+  // Comparaison avec le VPW réel
+  const real   = STATE.vpw;
+  const diff   = real?.monthlyWithdrawal ? v.monthlyWithdrawal - real.monthlyWithdrawal : null;
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 border border-purple-500/25">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <span class="text-xl leading-none">🔮</span>
+          <div>
+            <p class="text-white text-sm font-semibold">VPW — Capital simulé</p>
+            <p class="text-slate-500 text-xs">
+              Basé sur <span class="text-purple-400">${fmt(Math.round(v.capital))}</span> dans "VPW Retirement Simulator"
+              ${diff !== null ? `· <span class="${diff >= 0 ? 'text-emerald-400' : 'text-red-400'}">${diff >= 0 ? '+' : ''}${fmt(Math.round(diff))}/mois vs réel</span>` : ''}
+            </p>
+          </div>
+        </div>
+        ${v.vpwPct != null
+          ? `<span class="bg-purple-500/15 text-purple-400 text-xs font-bold px-2.5 py-1 rounded-full">${v.vpwPct}% appliqué</span>`
+          : ''}
+      </div>
+
+      <div class="grid grid-cols-2 ${hasStr ? 'sm:grid-cols-4' : 'sm:grid-cols-2'} gap-4">
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait mensuel suggéré</p>
+          <p class="${retOk ? 'text-emerald-400' : 'text-purple-400'} text-xl font-bold">
+            ${fmt(v.monthlyWithdrawal)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+          </p>
+          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5">${retOk ? '✓ Objectif atteint' : `${fmt(Math.round(cible - v.monthlyWithdrawal))} sous l'objectif`}</p>` : ''}
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait annuel</p>
+          <p class="text-slate-300 text-xl font-bold">${fmt(v.annualWithdrawal ?? v.monthlyWithdrawal * 12)}</p>
+          ${v.age != null ? `<p class="text-slate-600 text-xs mt-0.5">Âge : ${v.age} ans</p>` : ''}
+        </div>
+        ${hasStr ? `
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Après correction marché</p>
+          <p class="text-amber-400 text-xl font-bold">
+            ${fmt(v.monthlyAfterLoss)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+          </p>
+          ${v.monthlyReduction != null ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.monthlyReduction)}/mois</p>` : ''}
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Portfolio après perte</p>
+          <p class="text-slate-300 font-semibold">${fmt(v.balanceAfterLoss)}</p>
+          ${v.portfolioLoss != null ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.portfolioLoss)} simulé</p>` : ''}
+        </div>` : ''}
+      </div>
+    </div>`;
 }
 
 // ─── CARTE VPW (résultats pré-calculés depuis Google Sheets) ──────────────────
@@ -3524,6 +3651,7 @@ function fireResults() {
   return `
     ${fireStatsCards(data, fireYear)}
     ${fireVpwCard()}
+    <div id="fire-vpw-sim">${_vpwSimCard()}</div>
     <div class="bg-slate-800 rounded-xl p-4">
       <p class="text-slate-400 text-xs mb-3">Projection du portfolio
         <span class="ml-2 text-slate-600">· bleu = valeur · pointillés = capital investi${fireYear ? ' · orange = année FIRE' : ''}</span>
