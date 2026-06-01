@@ -1933,6 +1933,27 @@ function fmtAxis(v) {
   return Math.round(v).toLocaleString('fr-FR') + ' €';
 }
 
+// Formate une valeur d'axe Y en adaptant la précision au pas des graduations.
+// Évite le problème "1,4 M€" sur toutes les lignes quand la plage est petite.
+function fmtAxisSmart(v, tickStep) {
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) {
+    // M€ = précision de 100 k. Si le pas est plus fin, descendre en k€.
+    if (tickStep < 100_000) {
+      const kv = v / 1000;
+      // Si le pas est < 1 k€, montrer 1 décimale en k€
+      const decimals = tickStep < 1000 ? 1 : 0;
+      return kv.toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + ' k€';
+    }
+    return (v / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' M€';
+  }
+  if (abs >= 1_000) {
+    const decimals = tickStep < 1000 ? 1 : 0;
+    return (v / 1000).toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + ' k€';
+  }
+  return Math.round(v).toLocaleString('fr-FR') + ' €';
+}
+
 // Calcule un pas "propre" pour les graduations (ex: 500, 1000, 2500…)
 function niceNumber(range, round) {
   if (!range) return 1;
@@ -1996,14 +2017,14 @@ function svgLineChart(entries, { width = 600, height = 200, mini = false } = {})
   const toX = i  => padL + (i / Math.max(values.length - 1, 1)) * cw;
   const toY = v  => padT + ch - ((v - tickMin) / totalRange) * ch;
 
-  // Gridlines horizontales + labels Y
+  // Gridlines horizontales + labels Y (précision adaptative selon le pas)
   const gridLines = yTicks.map(t => {
     const y = toY(t).toFixed(1);
     return `
       <line x1="${padL}" y1="${y}" x2="${(padL + cw).toFixed(1)}" y2="${y}"
         stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
       <text x="${(padL - 7).toFixed(1)}" y="${y}" text-anchor="end" dominant-baseline="middle"
-        fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif">${fmtAxis(t)}</text>`;
+        fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif">${fmtAxisSmart(t, tickStep)}</text>`;
   }).join('');
 
   // Labels X : max 7 étiquettes, bien réparties
@@ -2038,14 +2059,18 @@ function svgLineChart(entries, { width = 600, height = 200, mini = false } = {})
   const hitTargets = values.map((v, i) => {
     const e       = entries[i];
     const parts   = (e.date || '').split('-');
-    const dateStr = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : e.date;
+    const dateStr = parts.length === 3
+      ? new Date(e.date + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })
+      : e.date;
     const pv      = Number(e.pv_euros);
     const pct     = Math.abs(Number(e.pv_pct)).toFixed(2);
-    const pvFmt   = fmtAxis(Math.abs(pv));
+    const pvFmt   = fmt(Math.abs(Math.round(pv)));
     const sign    = pv >= 0 ? '+' : '−';
+    const invest  = Number(e.valeur_investie) > 0 ? fmt(Math.round(Number(e.valeur_investie))) : '';
     return `<circle cx="${toX(i).toFixed(1)}" cy="${toY(v).toFixed(1)}" r="14"
       fill="transparent" style="cursor:crosshair"
-      data-date="${dateStr}" data-val="${fmtAxis(v)}"
+      data-date="${dateStr}" data-val="${fmt(Math.round(v))}"
+      data-invest="${invest}"
       data-pv="${sign}${pvFmt}" data-pct="${sign}${pct}%" data-up="${pv >= 0}"
       onmouseenter="showChartTip(event,this)"
       onmousemove="positionChartTip(event)"
@@ -2084,9 +2109,10 @@ function showChartTip(event, el) {
   const d    = el.dataset;
   const isUp = d.up === 'true';
   tip.innerHTML = `
-    <p class="text-slate-400 mb-1">${d.date}</p>
-    <p class="text-white font-bold text-sm">${d.val}</p>
-    <p class="${isUp ? 'text-emerald-400' : 'text-red-400'} mt-0.5">${d.pv} (${d.pct})</p>`;
+    <p class="text-slate-400 text-xs mb-1.5">${d.date}</p>
+    <p class="text-white font-bold">${d.val}</p>
+    ${d.invest ? `<p class="text-slate-500 text-xs">Investi : ${d.invest}</p>` : ''}
+    <p class="${isUp ? 'text-emerald-400' : 'text-red-400'} text-xs mt-1">${d.pv} <span class="opacity-70">(${d.pct})</span></p>`;
   tip.style.display = 'block';
   positionChartTip(event);
 }
