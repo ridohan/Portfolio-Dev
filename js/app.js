@@ -322,17 +322,21 @@ function generatePdfPortfolio() {
     </div>`;
   }
 
-  // Charges récurrentes
+  // Charges à venir (frais ponctuels déductibles par portfolio)
   let chargesSection = '';
   if (STATE.charges.length) {
     const total = STATE.charges.reduce((s,c)=>s+Number(c.montant||0),0);
     chargesSection = `<div class="section">
-      <h2>Charges récurrentes</h2>
+      <h2>Charges à venir</h2>
       <table>
-        <thead><tr><th>Charge</th><th class="r">Montant</th></tr></thead>
+        <thead><tr><th>Charge</th><th class="r">Montant</th><th>Date de fin</th></tr></thead>
         <tbody>
-          ${STATE.charges.map(c=>`<tr><td>${c.nom||c.label||'—'}</td><td class="r">${_n(c.montant)}/mois</td></tr>`).join('')}
-          <tr style="font-weight:700;border-top:2px solid #a0aec0"><td>Total</td><td class="r">${_n(total)}/mois</td></tr>
+          ${STATE.charges.map(c=>`<tr>
+            <td>${c.nom||c.label||'—'}</td>
+            <td class="r">${_n(c.montant)}</td>
+            <td class="muted">${c.date_fin ? new Date(c.date_fin+'T00:00:00').toLocaleDateString('fr-FR') : '—'}</td>
+          </tr>`).join('')}
+          <tr style="font-weight:700;border-top:2px solid #a0aec0"><td>Total</td><td class="r">${_n(total)}</td><td></td></tr>
         </tbody>
       </table>
     </div>`;
