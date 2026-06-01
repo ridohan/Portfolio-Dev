@@ -90,6 +90,18 @@ function openCacheSettings() {
           <p id="import-json-status" class="text-xs hidden"></p>
         </div>
 
+        <!-- Rapports PDF -->
+        <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
+          <p class="text-slate-300 text-sm font-medium">📄 Rapports PDF</p>
+          <p class="text-slate-500 text-xs">Génère un rapport mis en page dans un nouvel onglet — utilisez "Enregistrer en PDF" dans la boîte d'impression.</p>
+          <div class="space-y-1.5">
+            <button onclick="generatePdfPortfolio()" class="btn-secondary text-sm w-full text-left">📊 Rapport Portfolio complet</button>
+            <button onclick="generatePdfHistory()" class="btn-secondary text-sm w-full text-left">📈 Historique des valeurs</button>
+            <button onclick="generatePdfImmo()" class="btn-secondary text-sm w-full text-left">🏠 Rapport Immobilier locatif</button>
+            <button onclick="generatePdfExpenses()" class="btn-secondary text-sm w-full text-left">💸 Rapport Dépenses mensuelles</button>
+          </div>
+        </div>
+
         <button onclick="closeCacheSettings()" class="btn-secondary w-full text-sm">Fermer</button>
       </div>`;
     div.addEventListener('click', e => { if (e.target === div) closeCacheSettings(); });
@@ -159,6 +171,585 @@ function importDataJSON(input) {
     }
   };
   reader.readAsText(file);
+}
+
+// ─── RAPPORTS PDF ────────────────────────────────────────────────────────────
+
+function _pdfOpen(htmlContent) {
+  const win = window.open('', '_blank', 'width=960,height=750');
+  if (!win) { alert('Autorisez les popups pour générer le PDF.'); return; }
+  win.document.write(htmlContent);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 700);
+}
+
+function _pdfStyle() {
+  return `<style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:10.5pt;color:#1a202c;line-height:1.45;padding:18mm 16mm}
+    h1{font-size:18pt;color:#1a365d;margin-bottom:3pt}
+    h2{font-size:12pt;color:#1a365d;border-bottom:2px solid #1a365d;margin:14pt 0 7pt;padding-bottom:3pt;text-transform:uppercase;letter-spacing:.04em}
+    h3{font-size:10.5pt;color:#2b4c7e;margin:9pt 0 4pt;font-weight:600}
+    table{width:100%;border-collapse:collapse;margin-bottom:9pt;font-size:9.5pt}
+    th{background:#edf2f7;color:#2d3748;padding:5pt 7pt;text-align:left;font-weight:600;border-bottom:1.5px solid #a0aec0}
+    td{padding:4.5pt 7pt;border-bottom:1px solid #e2e8f0}
+    .r{text-align:right}.c{text-align:center}.muted{color:#718096;font-size:9pt}
+    .green{color:#276749;font-weight:600}.red{color:#c53030;font-weight:600}.amber{color:#975a16;font-weight:600}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8pt;margin-bottom:12pt}
+    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8pt;margin-bottom:12pt}
+    .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:8pt;margin-bottom:12pt}
+    .card{background:#f7fafc;border:1px solid #e2e8f0;border-radius:4pt;padding:8pt 10pt}
+    .card .lbl{font-size:8.5pt;color:#718096;margin-bottom:2pt}
+    .card .val{font-size:13pt;font-weight:700}
+    .card .sub{font-size:8.5pt;color:#718096;margin-top:1pt}
+    .section{margin-bottom:16pt}
+    .pb{page-break-after:always;margin-top:12pt}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14pt;border-bottom:3px solid #1a365d;padding-bottom:8pt}
+    .hdr-right{text-align:right;color:#718096;font-size:9pt}
+    .bar-bg{background:#e2e8f0;border-radius:2pt;height:6pt;margin-top:3pt}
+    .bar-fg{background:#38a169;height:6pt;border-radius:2pt}
+    .tag{display:inline-block;padding:1pt 5pt;border-radius:3pt;font-size:8.5pt;background:#edf2f7;color:#2d3748}
+    .tag-green{background:#c6f6d5;color:#276749}
+    .tag-red{background:#fed7d7;color:#c53030}
+    .tag-amber{background:#feebc8;color:#975a16}
+    .footer{margin-top:18pt;padding-top:8pt;border-top:1px solid #e2e8f0;color:#a0aec0;font-size:8pt;display:flex;justify-content:space-between}
+    .no-print{margin-bottom:10pt}
+    @media print{.no-print{display:none}}
+  </style>`;
+}
+
+function _pdfHeader(title, subtitle, date) {
+  return `<div class="hdr">
+    <div><h1>${title}</h1>${subtitle ? `<p class="muted">${subtitle}</p>` : ''}</div>
+    <div class="hdr-right">Portfolio Manager<br>${date}</div>
+  </div>`;
+}
+
+function _pdfFooter(date) {
+  return `<div class="footer"><span>Généré par Portfolio Manager</span><span>${date}</span></div>`;
+}
+
+function _n(v) { return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:0}).format(Math.round(v||0))+' €'; }
+function _pct(v,sign=true) { const p=Number(v||0); return (sign&&p>=0?'+':'')+p.toFixed(2)+'%'; }
+function _sgn(v) { return v>=0?'green':'red'; }
+
+// ── Rapport Portfolio ─────────────────────────────────────────────────────────
+
+function generatePdfPortfolio() {
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
+  const gs      = globalStats();
+
+  // Positions par portefeuille → enveloppe
+  let sections = '';
+  STATE.portfolios.forEach(pf => {
+    const ps   = portfolioStats(pf.id);
+    const envs = STATE.envelopes.filter(e => e.portfolio_id === pf.id);
+    let envRows = '';
+    envs.forEach(env => {
+      const es   = envelopeStats(env.id);
+      const pls  = es.invested > 0 ? (es.total - es.invested) / es.invested * 100 : 0;
+      const positions = STATE.positions.filter(p => p.envelope_id === env.id);
+      if (!positions.length) return;
+      envRows += `<h3>${env.nom} <span class="muted">(${env.type})</span> — ${_n(es.total)}
+        <span class="tag ${_sgn(es.total-es.invested) === 'green' ? 'tag-green':'tag-red'}">${_pct(pls)}</span></h3>
+        <table>
+          <thead><tr>
+            <th>Identifiant / Nom</th>
+            <th class="r">Quantité</th>
+            <th class="r">Prix achat unit.</th>
+            <th class="r">Prix actuel</th>
+            <th class="r">Valeur</th>
+            <th class="r">+/−</th>
+          </tr></thead>
+          <tbody>`;
+      positions.forEach(pos => {
+        const qty  = Number(pos.quantite)||0;
+        const pa   = Number(pos.prix_achat)||0;
+        const prix = currentPrice(pos.identifiant, env.type);
+        const val  = prix*qty;
+        const pls2 = pa>0 ? (prix-pa)/pa*100 : 0;
+        const isEp = env.type==='épargne';
+        envRows += `<tr>
+          <td><strong>${pos.identifiant}</strong>${pos.nom?` <span class="muted">— ${pos.nom}</span>`:''}</td>
+          <td class="r">${isEp?'—':qty}</td>
+          <td class="r muted">${isEp?'—':_n(pa)}</td>
+          <td class="r">${isEp?'—':_n(prix)}</td>
+          <td class="r"><strong>${_n(isEp?pa:val)}</strong></td>
+          <td class="r ${_sgn(pls2)}">${isEp?'—':_pct(pls2)}</td>
+        </tr>`;
+      });
+      envRows += `</tbody></table>`;
+    });
+    if (!envRows) return;
+    const pfPls = ps.invested>0?(ps.total-ps.invested)/ps.invested*100:0;
+    sections += `<div class="section">
+      <h2>${pf.nom} <span style="font-size:10pt;font-weight:400">— ${_n(ps.total)}
+        <span class="${_sgn(pfPls)}">(${_pct(pfPls)})</span></span></h2>
+      ${envRows}
+    </div>`;
+  });
+
+  // Immobilier (résumé)
+  let immoSection = '';
+  if (STATE.biens_immo.length) {
+    const ig = immoGlobalStats(now.getFullYear());
+    immoSection = `<div class="section pb">
+      <h2>Immobilier locatif</h2>
+      <div class="grid4">
+        <div class="card"><div class="lbl">Valeur brute</div><div class="val">${_n(ig.brut)}</div></div>
+        <div class="card"><div class="lbl">Capital remboursé</div><div class="val green">${_n(ig.equity)}</div></div>
+        <div class="card"><div class="lbl">Restant dû</div><div class="val amber">${_n(ig.crd)}</div></div>
+        <div class="card"><div class="lbl">CF projeté</div><div class="val ${_sgn(ig.cfProjete/12)}">${_n(ig.cfProjete/12)}/mois</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Bien</th><th>Surface</th><th>Prix achat</th><th class="r">Rdt brut</th><th class="r">Rdt net</th><th class="r">CF/mois</th></tr></thead>
+        <tbody>
+        ${STATE.biens_immo.map(b => {
+          const r = immoRentabilite(b);
+          return `<tr>
+            <td><strong>${b.nom}</strong></td>
+            <td>${b.surface_m2?b.surface_m2+' m²':'—'}</td>
+            <td>${_n(b.prix_achat)}</td>
+            <td class="r">${_pct(r.rendBrut,false)}</td>
+            <td class="r ${_sgn(r.rendNetCredit)}">${_pct(r.rendNetCredit)}</td>
+            <td class="r ${_sgn(r.cfMensCredit)}">${_n(r.cfMensCredit)}/mois</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
+  // Charges récurrentes
+  let chargesSection = '';
+  if (STATE.charges.length) {
+    const total = STATE.charges.reduce((s,c)=>s+Number(c.montant||0),0);
+    chargesSection = `<div class="section">
+      <h2>Charges récurrentes</h2>
+      <table>
+        <thead><tr><th>Charge</th><th class="r">Montant</th></tr></thead>
+        <tbody>
+          ${STATE.charges.map(c=>`<tr><td>${c.nom||c.label||'—'}</td><td class="r">${_n(c.montant)}/mois</td></tr>`).join('')}
+          <tr style="font-weight:700;border-top:2px solid #a0aec0"><td>Total</td><td class="r">${_n(total)}/mois</td></tr>
+        </tbody>
+      </table>
+    </div>`;
+  }
+
+  const plGlobal  = gs.invested>0?(gs.total-gs.invested)/gs.invested*100:0;
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport Portfolio — ${dateStr}</title>
+  ${_pdfStyle()}
+  </head><body>
+    <div class="no-print"><button onclick="window.print()" style="padding:6pt 14pt;background:#1a365d;color:#fff;border:none;border-radius:4pt;cursor:pointer;font-size:10pt">🖨 Imprimer / Enregistrer PDF</button></div>
+    ${_pdfHeader('Rapport Portfolio', `Synthèse au ${dateStr}`, dateStr)}
+
+    <div class="section">
+      <h2>Synthèse globale</h2>
+      <div class="grid4">
+        <div class="card"><div class="lbl">Valeur totale</div><div class="val">${_n(gs.total)}</div><div class="sub">Hors immobilier</div></div>
+        <div class="card"><div class="lbl">Capital investi</div><div class="val">${_n(gs.invested)}</div></div>
+        <div class="card"><div class="lbl">Plus-value</div><div class="val ${_sgn(gs.total-gs.invested)}">${_n(gs.total-gs.invested)}</div><div class="sub ${_sgn(plGlobal)}">${_pct(plGlobal)}</div></div>
+        <div class="card"><div class="lbl">Répartition</div>
+          <div style="font-size:9pt;margin-top:3pt">
+            Actions: <strong>${gs.alloc.actions}%</strong><br>
+            Oblig.: <strong>${gs.alloc.obligations}%</strong><br>
+            Cash: <strong>${gs.alloc.cash}%</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${sections}
+    ${immoSection}
+    ${chargesSection}
+    ${_pdfFooter(dateStr)}
+  </body></html>`;
+  _pdfOpen(html);
+}
+
+// ── Rapport Immobilier ────────────────────────────────────────────────────────
+
+function generatePdfImmo() {
+  const now     = new Date();
+  const year    = now.getFullYear();
+  const dateStr = now.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
+  const ig      = immoGlobalStats(year);
+
+  let biensHtml = '';
+  STATE.biens_immo.forEach(b => {
+    const r   = immoRentabilite(b);
+    const rr  = immoRentabiliteReelle(b.id, year);
+    const crd = immoCapitalRestantDu(b, now);
+    const remb= Math.max(0, Number(b.montant_credit||0) - crd);
+    const pct = Number(b.montant_credit||0)>0 ? Math.round(remb/Number(b.montant_credit)*100) : null;
+    const hasCr = Number(b.montant_credit||0)>0;
+
+    biensHtml += `
+    <div class="section">
+      <h2>${b.nom}</h2>
+      <div class="grid4" style="margin-bottom:8pt">
+        <div class="card"><div class="lbl">Prix d'achat</div><div class="val">${_n(b.prix_achat)}</div></div>
+        <div class="card"><div class="lbl">Surface</div><div class="val">${b.surface_m2||'—'} m²</div></div>
+        <div class="card"><div class="lbl">Loyer annuel HT</div><div class="val green">${_n(b.loyer_annuel_ht)}</div><div class="sub">${_n(Number(b.loyer_annuel_ht||0)/12)}/mois</div></div>
+        <div class="card"><div class="lbl">Taxe foncière</div><div class="val">${_n(b.taxe_fonciere)}/an</div></div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <h3>Rentabilité théorique</h3>
+          <table>
+            <thead><tr><th>Indicateur</th>${hasCr?'<th class="r">Pendant crédit</th>':''}<th class="r">Post crédit</th></tr></thead>
+            <tbody>
+              <tr><td>Rendement brut</td>${hasCr?`<td class="r">${_pct(r.rendBrut,false)}</td>`:''}<td class="r">${_pct(r.rendBrut,false)}</td></tr>
+              <tr><td>Rendement net</td>${hasCr?`<td class="r ${_sgn(r.rendNetCredit)}">${_pct(r.rendNetCredit)}</td>`:''}<td class="r ${_sgn(r.rendNetPost)}">${_pct(r.rendNetPost)}</td></tr>
+              <tr><td>Cashflow annuel</td>${hasCr?`<td class="r ${_sgn(r.cfAnnCredit)}">${_n(r.cfAnnCredit)}</td>`:''}<td class="r ${_sgn(r.cfAnnPost)}">${_n(r.cfAnnPost)}</td></tr>
+              <tr><td>Cashflow mensuel</td>${hasCr?`<td class="r ${_sgn(r.cfMensCredit)}"><strong>${_n(r.cfMensCredit)}/mois</strong></td>`:''}<td class="r ${_sgn(r.cfMensPost)}"><strong>${_n(r.cfMensPost)}/mois</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h3>Réel ${year}</h3>
+          ${rr&&(rr.moisLoyers>0||rr.moisCharges>0) ? `<table>
+            <tbody>
+              <tr><td>Loyers HT perçus</td><td class="r green">${_n(rr.loyersHt)}</td></tr>
+              <tr><td>Dépenses + TF</td><td class="r red">−${_n(rr.depenses+rr.taxe)}</td></tr>
+              <tr><td>Cashflow réel YTD</td><td class="r ${_sgn(rr.cfReel)}"><strong>${_n(rr.cfReel)}</strong></td></tr>
+              <tr><td>Cashflow projeté</td><td class="r ${_sgn(rr.cfProjete)}"><strong>${_n(rr.cfProjete/12)}/mois</strong></td></tr>
+              <tr><td class="muted">Mois de données</td><td class="r muted">${rr.moisLoyers} loyers · ${rr.moisCharges} charges</td></tr>
+            </tbody>
+          </table>` : `<p class="muted" style="padding:8pt 0">Aucune donnée saisie pour ${year}</p>`}
+        </div>
+      </div>
+
+      ${hasCr ? `<h3>Capital crédit</h3>
+      <table>
+        <tbody>
+          <tr><td>Emprunté</td><td class="r">${_n(b.montant_credit)}</td><td>Durée</td><td class="r">${b.duree_credit_mois} mois</td></tr>
+          <tr><td>Remboursé</td><td class="r green">${_n(remb)}</td><td>Mensualité</td><td class="r">${_n(immoMensualite(b))}/mois</td></tr>
+          <tr><td>Restant dû</td><td class="r amber">${_n(crd)}</td><td>Taux annuel</td><td class="r">${(Number(b.taux_credit||0)*100).toFixed(2)}%</td></tr>
+        </tbody>
+      </table>
+      <div class="bar-bg"><div class="bar-fg" style="width:${pct}%"></div></div>
+      <p class="muted" style="text-align:right;font-size:8.5pt;margin-top:2pt">${pct}% remboursé</p>` : ''}
+    </div>`;
+  });
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport Immobilier — ${dateStr}</title>
+  ${_pdfStyle()}
+  </head><body>
+    <div class="no-print"><button onclick="window.print()" style="padding:6pt 14pt;background:#1a365d;color:#fff;border:none;border-radius:4pt;cursor:pointer;font-size:10pt">🖨 Imprimer / Enregistrer PDF</button></div>
+    ${_pdfHeader('Rapport Immobilier Locatif', `Synthèse au ${dateStr}`, dateStr)}
+
+    <div class="section">
+      <h2>Patrimoine global · ${STATE.biens_immo.length} bien${STATE.biens_immo.length>1?'s':''}</h2>
+      <div class="grid4">
+        <div class="card"><div class="lbl">Valeur brute</div><div class="val">${_n(ig.brut)}</div></div>
+        <div class="card"><div class="lbl">Capital remboursé</div><div class="val green">${_n(ig.equity)}</div></div>
+        <div class="card"><div class="lbl">Restant dû</div><div class="val amber">${_n(ig.crd)}</div></div>
+        <div class="card"><div class="lbl">Valeur nette</div><div class="val">${_n(ig.brut-ig.crd)}</div></div>
+      </div>
+      <div class="grid4">
+        <div class="card"><div class="lbl">CF théorique</div><div class="val ${_sgn(ig.cfAnnCredit/12)}">${_n(ig.cfAnnCredit/12)}/mois</div></div>
+        <div class="card"><div class="lbl">CF projeté ${year}</div><div class="val ${_sgn(ig.cfProjete/12)}">${_n(ig.cfProjete/12)}/mois</div><div class="sub">${_pct(ig.rendProjete)} rdt</div></div>
+        <div class="card"><div class="lbl">Rdt brut moy.</div><div class="val">${_pct(ig.rendBrut,false)}</div></div>
+        <div class="card"><div class="lbl">Rdt net (crédit)</div><div class="val ${_sgn(ig.rendNetCredit)}">${_pct(ig.rendNetCredit)}</div></div>
+      </div>
+    </div>
+
+    ${biensHtml}
+    ${_pdfFooter(dateStr)}
+  </body></html>`;
+  _pdfOpen(html);
+}
+
+// ── Rapport Dépenses ──────────────────────────────────────────────────────────
+
+function generatePdfExpenses() {
+  const year    = _expYear || new Date().getFullYear();
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
+  const { entryMap, noteMap } = expLookup();
+  const trackedMonths = expTrackedMonthsCount(year);
+  const TYPES = ['vital','confort','loisir','épargne','immo','autre'];
+  const TYPE_LABELS = { vital:'Vital', confort:'Confort', loisir:'Loisirs', 'épargne':'Épargne', immo:'Immo', autre:'Autre' };
+  const MOIS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+
+  // Trier catégories par ordre
+  const sortedCats = [...STATE.expense_categories].sort((a,b) => {
+    const oa = a.ordre!==undefined&&a.ordre!==''?Number(a.ordre):Infinity;
+    const ob = b.ordre!==undefined&&b.ordre!==''?Number(b.ordre):Infinity;
+    return oa-ob;
+  });
+
+  let typeSections = '';
+  TYPES.forEach(type => {
+    const cats = sortedCats.filter(c=>c.type===type);
+    if (!cats.length) return;
+
+    let catRows = '';
+    let typeTotal = 0;
+    cats.forEach(cat => {
+      const items = STATE.expense_items.filter(i=>i.category_id===cat.id);
+      if (!items.length) return;
+      let catTotal = 0;
+      items.forEach(item => {
+        for(let m=1;m<=12;m++) {
+          const v = Number(entryMap[`${item.id}_${year}_${m}`]||0);
+          catTotal += v;
+        }
+      });
+      typeTotal += catTotal;
+      const avg = trackedMonths>0 ? catTotal/trackedMonths : 0;
+      catRows += `<tr>
+        <td style="padding-left:14pt">${cat.nom}</td>
+        <td class="r muted">${_n(catTotal)}</td>
+        <td class="r"><strong>${_n(avg)}/mois</strong></td>
+      </tr>`;
+      items.forEach(item => {
+        let itemTotal = 0;
+        for(let m=1;m<=12;m++) itemTotal += Number(entryMap[`${item.id}_${year}_${m}`]||0);
+        if (!itemTotal) return;
+        catRows += `<tr style="font-size:8.5pt">
+          <td style="padding-left:24pt;color:#718096">${item.nom}</td>
+          <td class="r muted">${_n(itemTotal)}</td>
+          <td class="r muted">${_n(trackedMonths>0?itemTotal/trackedMonths:0)}/mois</td>
+        </tr>`;
+      });
+    });
+    if (!catRows) return;
+    const typeAvg = trackedMonths>0?typeTotal/trackedMonths:0;
+    typeSections += `
+      <h3>${TYPE_LABELS[type]||type}</h3>
+      <table>
+        <thead><tr><th>Catégorie / Poste</th><th class="r">Total ${year}</th><th class="r">Moy./mois</th></tr></thead>
+        <tbody>
+          ${catRows}
+          <tr style="font-weight:700;border-top:1.5px solid #a0aec0">
+            <td>Sous-total ${TYPE_LABELS[type]||type}</td>
+            <td class="r">${_n(typeTotal)}</td>
+            <td class="r">${_n(typeAvg)}/mois</td>
+          </tr>
+        </tbody>
+      </table>`;
+  });
+
+  // Aides et reste
+  const aidsTotal = STATE.expense_aids.reduce((s,a)=>s+Number(a.montant||0),0);
+  const grandTotal = TYPES.reduce((s,t) => {
+    const ids = STATE.expense_categories.filter(c=>c.type===t).map(c=>c.id);
+    const itemIds = STATE.expense_items.filter(i=>ids.includes(i.category_id)).map(i=>i.id);
+    return s + STATE.expense_entries.filter(e=>Number(e.annee)===year&&itemIds.includes(e.item_id)).reduce((ss,e)=>ss+Number(e.montant||0),0);
+  },0);
+  const grandAvg = trackedMonths>0?grandTotal/trackedMonths:0;
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport Dépenses ${year}</title>
+  ${_pdfStyle()}
+  </head><body>
+    <div class="no-print"><button onclick="window.print()" style="padding:6pt 14pt;background:#1a365d;color:#fff;border:none;border-radius:4pt;cursor:pointer;font-size:10pt">🖨 Imprimer / Enregistrer PDF</button></div>
+    ${_pdfHeader(`Rapport Dépenses ${year}`, `${trackedMonths} mois de données · Généré le ${dateStr}`, dateStr)}
+
+    <div class="section">
+      <h2>Synthèse</h2>
+      <div class="grid3">
+        <div class="card"><div class="lbl">Total dépenses ${year}</div><div class="val red">${_n(grandTotal)}</div></div>
+        <div class="card"><div class="lbl">Moyenne mensuelle</div><div class="val">${_n(grandAvg)}/mois</div><div class="sub">${trackedMonths} mois de données</div></div>
+        <div class="card"><div class="lbl">Aides mensuelles</div><div class="val green">${_n(aidsTotal)}/mois</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Détail par type</h2>
+      ${typeSections}
+    </div>
+
+    ${STATE.expense_aids.length ? `
+    <div class="section">
+      <h2>Aides & revenus mensuels</h2>
+      <table>
+        <thead><tr><th>Aide</th><th class="r">Montant</th></tr></thead>
+        <tbody>
+          ${STATE.expense_aids.map(a=>`<tr><td>${a.nom||a.label||'—'}</td><td class="r green">${_n(a.montant)}/mois</td></tr>`).join('')}
+          <tr style="font-weight:700;border-top:1.5px solid #a0aec0">
+            <td>Total aides</td><td class="r green">${_n(aidsTotal)}/mois</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>` : ''}
+
+    ${_pdfFooter(dateStr)}
+  </body></html>`;
+  _pdfOpen(html);
+}
+
+// ── Rapport Historique Portfolio ──────────────────────────────────────────────
+
+function generatePdfHistory() {
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  if (!STATE.history.length) {
+    alert('Aucun historique disponible.'); return;
+  }
+
+  // Garde le dernier snapshot de chaque mois pour un rapport compact
+  function toMonthly(entries) {
+    const byMonth = {};
+    entries.forEach(e => {
+      const key = e.date.slice(0, 7); // YYYY-MM
+      if (!byMonth[key] || e.date > byMonth[key].date) byMonth[key] = e;
+    });
+    return Object.values(byMonth).sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // Variation vs entrée précédente
+  function delta(entries) {
+    return entries.map((e, i) => ({
+      ...e,
+      prev: i > 0 ? entries[i - 1].valeur_actuelle : null,
+    }));
+  }
+
+  function histRows(entries, showDelta = true) {
+    const monthly = delta(toMonthly(entries));
+    return monthly.map(e => {
+      const pv    = Number(e.pv_euros  || (e.valeur_actuelle - e.valeur_investie)) ;
+      const pvPct = Number(e.pv_pct    || (e.valeur_investie > 0 ? (e.valeur_actuelle / e.valeur_investie - 1) * 100 : 0));
+      const mDiff = e.prev !== null ? Number(e.valeur_actuelle) - Number(e.prev) : null;
+      const mois  = new Date(e.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
+      return `<tr>
+        <td>${mois}</td>
+        <td class="r">${_n(e.valeur_investie)}</td>
+        <td class="r"><strong>${_n(e.valeur_actuelle)}</strong></td>
+        <td class="r ${_sgn(pv)}">${_n(pv)}</td>
+        <td class="r ${_sgn(pvPct)}">${_pct(pvPct)}</td>
+        ${showDelta ? `<td class="r ${mDiff !== null ? _sgn(mDiff) : ''}">${mDiff !== null ? _n(mDiff) : '—'}</td>` : ''}
+      </tr>`;
+    }).join('');
+  }
+
+  const globalH  = globalHistory();
+  const firstDate = globalH.length ? new Date(globalH[0].date + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+  const lastH     = globalH.length ? globalH[globalH.length - 1] : null;
+  const firstH    = globalH.length ? globalH[0] : null;
+  const totalGain = lastH ? Number(lastH.valeur_actuelle) - Number(firstH.valeur_actuelle) : 0;
+  const totalGainPct = firstH && Number(firstH.valeur_actuelle) > 0
+    ? (Number(lastH.valeur_actuelle) / Number(firstH.valeur_actuelle) - 1) * 100 : 0;
+
+  // Section globale
+  const globalSection = `
+    <div class="section">
+      <h2>Évolution globale</h2>
+      <div class="grid3" style="margin-bottom:10pt">
+        <div class="card">
+          <div class="lbl">Valeur actuelle</div>
+          <div class="val">${lastH ? _n(lastH.valeur_actuelle) : '—'}</div>
+          <div class="sub">${lastH ? 'Au ' + new Date(lastH.date + 'T00:00:00').toLocaleDateString('fr-FR') : ''}</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Gain depuis le début</div>
+          <div class="val ${_sgn(totalGain)}">${_n(totalGain)}</div>
+          <div class="sub ${_sgn(totalGainPct)}">${_pct(totalGainPct)} depuis le ${firstDate}</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Points historiques</div>
+          <div class="val">${toMonthly(globalH).length} mois</div>
+          <div class="sub">${globalH.length} snapshots total</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Mois</th>
+          <th class="r">Investi</th>
+          <th class="r">Valeur</th>
+          <th class="r">+/− €</th>
+          <th class="r">+/− %</th>
+          <th class="r">Variation mois</th>
+        </tr></thead>
+        <tbody>${histRows(globalH)}</tbody>
+      </table>
+    </div>`;
+
+  // Section par portfolio
+  let pfSections = '';
+  STATE.portfolios.forEach(pf => {
+    const pfH = portfolioHistory(pf.id);
+    if (!pfH.length) return;
+    const pfLast = pfH[pfH.length - 1];
+
+    // Détail par enveloppe (dernier snapshot connu)
+    const envs = STATE.envelopes.filter(e => e.portfolio_id === pf.id);
+    let envRows = '';
+    envs.forEach(env => {
+      const envH = envelopeHistory(env.id);
+      if (!envH.length) return;
+      const last = envH[envH.length - 1];
+      const pv   = Number(last.valeur_actuelle) - Number(last.valeur_investie);
+      const pvPct = Number(last.valeur_investie) > 0 ? pv / Number(last.valeur_investie) * 100 : 0;
+      const firstEnv = envH[0];
+      const gain = Number(last.valeur_actuelle) - Number(firstEnv.valeur_actuelle);
+      envRows += `<tr>
+        <td>${env.nom} <span class="muted">(${env.type})</span></td>
+        <td class="r">${_n(last.valeur_investie)}</td>
+        <td class="r"><strong>${_n(last.valeur_actuelle)}</strong></td>
+        <td class="r ${_sgn(pv)}">${_n(pv)}</td>
+        <td class="r ${_sgn(pvPct)}">${_pct(pvPct)}</td>
+        <td class="r muted">${envH.length} snap.</td>
+      </tr>`;
+    });
+
+    pfSections += `
+    <div class="section">
+      <h2>${pf.nom}</h2>
+      ${envRows ? `
+      <h3>Composition actuelle</h3>
+      <table>
+        <thead><tr>
+          <th>Enveloppe</th>
+          <th class="r">Investi</th>
+          <th class="r">Valeur</th>
+          <th class="r">+/− €</th>
+          <th class="r">+/− %</th>
+          <th class="r">Historique</th>
+        </tr></thead>
+        <tbody>${envRows}</tbody>
+      </table>` : ''}
+      <h3>Évolution mensuelle</h3>
+      <table>
+        <thead><tr>
+          <th>Mois</th>
+          <th class="r">Investi</th>
+          <th class="r">Valeur</th>
+          <th class="r">+/− €</th>
+          <th class="r">+/− %</th>
+          <th class="r">Variation mois</th>
+        </tr></thead>
+        <tbody>${histRows(pfH)}</tbody>
+      </table>
+    </div>`;
+  });
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Historique Portfolio — ${dateStr}</title>
+  ${_pdfStyle()}
+  <style>
+    /* Tableaux historiques plus compacts */
+    table td, table th { padding: 3.5pt 6pt; font-size: 9pt; }
+  </style>
+  </head><body>
+    <div class="no-print">
+      <button onclick="window.print()" style="padding:6pt 14pt;background:#1a365d;color:#fff;border:none;border-radius:4pt;cursor:pointer;font-size:10pt">
+        🖨 Imprimer / Enregistrer PDF
+      </button>
+    </div>
+    ${_pdfHeader('Historique Portfolio', `Du ${firstDate} au ${dateStr}`, dateStr)}
+    ${globalSection}
+    ${pfSections}
+    ${_pdfFooter(dateStr)}
+  </body></html>`;
+
+  _pdfOpen(html);
 }
 
 // ─── LOADER GLOBAL ───────────────────────────────────────────────────────────
