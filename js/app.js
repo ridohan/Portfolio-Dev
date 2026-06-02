@@ -95,6 +95,7 @@ async function render() {
   if (route === 'expenses')    return renderExpenses(app);
   if (route === 'immo' && !id) return renderImmo(app);
   if (route === 'immo' &&  id) return renderImmoDetail(app, id);
+  if (route === 'investissements')   return renderInvestissements(app);
   if (route === 'residences' && !id) return renderResidences(app);
   if (route === 'residences' &&  id) return renderResidenceDetail(app, id);
   renderDashboard(app);
@@ -2004,6 +2005,7 @@ function navbar(left = '') {
         <a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-white font-bold text-sm hover:text-slate-300 transition whitespace-nowrap">Portfolio Manager</a>
         <a href="#fire" onclick="navigate('#fire');return false;" class="text-orange-400 hover:text-orange-300 text-sm font-medium transition whitespace-nowrap">🔥 FIRE</a>
         <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition whitespace-nowrap">💰 Dépenses</a>
+        <a href="#investissements" onclick="navigate('#investissements');return false;" class="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition whitespace-nowrap">📊 Investissements</a>
         <a href="#immo" onclick="navigate('#immo');return false;" class="text-blue-400 hover:text-blue-300 text-sm font-medium transition whitespace-nowrap">🏠 Immo</a>
         <a href="#residences" onclick="navigate('#residences');return false;" class="text-violet-400 hover:text-violet-300 text-sm font-medium transition whitespace-nowrap">🏡 Résidences</a>
       </div>
@@ -5111,6 +5113,375 @@ async function confirmDeleteExpenseAid(id) {
     closeModal('expense-aid');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INVESTISSEMENTS FINANCIERS — ANALYSE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Catégorisation heuristique des ETF/positions ──────────────────────────────
+
+// Catégories dans l'ordre de priorité de matching
+const INVEST_CATEGORIES = [
+  // S&P 500 AVANT World/Global pour éviter "S&P 500 World" → World
+  { key: 'S&P 500',
+    color: '#48bb78',
+    keywords: ['s&p 500','s&p500','sp500','s p 500','sp 500','s&p us 500','500 us','s&p us'] },
+  // MSCI World / Global
+  { key: 'MSCI World / Global',
+    color: '#4299e1',
+    keywords: ['world','msci world','global','all country','all-country','acwi','ftse all world',
+               'total world','all cap','world index','monde','global market','market world',
+               'developed world','developed markets'] },
+  // Europe (avant émergents pour éviter "Europe Emerging")
+  { key: 'Europe',
+    color: '#9f7aea',
+    keywords: ['europe','european','stoxx','euro stoxx','eurostoxx','cac 40','cac40','dax',
+               'euronext','ftse 100','ftse100','msci europe','stoxx 600','stoxx600','pan europe',
+               'eurozone','euro zone','zone euro'] },
+  // Pays émergents
+  { key: 'Pays émergents',
+    color: '#38b2ac',
+    keywords: ['emerging','émergent','émergents','emergent','emergents','bric','msci em',
+               'developing','em market','em index','em etf','china','chine','india','inde',
+               'asie','asia pacific','pac ex','ex-japan','pacific ex'] },
+  // Obligataire
+  { key: 'Obligataire',
+    color: '#ed8936',
+    keywords: ['oblig','bond','bonds','aggregate','treasury','trésor','tresor','gilts',
+               'fixed income','fixed-income','credit','sovereign','souverain','government',
+               'corporate','high yield','duration','euro agg','global agg','debt',
+               'income','maturity'] },
+  // Monétaire & Divers — catch-all, testé en dernier (ne pas y mettre des noms de marque)
+  { key: 'Monétaire & Divers',
+    color: '#a0aec0',
+    keywords: ['monét','monetaire','money market','liquidity','liquidit','eonia','ester',
+               'overnight','short term','court term','cash','pcm ','scpi'] },
+  // Crypto — détecté via type d'enveloppe, pas les keywords
+  { key: 'Crypto', color: '#f687b3', keywords: [] },
+];
+
+function inferEtfCategory(pos, envType) {
+  if (envType === 'crypto') return 'Crypto';
+  // Combiner : nom saisi par l'utilisateur + nom officiel depuis STATE.prices (fetchedde JustETF)
+  const priceName = STATE.prices.find(p => p.isin === pos.identifiant)?.nom || '';
+  const txt = ((pos.nom || '') + ' ' + priceName).toLowerCase().trim();
+  // Si aucun nom disponible, utiliser l'identifiant (ISIN) en dernier recours
+  const search = txt || (pos.identifiant || '').toLowerCase();
+  for (const cat of INVEST_CATEGORIES) {
+    if (cat.keywords.length && cat.keywords.some(kw => search.includes(kw))) return cat.key;
+  }
+  return 'Monétaire & Divers'; // catch-all
+}
+
+function investAnalysisData() {
+  // Toutes les positions valorisées (hors épargne)
+  const allPositions = [];
+  STATE.envelopes.forEach(env => {
+    if (env.type === 'épargne') return;
+    STATE.positions.filter(p => p.envelope_id === env.id).forEach(pos => {
+      const prix = currentPrice(pos.identifiant, env.type);
+      const qty  = Number(pos.quantite) || 0;
+      const pa   = Number(pos.prix_achat) || 0;
+      const val  = prix * qty;
+      const cost = pa * qty;
+      if (val <= 0 && cost <= 0) return;
+      const pf = STATE.portfolios.find(p => p.id === env.portfolio_id);
+      allPositions.push({
+        pos, env, pf,
+        prix, val: Math.round(val), cost: Math.round(cost),
+        pnl: Math.round(val - cost),
+        pnlPct: cost > 0 ? (val - cost) / cost * 100 : 0,
+        cat: inferEtfCategory(pos, env.type),
+      });
+    });
+  });
+
+  // Regroupement par catégorie
+  const byCat = {};
+  allPositions.forEach(({ cat, val }) => {
+    byCat[cat] = (byCat[cat] || 0) + val;
+  });
+
+  const catEntries = INVEST_CATEGORIES
+    .filter(c => byCat[c.key] > 0)
+    .map(c => ({ ...c, val: byCat[c.key] }))
+    .sort((a, b) => b.val - a.val);
+
+  // Regroupement par enveloppe
+  const byEnv = {};
+  allPositions.forEach(({ env, val }) => {
+    if (!byEnv[env.id]) byEnv[env.id] = { env, val: 0 };
+    byEnv[env.id].val += val;
+  });
+
+  // Top positions (hors crypto)
+  const topPositions = [...allPositions]
+    .filter(p => p.env.type !== 'crypto' || p.val > 0)
+    .sort((a, b) => b.val - a.val)
+    .slice(0, 15);
+
+  return { allPositions, catEntries, byEnv, topPositions };
+}
+
+// ── Graphique barres horizontales ─────────────────────────────────────────────
+
+function svgHorizBars(entries, title) {
+  if (!entries.length) return '';
+  const maxVal = entries[0].val;
+  const total  = entries.reduce((s, e) => s + e.val, 0);
+  const W = 700, padL = 160, padR = 90, padT = 10, padB = 30;
+  const barH = 6, barGap = 4;
+  const chartW = W - padL - padR;
+  const H = padT + entries.length * (barH + barGap) + padB;
+  const toX  = v => padL + (v / maxVal) * chartW;
+
+  // Ticks axe X
+  const niceMax = (() => {
+    const mag = Math.pow(10, Math.floor(Math.log10(maxVal)));
+    return Math.ceil(maxVal / mag) * mag;
+  })();
+  const tickCount = 5;
+  const tickStep  = niceMax / tickCount;
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => i * tickStep);
+
+  const fmtTick = v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? Math.round(v/1e3)+'k' : v;
+
+  const gridLines = ticks.map(t => {
+    const x = toX(Math.min(t, maxVal));
+    return `<line x1="${x.toFixed(0)}" y1="${padT}" x2="${x.toFixed(0)}" y2="${H - padB}"
+      stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="${x.toFixed(0)}" y="${H - padB + 16}" text-anchor="middle"
+      fill="#64748b" font-size="8" font-family="inherit">${fmtTick(t)}</text>`;
+  }).join('');
+
+  const bars = entries.map((e, i) => {
+    const y   = padT + i * (barH + barGap);
+    const w   = Math.max(2, (e.val / maxVal) * chartW);
+    const pct = (e.val / total * 100).toFixed(1);
+    return `
+      <rect x="${padL}" y="${y}" width="${w.toFixed(1)}" height="${barH}" fill="${e.color}" rx="2" opacity="0.9"/>
+      <text x="${(padL - 8).toFixed(0)}" y="${(y + barH/2 + 1).toFixed(0)}" text-anchor="end"
+        dominant-baseline="middle" fill="#94a3b8" font-size="8" font-family="inherit">${e.key}</text>
+      <text x="${(padL + w + 6).toFixed(0)}" y="${(y + barH/2).toFixed(0)}" dominant-baseline="middle"
+        fill="#e2e8f0" font-size="8" font-family="inherit">
+        ${new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0}).format(e.val)} € <tspan fill="#64748b">(${pct}%)</tspan>
+      </text>`;
+  }).join('');
+
+  // Légende
+  const legend = entries.map(e =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px;color:#94a3b8">
+      <span style="width:10px;height:10px;border-radius:2px;background:${e.color};display:inline-block;flex-shrink:0"></span>${e.key}
+    </span>`
+  ).join('');
+
+  return `
+    <div>
+      <div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px">${legend}</div>
+      <div style="overflow-x:auto">
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:500px;font-family:inherit" preserveAspectRatio="xMidYMid meet">
+          ${gridLines}
+          ${bars}
+        </svg>
+      </div>
+    </div>`;
+}
+
+// ── Page Investissements ──────────────────────────────────────────────────────
+
+function renderInvestissements(app) {
+  // ── Tout calculer AVANT le template literal ──────────────────────────────
+  const gs       = globalStats();
+  const pv       = gs.total - gs.invested;
+  const pvPct    = gs.invested > 0 ? (pv / gs.invested * 100).toFixed(2) : '0.00';
+  const pvCol    = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const pfNet    = Math.max(0, gs.total - gs.totalCharges);
+  const annRetObj = computeAnnualReturn(globalHistory());
+  const annRetVal = annRetObj?.value ?? null;
+  const annRetStr = annRetVal !== null ? (annRetVal >= 0 ? '+' : '') + annRetVal.toFixed(2) + '%' + (annRetObj.estimated ? '*' : '') : '—';
+  const annRetCol = annRetVal !== null && annRetVal >= 0 ? 'text-emerald-400' : 'text-red-400';
+
+  const { catEntries, byEnv, topPositions, allPositions } = investAnalysisData();
+  const totalInvest = Object.values(byEnv).reduce((s, e) => s + e.val, 0);
+
+  // Blocs enveloppes
+  const envRows = Object.values(byEnv)
+    .sort((a, b) => b.val - a.val)
+    .map(({ env, val }) => {
+      const pf   = STATE.portfolios.find(p => p.id === env.portfolio_id);
+      const pct  = totalInvest > 0 ? (val / totalInvest * 100).toFixed(1) : '0';
+      const TYPE_COLOR = { bourse: 'text-blue-400', crypto: 'text-pink-400', 'épargne': 'text-emerald-400' };
+      return `
+        <tr class="border-b border-slate-700/40 hover:bg-slate-700/20 transition cursor-pointer"
+            onclick="navigate('#envelope/${env.id}')">
+          <td class="py-2.5 px-4 text-sm">
+            <span class="text-white font-medium">${esc(env.nom)}</span>
+            <span class="text-slate-500 text-xs ml-1.5">${esc(pf?.nom || '')}</span>
+          </td>
+          <td class="py-2.5 px-4 text-xs ${TYPE_COLOR[env.type] || 'text-slate-400'}">${env.type}</td>
+          <td class="py-2.5 px-4 text-right text-white font-semibold text-sm">${fmt(Math.round(val))}</td>
+          <td class="py-2.5 px-4 text-right text-slate-500 text-xs">${pct}%</td>
+          <td class="py-2.5 px-4 text-right">
+            <div class="w-24 bg-slate-700 rounded-full h-1.5 inline-block align-middle">
+              <div class="bg-blue-500 h-1.5 rounded-full" style="width:${pct}%"></div>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+  // Top positions
+  const topRows = topPositions.map(({ pos, env, val, cost, pnl, pnlPct, cat }) => {
+    const pf = STATE.portfolios.find(p => p.id === env.portfolio_id);
+    const catDef = INVEST_CATEGORIES.find(c => c.key === cat);
+    return `
+      <tr class="border-b border-slate-700/40 hover:bg-slate-700/20 transition">
+        <td class="py-2.5 px-4">
+          <p class="text-white text-sm font-medium">${esc(pos.nom || pos.identifiant)}</p>
+          <p class="text-slate-500 text-xs">${pos.identifiant} · ${esc(env.nom)}</p>
+        </td>
+        <td class="py-2.5 px-4 text-xs" style="color:${catDef?.color || '#94a3b8'}">${cat}</td>
+        <td class="py-2.5 px-4 text-right text-white font-semibold">${fmt(val)}</td>
+        <td class="py-2.5 px-4 text-right ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm">
+          ${pnl >= 0 ? '+' : ''}${fmt(pnl)}
+        </td>
+        <td class="py-2.5 px-4 text-right ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'} text-xs">
+          ${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%
+        </td>
+      </tr>`;
+  }).join('');
+
+  // ── Graphiques pré-calculés ──────────────────────────────────────────────
+  const bourseEntries = catEntries.filter(e => e.key !== 'Crypto');
+  const bourseTotal   = bourseEntries.reduce((s, e) => s + e.val, 0);
+  const bourseChart   = bourseEntries.length ? svgHorizBars(bourseEntries, 'ETF Bourse') : '';
+
+  // Crypto : regrouper par token individuel
+  const byCryptoMap = {};
+  const CRYPTO_COLORS = ['#f687b3','#b794f4','#76e4f7','#fbd38d','#9ae6b4','#fc8181'];
+  STATE.envelopes.filter(e => e.type === 'crypto').forEach(env => {
+    STATE.positions.filter(p => p.envelope_id === env.id).forEach(pos => {
+      const val = Math.round(currentPrice(pos.identifiant, 'crypto') * Number(pos.quantite || 0));
+      if (val > 0) {
+        const label = pos.nom || pos.identifiant;
+        byCryptoMap[label] = (byCryptoMap[label] || 0) + val;
+      }
+    });
+  });
+  const cryptoChartEntries = Object.entries(byCryptoMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, val], i) => ({ key, val, color: CRYPTO_COLORS[i % CRYPTO_COLORS.length] }));
+  const cryptoTotal = cryptoChartEntries.reduce((s, e) => s + e.val, 0);
+  const cryptoChart = cryptoChartEntries.length ? svgHorizBars(cryptoChartEntries, 'Crypto') : '';
+
+  app.innerHTML = `
+    ${navbar(`<a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
+
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-white">📊 Investissements financiers</h1>
+          <p class="text-slate-400 text-sm mt-0.5">Analyse de ton patrimoine financier · ${allPositions.length} positions</p>
+        </div>
+        <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm flex-shrink-0">📈 Historique</a>
+      </div>
+
+      <!-- Stats globales -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="bg-slate-800 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Valeur totale</p>
+          <p class="text-white font-bold text-xl">${fmt(Math.round(gs.total))}</p>
+          <p class="text-slate-500 text-xs mt-0.5">Patrimoine financier</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Valeur nette</p>
+          <p class="text-emerald-400 font-bold text-xl">${fmt(Math.round(pfNet))}</p>
+          <p class="text-slate-500 text-xs mt-0.5">${gs.totalCharges > 0 ? 'Après charges −' + fmt(gs.totalCharges) : 'Hors charges'}</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Plus-value totale</p>
+          <p class="${pvCol} font-bold text-xl">${pv >= 0 ? '+' : ''}${fmt(Math.round(pv))}</p>
+          <p class="${pvCol} text-xs mt-0.5 opacity-70">${pv >= 0 ? '+' : ''}${pvPct}%</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Rendement annualisé</p>
+          <p class="${annRetCol} font-bold text-xl">${annRetStr}</p>
+          <p class="text-slate-500 text-xs mt-0.5">Estimé sur l'historique</p>
+        </div>
+      </div>
+
+      <!-- Allocation globale -->
+      ${allocBar(gs.alloc, 'Allocation du patrimoine financier', 'md', null, gs.total)}
+
+      <!-- Portfolios -->
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">Portfolios</h2>
+        <button onclick="openModal('portfolio')" class="btn-primary text-sm">+ Nouveau</button>
+      </div>
+      ${envelopeTypeAllocBar(STATE.envelopes)}
+      <div class="grid gap-4 sm:grid-cols-2">
+        ${STATE.portfolios.map(p => portfolioCard(p)).join('') || empty('Aucun portfolio — crée-en un.')}
+      </div>
+
+      <!-- Diversification ETF bourse -->
+      ${bourseChart ? `
+      <div class="bg-slate-800 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Analyse Bourse — Diversification ETF</h2>
+        <p class="text-slate-500 text-xs mb-4">${fmt(Math.round(bourseTotal))} · Catégorisation automatique par nom de position</p>
+        ${bourseChart}
+      </div>` : ''}
+
+      <!-- Crypto si présent -->
+      ${cryptoChart ? `
+      <div class="bg-slate-800 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Crypto</h2>
+        <p class="text-slate-500 text-xs mb-4">${fmt(Math.round(cryptoTotal))}</p>
+        ${cryptoChart}
+      </div>` : ''}
+
+      <!-- Répartition par enveloppe -->
+      <div class="bg-slate-800 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Répartition par enveloppe</h2>
+        <div class="bg-slate-900 rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-800 text-slate-500 text-xs">
+              <tr>
+                <th class="py-2.5 px-4 text-left">Enveloppe</th>
+                <th class="py-2.5 px-4 text-left">Type</th>
+                <th class="py-2.5 px-4 text-right">Valeur</th>
+                <th class="py-2.5 px-4 text-right">%</th>
+                <th class="py-2.5 px-4 text-right w-32"></th>
+              </tr>
+            </thead>
+            <tbody>${envRows}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Top positions -->
+      ${topPositions.length ? `
+      <div class="bg-slate-800 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+          Top positions <span class="text-slate-600 font-normal">(hors épargne)</span>
+        </h2>
+        <div class="bg-slate-900 rounded-lg overflow-x-auto">
+          <table class="w-full text-sm" style="min-width:600px">
+            <thead class="bg-slate-800 text-slate-500 text-xs">
+              <tr>
+                <th class="py-2.5 px-4 text-left">Position</th>
+                <th class="py-2.5 px-4 text-left">Catégorie</th>
+                <th class="py-2.5 px-4 text-right">Valeur</th>
+                <th class="py-2.5 px-4 text-right">+/− €</th>
+                <th class="py-2.5 px-4 text-right">+/− %</th>
+              </tr>
+            </thead>
+            <tbody>${topRows}</tbody>
+          </table>
+        </div>
+      </div>` : ''}
+
+    </div>
+    ${modalPortfolio()}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
