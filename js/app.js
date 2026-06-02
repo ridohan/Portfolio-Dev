@@ -5123,12 +5123,13 @@ async function confirmDeleteExpenseAid(id) {
 
 // Catégories dans l'ordre de priorité de matching
 const INVEST_CATEGORIES = [
-  // S&P 500 AVANT World/Global pour éviter "S&P 500 World" → World
-  { key: 'S&P 500',
+  // USA avant Monde pour éviter "S&P 500 World" → Monde
+  { key: 'USA',
     color: '#48bb78',
-    keywords: ['s&p 500','s&p500','sp500','s p 500','sp 500','s&p us 500','500 us','s&p us'] },
-  // MSCI World / Global
-  { key: 'MSCI World / Global',
+    keywords: ['s&p 500','s&p500','sp500','s p 500','sp 500','s&p us 500','500 us','s&p us',
+               'nasdaq','russell','dow jones','us equity','us stock','united states','american'] },
+  // Monde
+  { key: 'Monde',
     color: '#4299e1',
     keywords: ['world','msci world','global','all country','all-country','acwi','ftse all world',
                'total world','all cap','world index','monde','global market','market world',
@@ -5163,14 +5164,24 @@ const INVEST_CATEGORIES = [
 
 function inferEtfCategory(pos, envType) {
   if (envType === 'crypto') return 'Crypto';
-  // Combiner : nom saisi par l'utilisateur + nom officiel depuis STATE.prices (fetchedde JustETF)
-  const priceName = STATE.prices.find(p => p.isin === pos.identifiant)?.nom || '';
-  const txt = ((pos.nom || '') + ' ' + priceName).toLowerCase().trim();
-  // Si aucun nom disponible, utiliser l'identifiant (ISIN) en dernier recours
-  const search = txt || (pos.identifiant || '').toLowerCase();
+
+  const price = STATE.prices.find(p => p.isin === pos.identifiant);
+
+  // Priorité 1 : colonne "categorie" renseignée manuellement dans la sheet prices
+  // Valeurs attendues : "Monde", "USA", "Europe", "Pays émergents",
+  //                     "Obligataire", "Monétaire & Divers"
+  if (price?.categorie && String(price.categorie).trim()) {
+    return String(price.categorie).trim();
+  }
+
+  // Priorité 2 : matching par mots-clés sur le nom (pos.nom + nom JustETF depuis prices)
+  const priceName = price?.nom || '';
+  const search = ((pos.nom || '') + ' ' + priceName).toLowerCase().trim()
+              || (pos.identifiant || '').toLowerCase();
   for (const cat of INVEST_CATEGORIES) {
     if (cat.keywords.length && cat.keywords.some(kw => search.includes(kw))) return cat.key;
   }
+
   return 'Monétaire & Divers'; // catch-all
 }
 
