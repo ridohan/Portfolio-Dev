@@ -5375,7 +5375,7 @@ function renderInvestissements(app) {
   const cryptoChart = cryptoChartEntries.length ? svgHorizBars(cryptoChartEntries, 'Crypto') : '';
 
   app.innerHTML = `
-    ${navbar(`<a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
 
       <div class="flex items-start justify-between gap-4">
@@ -5597,7 +5597,7 @@ function residDashboardCard() {
 
 function renderResidences(app) {
   app.innerHTML = `
-    ${navbar(`<a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold text-white">🏡 Mes Résidences</h1>
@@ -6514,7 +6514,7 @@ function immoDashboardCard() {
 
 function renderImmo(app) {
   app.innerHTML = `
-    ${navbar(`<a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold text-white">🏠 Immobilier Locatif</h1>
