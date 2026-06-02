@@ -1213,8 +1213,12 @@ function _dashBlock(id, stats) {
   switch (id) {
     case 'stats': return `
       <div class="flex items-center justify-between mb-1">
-        <h2 class="text-lg font-semibold text-white">📊 Patrimoine financier</h2>
-        <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm">📈 Historique</a>
+        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-blue-300 transition"
+            onclick="navigate('#investissements')">📊 Patrimoine financier</h2>
+        <div class="flex gap-2">
+          <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm">📈 Historique</a>
+          <a href="#investissements" onclick="navigate('#investissements');return false;" class="btn-secondary text-sm">Détail →</a>
+        </div>
       </div>
       ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
@@ -1222,13 +1226,15 @@ function _dashBlock(id, stats) {
     case 'patrimoine_global': return patrimoineGlobalBloc(stats);
     case 'immo': return `
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">🏠 Immobilier locatif</h2>
+        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-blue-300 transition"
+            onclick="navigate('#immo')">🏠 Immobilier locatif</h2>
         <a href="#immo" onclick="navigate('#immo');return false;" class="btn-secondary text-sm">Détail →</a>
       </div>
       ${immoDashboardCard()}`;
     case 'residences': return `
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">🏡 Résidences</h2>
+        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-violet-300 transition"
+            onclick="navigate('#residences')">🏡 Résidences</h2>
         <a href="#residences" onclick="navigate('#residences');return false;" class="btn-secondary text-sm">Détail →</a>
       </div>
       ${residDashboardCard()}`;
@@ -1250,28 +1256,18 @@ function _dashBlock(id, stats) {
       <div id="milestone-section">${milestoneGauge()}</div>`;
     case 'fire': return `
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">🔥 Simulation FIRE</h2>
+        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-orange-300 transition"
+            onclick="navigate('#fire')">🔥 Simulation FIRE</h2>
         <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-sm">Configurer →</a>
       </div>
       ${fireDashboardCards()}`;
     case 'expenses': return `
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">💰 Dépenses</h2>
+        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-emerald-300 transition"
+            onclick="navigate('#expenses')">💰 Dépenses</h2>
         <a href="#expenses" onclick="navigate('#expenses');return false;" class="btn-secondary text-sm">Détail →</a>
       </div>
       ${expenseDashboardCard()}`;
-    case 'portfolios': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">Portfolios</h2>
-        <div class="flex gap-2">
-          <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm">📈 Historique</a>
-          <button onclick="openModal('portfolio')" class="btn-primary text-sm">+ Nouveau</button>
-        </div>
-      </div>
-      ${envelopeTypeAllocBar(STATE.envelopes)}
-      <div class="grid gap-4 sm:grid-cols-2">
-        ${STATE.portfolios.map(p => portfolioCard(p)).join('') || empty('Aucun portfolio — crée-en un.')}
-      </div>`;
     default: return '';
   }
 }
@@ -2807,7 +2803,6 @@ const DASH_BLOCKS_DEF = [
   { id: 'milestones',  label: '🏆 Jalons'                    },
   { id: 'fire',        label: '🔥 Simulation FIRE'           },
   { id: 'expenses',    label: '💰 Dépenses'                  },
-  { id: 'portfolios',  label: '📁 Portfolios'                },
 ];
 
 function loadDashOrder() {
