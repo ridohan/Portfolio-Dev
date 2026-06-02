@@ -240,6 +240,10 @@ function doPost(e) {
         });
       },
       updateResidence: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        const hdrs = ['id','nom','type','quote_part_pct','surface_m2','prix_achat','valeur_estimee','date_valeur_estimee',
+                      'montant_credit','duree_credit_mois','taux_credit','mensualite_assurance','numero_pret','date_debut_credit','credit_part_soldee'];
+        ensureSheet(ss2, 'residences', hdrs); // garantit que toutes les colonnes existent
         return updateRow('residences', payload.id, {
           nom:                  payload.nom                  || '',
           type:                 payload.type                 || 'principale',
@@ -564,6 +568,19 @@ function ensureSheet(ss, name, headers) {
   if (!sheet) {
     sheet = ss.insertSheet(name);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  } else {
+    // Ajouter les colonnes manquantes à la fin de la feuille existante
+    const lastCol  = sheet.getLastColumn();
+    const existing = lastCol > 0
+      ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String)
+      : [];
+    headers.forEach(h => {
+      if (!existing.includes(String(h))) {
+        const newCol = sheet.getLastColumn() + 1;
+        sheet.getRange(1, newCol).setValue(h);
+        existing.push(String(h)); // mettre à jour pour éviter les doublons dans la même boucle
+      }
+    });
   }
   return sheet;
 }

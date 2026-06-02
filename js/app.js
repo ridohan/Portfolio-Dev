@@ -22,18 +22,22 @@ window.addEventListener('load', render);
 // Au chargement, les données serveur ont priorité et synchronisent localStorage.
 
 function getUiPref(key, defaultVal = null) {
-  // Priorité 1 : STATE (chargé depuis Google Sheets)
+  // Priorité 1 : localStorage — toujours à jour, même après render() qui recharge STATE
+  // depuis le cache (ce qui écraserait les prefs mises à jour par persistUiPref cette session).
+  // Le sync cross-device est garanti : render() copie STATE.ui_prefs → localStorage au chargement.
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw !== null) return JSON.parse(raw);
+  } catch {}
+  // Priorité 2 : STATE.ui_prefs (chargé depuis Google Sheets — utile au tout premier rendu
+  // avant que localStorage ne soit synchronisé depuis le serveur)
   if (Array.isArray(STATE.ui_prefs) && STATE.ui_prefs.length) {
     const pref = STATE.ui_prefs.find(p => p.key === key);
     if (pref?.value !== undefined && pref.value !== '') {
       try { return JSON.parse(pref.value); } catch { return pref.value; }
     }
   }
-  // Priorité 2 : localStorage (fallback local)
-  try {
-    const raw = localStorage.getItem(key);
-    return raw !== null ? JSON.parse(raw) : defaultVal;
-  } catch { return defaultVal; }
+  return defaultVal;
 }
 
 function persistUiPref(key, value) {
@@ -55,7 +59,10 @@ async function render() {
 
   const cached = API._getCache();
   if (cached) {
-    // Affichage immédiat depuis le cache, pas de spinner
+    // Affichage immédiat depuis le cache, pas de spinner.
+    // On ne touche PAS localStorage ici : les prefs modifiées cette session
+    // (ex : ordre des blocs) sont déjà dans localStorage via persistUiPref
+    // et ne doivent pas être écrasées par un STATE potentiellement plus ancien.
     STATE = cached;
   } else {
     app.innerHTML = `<div class="flex items-center justify-center h-64 text-slate-400">Chargement…</div>`;
@@ -64,15 +71,15 @@ async function render() {
     } catch (e) {
       app.innerHTML = errorBanner(e.message); return;
     }
-  }
-
-  // Sync localStorage depuis les prefs serveur (cross-device)
-  if (Array.isArray(STATE.ui_prefs)) {
-    STATE.ui_prefs.forEach(p => {
-      if (p.key && p.value !== undefined && p.value !== '') {
-        try { localStorage.setItem(p.key, p.value); } catch {}
-      }
-    });
+    // Sync localStorage depuis les prefs serveur UNIQUEMENT lors d'un chargement
+    // serveur (pas cache) → garantit la synchronisation cross-device au premier chargement
+    if (Array.isArray(STATE.ui_prefs)) {
+      STATE.ui_prefs.forEach(p => {
+        if (p.key && p.value !== undefined && p.value !== '') {
+          try { localStorage.setItem(p.key, p.value); } catch {}
+        }
+      });
+    }
   }
 
   const hash = location.hash || '#dashboard';
@@ -873,13 +880,124 @@ function renderSetup(app) {
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
+function patrimoineGlobalBloc(pfStats) {
+  const now = new Date();
+
+  // ── Patrimoine financier ──────────────────────────────────────────────────
+  const pfBrut = pfStats.total;
+  const pfNet  = Math.max(0, pfStats.total - pfStats.totalCharges);
+
+  // ── Immobilier locatif ────────────────────────────────────────────────────
+  let immoBrut = 0, immoDette = 0;
+  STATE.biens_immo.forEach(b => {
+    immoBrut  += Number(b.prix_achat || 0);
+    immoDette += immoCapitalRestantDu(b, now);
+  });
+  const immoNet = Math.max(0, immoBrut - immoDette);
+
+  // ── Résidences ────────────────────────────────────────────────────────────
+  let residBrut = 0, residNet = 0, residDette = 0;
+  (STATE.residences || []).forEach(r => {
+    residBrut  += residValeurPart(r);
+    residNet   += residPatrimoineNet(r, now);
+    residDette += residCapitalRestantDu(r, now);
+  });
+
+  // ── Totaux ────────────────────────────────────────────────────────────────
+  const totalBrut  = pfBrut  + immoBrut  + residBrut;
+  const totalNet   = pfNet   + immoNet   + residNet;
+  const totalDette = pfStats.totalCharges + immoDette + residDette;
+
+  const hasImmo   = STATE.biens_immo.length > 0;
+  const hasResid  = (STATE.residences || []).length > 0;
+  const multiComp = hasImmo || hasResid;
+
+  const cc   = v => v >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const pct  = (net, brut) => brut > 0 ? (net / brut * 100).toFixed(1) + '%' : '—';
+  const row  = (icon, label, brut, net, href) => `
+    <tr class="border-b border-slate-700/40 hover:bg-slate-700/20 transition cursor-pointer" onclick="navigate('${href}')">
+      <td class="py-3 px-4 text-sm">
+        <span class="text-slate-300">${icon}</span>
+        <span class="text-slate-300 ml-1.5">${label}</span>
+      </td>
+      <td class="py-3 px-4 text-right text-slate-300 text-sm">${fmt(Math.round(brut))}</td>
+      <td class="py-3 px-4 text-right font-semibold text-sm ${cc(net)}">${fmt(Math.round(net))}</td>
+      <td class="py-3 px-4 text-right text-slate-500 text-xs">${pct(net, brut)}</td>
+    </tr>`;
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-white">🌍 Patrimoine global</h2>
+      </div>
+
+      <!-- Cartes résumé -->
+      <div class="grid grid-cols-2 ${multiComp ? 'sm:grid-cols-4' : 'sm:grid-cols-2'} gap-3 mb-5">
+        <div class="bg-slate-700/40 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Valeur brute totale</p>
+          <p class="text-white font-bold text-xl">${fmt(Math.round(totalBrut))}</p>
+          <p class="text-slate-600 text-xs mt-0.5">Tous actifs confondus</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Valeur nette totale</p>
+          <p class="text-emerald-400 font-bold text-xl">${fmt(Math.round(totalNet))}</p>
+          <p class="text-slate-600 text-xs mt-0.5">Après dettes · ${pct(totalNet, totalBrut)}</p>
+        </div>
+        ${multiComp ? `
+        <div class="bg-slate-700/40 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Dette totale</p>
+          <p class="${totalDette > 0 ? 'text-amber-400' : 'text-slate-400'} font-bold text-xl">${fmt(Math.round(totalDette))}</p>
+          <p class="text-slate-600 text-xs mt-0.5">Crédits + charges</p>
+        </div>
+        <div class="bg-slate-700/40 rounded-xl p-4">
+          <p class="text-slate-400 text-xs mb-1">Ratio net / brut</p>
+          <p class="text-blue-400 font-bold text-xl">${pct(totalNet, totalBrut)}</p>
+          <p class="text-slate-600 text-xs mt-0.5">${totalBrut > 0 ? fmt(Math.round(totalDette)) + ' de dettes' : '—'}</p>
+        </div>` : ''}
+      </div>
+
+      <!-- Tableau de répartition (affiché seulement si plusieurs composantes) -->
+      ${multiComp ? `
+      <div class="bg-slate-900 rounded-lg overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-800 text-slate-500 text-xs">
+            <tr>
+              <th class="py-2.5 px-4 text-left font-medium">Composante</th>
+              <th class="py-2.5 px-4 text-right font-medium">Valeur brute</th>
+              <th class="py-2.5 px-4 text-right font-medium">Valeur nette</th>
+              <th class="py-2.5 px-4 text-right font-medium">% du brut</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${row('📊', 'Patrimoine financier', pfBrut, pfNet, '#dashboard')}
+            ${hasImmo  ? row('🏠', 'Immobilier locatif', immoBrut, immoNet, '#immo') : ''}
+            ${hasResid ? row('🏡', 'Résidences', residBrut, residNet, '#residences') : ''}
+          </tbody>
+          <tfoot class="border-t-2 border-slate-600">
+            <tr class="bg-slate-800/60">
+              <td class="py-3 px-4 text-white font-bold text-sm">Total</td>
+              <td class="py-3 px-4 text-right text-white font-bold">${fmt(Math.round(totalBrut))}</td>
+              <td class="py-3 px-4 text-right text-emerald-400 font-bold text-base">${fmt(Math.round(totalNet))}</td>
+              <td class="py-3 px-4 text-right text-blue-400 font-semibold text-sm">${pct(totalNet, totalBrut)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>` : ''}
+    </div>`;
+}
+
 function _dashBlock(id, stats) {
   const { total, invested, alloc, totalCharges } = stats;
   switch (id) {
     case 'stats': return `
+      <div class="flex items-center justify-between mb-1">
+        <h2 class="text-lg font-semibold text-white">📊 Patrimoine financier</h2>
+        <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm">📈 Historique</a>
+      </div>
       ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}`;
+    case 'patrimoine_global': return patrimoineGlobalBloc(stats);
     case 'immo': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">🏠 Immobilier locatif</h2>
@@ -2457,7 +2575,8 @@ function estimateAnnualReturn() {
 
 const DASH_ORDER_KEY = 'dashboard_block_order';
 const DASH_BLOCKS_DEF = [
-  { id: 'stats',       label: '📊 Stats & Historique'       },
+  { id: 'patrimoine_global', label: '🌍 Patrimoine global'   },
+  { id: 'stats',       label: '📊 Patrimoine financier'      },
   { id: 'immo',        label: '🏠 Immobilier locatif'        },
   { id: 'residences',  label: '🏡 Résidences'                },
   { id: 'eoy',         label: '📅 Projection fin d\'année'   },
@@ -5330,19 +5449,22 @@ async function saveResidence() {
     date_debut_credit:    document.getElementById('res-datecredit')?.value || '',
     credit_part_soldee:   document.getElementById('res-credit-solde')?.checked ? 1 : 0,
   };
+  // Capturer l'id AVANT closeResidenceModal qui le remet à null
+  const editId = _editingResidId;
+
   // Avertissement si 2e résidence principale
-  if (data.type === 'principale' && !_editingResidId) {
+  if (data.type === 'principale' && !editId) {
     const existing = STATE.residences?.find(r => r.type === 'principale');
     if (existing) {
       if (!confirm('⚠ Vous avez déjà une résidence principale (' + existing.nom + '). Continuer quand même ?')) return;
     }
   }
   closeResidenceModal();
-  setGlobalLoader(true, _editingResidId ? 'Mise à jour…' : 'Enregistrement…');
+  setGlobalLoader(true, editId ? 'Mise à jour…' : 'Enregistrement…');
   try {
-    if (_editingResidId) {
-      await API.updateResidence({ id: _editingResidId, ...data });
-      const idx = STATE.residences.findIndex(r => r.id === _editingResidId);
+    if (editId) {
+      await API.updateResidence({ id: editId, ...data });
+      const idx = STATE.residences.findIndex(r => r.id === editId);
       if (idx !== -1) STATE.residences[idx] = { ...STATE.residences[idx], ...data };
     } else {
       const result = await API.addResidence(data);
