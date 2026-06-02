@@ -2,11 +2,38 @@
 
 ## Vue d'ensemble
 
-Le projet est un **gestionnaire de portfolio personnel** permettant de suivre l'ensemble de ses investissements, organisés hiérarchiquement en portfolios, sous-portfolios et enveloppes.
+Le projet est un **gestionnaire de patrimoine personnel** permettant de suivre l'ensemble de ses actifs :
+- **Patrimoine financier** : investissements organisés en portfolios, enveloppes et positions
+- **Immobilier locatif** : biens en location avec suivi de rentabilité
+- **Résidences** : résidence principale, secondaire ou bien familial en indivision
+- **Dépenses** : suivi mensuel par catégorie et poste
+- **Simulation FIRE** : projection vers l'indépendance financière
 
 ---
 
-## Hiérarchie
+## Structure de navigation
+
+```
+Dashboard (vue synthèse)
+├── Patrimoine financier
+│   ├── Portfolio → Sous-portfolio → Enveloppe → Positions
+│   ├── Investissements (analyse de composition cross-portfolios)
+│   └── Historique (global, par portfolio, par enveloppe)
+├── Immobilier locatif
+│   ├── Vue globale consolidée
+│   ├── Fiche bien (rentabilité, crédit, dépenses)
+│   └── TVA globale
+├── Résidences
+│   └── Fiche résidence (patrimoine, crédit, caractéristiques)
+├── Simulation FIRE
+└── Dépenses (tableau mensuel par catégorie)
+```
+
+---
+
+## Module : Patrimoine financier
+
+### Hiérarchie
 
 ```
 Portfolio
@@ -15,118 +42,186 @@ Portfolio
         └── Positions / Actifs
 ```
 
-### Portfolio
+**Portfolio** — niveau racine. Regroupe les investissements d'un profil ou objectif donné (ex : "Patrimoine perso", "Retraite"). Possède une allocation cible 3-fund.
 
-Un portfolio est le niveau racine. Il regroupe l'ensemble des investissements d'un profil ou d'un objectif donné (ex : "Patrimoine perso", "Retraite", "Projet immobilier").
+**Sous-portfolio** — regroupement facultatif au sein d'un portfolio (ex : "Long terme", "Épargne de précaution").
 
-- Un portfolio a un **nom**.
-- Un portfolio peut contenir directement des **enveloppes** ou être structuré en **sous-portfolios**.
+**Enveloppe** — compte ou support réel (ex : PEA, CTO, Livret A, Binance). Un seul type parmi :
+- `bourse` — actions, ETF, obligations cotées
+- `crypto` — cryptomonnaies
+- `épargne` — livrets, fonds euros, dépôts à terme
 
-### Sous-portfolio
+**Position** — ligne détenue dans une enveloppe. Identifiée par son ISIN (ETF/actions) ou symbole (crypto).
 
-Un sous-portfolio permet de regrouper des enveloppes au sein d'un portfolio (ex : "Investissements long terme", "Épargne de précaution").
-
-- Un sous-portfolio a un **nom**.
-- Un sous-portfolio appartient à un seul portfolio parent.
-- Un sous-portfolio contient une ou plusieurs **enveloppes**.
-
-### Enveloppe
-
-L'enveloppe représente un compte ou support d'investissement réel (ex : PEA, CTO, Livret A, Compte Binance).
-
-- Une enveloppe a un **nom**.
-- Une enveloppe est d'un **seul type** parmi :
-  - `bourse` — actions, ETF, obligations cotées
-  - `crypto` — cryptomonnaies
-  - `épargne` — livrets, fonds euros, dépôts à terme
-- Le type d'une enveloppe ne peut pas être mixte.
-- Une enveloppe appartient à un sous-portfolio ou directement à un portfolio.
-
----
-
-## Données agrégées
-
-À chaque niveau de la hiérarchie, les données des niveaux inférieurs sont **agrégées et remontées** :
+### Agrégation des données
 
 | Niveau | Ce qui est visible |
 |---|---|
 | Enveloppe | Valeur totale, performance, détail des positions |
 | Sous-portfolio | Somme des enveloppes, répartition par type |
-| Portfolio | Vision consolidée de tous les sous-portfolios et enveloppes |
+| Portfolio | Vision consolidée, allocation réelle vs cible |
+| Global | Tous portfolios + immo + résidences |
+
+### 3-fund portfolio
+
+Vision transversale en trois poches :
+
+| Poche | Source |
+|---|---|
+| **Actions** | Positions `action` (bourse) + tout le crypto |
+| **Obligations** | Positions `obligation` (bourse) |
+| **Cash** | Tout l'épargne |
+
+Chaque portfolio a une **allocation cible** (cible_actions + cible_obligations + cible_cash = 100%). L'app affiche l'écart réel vs cible et propose des **suggestions de rééquilibrage**.
+
+**Logique de rééquilibrage :**
+```
+Écart poche X = (V × cible_X / 100) − montant actuel X
+  → positif : sous-pondéré → acheter
+  → négatif : sur-pondéré  → vendre
+```
+
+Deux scénarios : rééquilibrage pur (sans apport) ou avec un montant à investir.
+
+### Analyse des investissements
+
+Page dédiée avec catégorisation heuristique des positions :
+- Catégories : Monde, USA, Europe, Pays émergents, Obligations, Immobilier (SCPI/REIT), Crypto, Épargne, etc.
+- Vue consolidée cross-portfolios avec graphique barres horizontales
 
 ---
 
-## Types d'enveloppes — documentation détaillée
+## Module : Immobilier locatif
 
-Chaque type d'enveloppe a ses propres règles de gestion, documentées dans les dossiers dédiés :
+Suivi des biens immobiliers mis en location.
 
-- [Bourse](./bourse/INSTRUCTIONS.MD) — gestion de positions ETF/actions/obligations
-- [Épargne](./epargne/INSTRUCTIONS.MD) — comptes rémunérés, livrets, fonds euros
-- [Crypto](./crypto/INSTRUCTIONS.MD) — cryptomonnaies, prix via API CoinGecko
+### Ce qu'on suit par bien
+
+- **Crédit** : mensualité, capital restant dû, capital remboursé
+- **Rentabilité brute théorique** : loyers annuels / prix d'achat
+- **Rentabilité nette réelle** : loyers encaissés YTD − dépenses − taxe foncière
+- **Dépenses** : loyers perçus, charges, travaux, TVA — avec fréquences (mensuel, trimestriel, annuel)
+
+### TVA globale
+
+Module dédié au suivi de la TVA pour les régimes soumis (ex : LMNP TVA) :
+- TVA collectée sur les loyers
+- TVA versée sur les dépenses
+- Historique des versements à la DGFiP
+
+### Vue consolidée
+
+Synthèse patrimoniale sur l'ensemble des biens : valeur brute totale, dette totale, patrimoine net, rendement agrégé.
 
 ---
 
-## 3-fund portfolio
+## Module : Résidences
 
-La vision transversale du portfolio repose sur le principe du **3-fund portfolio** : répartir ses investissements en trois poches distinctes.
+Suivi des résidences non locatives (résidence principale, secondaire, bien familial).
 
-| Poche | Source dans l'app |
-|---|---|
-| **Actions** | Positions de type `action` dans les enveloppes bourse + toutes les positions des enveloppes crypto |
-| **Obligations** | Positions de type `obligation` dans les enveloppes bourse |
-| **Cash** | Toutes les positions des enveloppes épargne |
+### Spécificités
 
-À chaque niveau (enveloppe, sous-portfolio, portfolio), l'app affiche la **répartition Actions / Obligations / Cash** en pourcentage de la valeur totale.
+- **Quote-part** : gestion de l'indivision (ex : 50% d'un bien familial)
+- **Valeur estimée** mise à jour manuellement
+- **Patrimoine net** = valeur de la part − capital restant dû
+- **Plus-value latente** = valeur estimée part − prix d'achat part
 
-L'objectif est de permettre à l'utilisateur de piloter son allocation cible (ex : 70% actions / 20% obligations / 10% cash) et de visualiser l'écart avec son allocation réelle.
+### Types supportés
 
-### Allocation cible
+`principale` | `secondaire` | `familiale`
 
-Chaque portfolio possède une **allocation cible** définie en pourcentage sur les trois poches. La somme doit toujours être égale à 100%.
+---
 
-| Champ | Exemple |
-|---|---|
-| `cible_actions` | 70% |
-| `cible_obligations` | 20% |
-| `cible_cash` | 10% |
+## Module : Dépenses
 
-Une **vue globale** agrège tous les portfolios et compare l'allocation réelle consolidée à une cible globale calculée (moyenne pondérée des cibles par valeur de portfolio).
+Suivi mensuel des dépenses personnelles.
 
-### Suggestions de rééquilibrage
-
-Quand l'allocation réelle s'écarte de la cible, l'app calcule et affiche les **mouvements à effectuer** pour revenir à l'équilibre. Le rééquilibrage se fait par **arbitrage** : vendre les poches sur-pondérées pour réinvestir dans les poches sous-pondérées.
-
-**Logique de calcul :**
+### Structure
 
 ```
-Valeur totale          = V
-Montant cible poche X  = V × cible_X / 100
-Montant actuel poche X = A
-Écart poche X          = montant cible − montant actuel
-  → positif : sous-pondéré → acheter / investir
-  → négatif : sur-pondéré  → vendre / alléger
+Catégorie (ex : Logement, Transport)
+└── Poste (ex : Loyer, Assurance voiture)
+    └── Entrée mensuelle (montant + note optionnelle)
 ```
 
-**Deux scénarios couverts :**
+### Fonctionnalités clés
 
-1. **Rééquilibrage pur (sans nouveau capital)**
-   L'app suggère de vendre les poches sur-pondérées et de réinvestir le produit dans les poches sous-pondérées. Cas typique : des PV latentes fortes sur les actions ont déformé l'allocation.
+- Tableau mensuel sur l'année, navigable par année
+- **Moyennes** calculées sur les mois avec au moins une entrée (pas de dilution par les mois vides)
+- **Aides mensuelles** (APL, primes) déduites du total net
+- Import de la moyenne des dépenses → paramètres FIRE
+- Codes couleur personnalisables par catégorie
 
-2. **Rééquilibrage avec nouvel investissement**
-   L'utilisateur indique un montant à investir. L'app alloue ce capital en priorité vers les poches sous-pondérées. Si l'écart est trop important pour être absorbé par le seul nouvel investissement, elle suggère en complément des ventes sur les poches sur-pondérées.
+---
 
-**Exemple de suggestions affichées :**
+## Module : Simulation FIRE
 
-> - Vendre **−2 400 €** d'actions *(sur-pondéré de 3,1% — via votre CTO)*
-> - Acheter **+2 400 €** d'obligations *(sous-pondéré de 3,1% — via votre PEA)*
-> - Poche cash à l'équilibre
+FIRE = *Financial Independence, Retire Early*
 
-Les suggestions précisent **dans quelle enveloppe agir** en ciblant, pour chaque poche, l'enveloppe du bon type avec le plus grand écart. Pour les ventes, l'app peut également indiquer **quelle position vendre en priorité** en ciblant celles avec la PV latente la plus forte.
+### Paramètres
+
+- Patrimoine financier actuel
+- Dépenses annuelles (ou importées depuis le module Dépenses)
+- Taux de retrait sécurisé (ex : 4%)
+- Âge actuel / âge cible
+
+### Simulateur VPW
+
+*Variable Percentage Withdrawal* — stratégie de retrait adaptative :
+- Table de taux par âge chargée depuis Google Sheets
+- Calcul du revenu mensuel VPW selon le patrimoine et l'âge
+- Simulation des retraits dans le temps
+
+---
+
+## Dashboard
+
+Vue synthèse configurable composée de **blocs reordonnables** :
+
+| Bloc | Contenu |
+|---|---|
+| Patrimoine financier | Total investi, PV, allocation, sparkline |
+| Immobilier locatif | Patrimoine net, rendement |
+| Résidences | Patrimoine net, plus-value latente |
+| Patrimoine global | Consolidation financier + immo + résidences |
+| Projection fin d'année | Extrapolation sur la base des mois écoulés |
+| Simulations | Scénarios configurables |
+| Jalons | Objectifs patrimoniaux avec jauge |
+| FIRE | Résumé des métriques clés |
+| Dépenses | Moyenne mensuelle, total YTD |
+
+L'ordre des blocs est **persisté cross-device** via Google Sheets (`ui_prefs`).
+
+---
+
+## Rapports PDF
+
+Générés côté navigateur à la demande depuis le menu Paramètres :
+
+| Rapport | Contenu |
+|---|---|
+| Portfolio | Positions, PV, allocation, historique graphique |
+| Immobilier locatif | Rentabilité théorique + réelle, crédit, charges |
+| Résidences | Patrimoine, crédit, caractéristiques |
+| Dépenses | Synthèse annuelle, détail par type, aides, évolution |
 
 ---
 
 ## Principes généraux
 
-- La structure hiérarchie est **flexible** : un portfolio peut n'avoir aucun sous-portfolio et contenir directement des enveloppes.
-- Les noms à tous les niveaux sont **libres** (pas de liste prédéfinie).
-- Chaque niveau doit pouvoir afficher sa **valeur totale**, sa **performance globale** et sa **répartition 3-fund**.
+- Structure **flexible** : un portfolio peut ne pas avoir de sous-portfolios
+- Les noms à tous les niveaux sont **libres**
+- **Zéro dépendance externe** : pas de librairie JS, graphiques en SVG natif
+- Toutes les données vivent dans **Google Sheets**, l'app ne stocke rien côté serveur
+- Les préférences UI sont **synchronisées entre appareils** via la Sheet
+
+---
+
+## Voir aussi
+
+- [Architecture technique](./TECHNICAL.MD)
+- [Enveloppe Bourse](./bourse/INSTRUCTIONS.MD)
+- [Enveloppe Épargne](./epargne/INSTRUCTIONS.MD)
+- [Enveloppe Crypto](./crypto/INSTRUCTIONS.MD)
+- [Immobilier locatif](./immobilier-locatif/INSTRUCTIONS.MD)
+- [Résidences](./residences/INSTRUCTIONS.MD)
