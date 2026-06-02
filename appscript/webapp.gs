@@ -39,6 +39,7 @@ function doGet(e) {
       expense_aids:        sheetToObjects(ss, 'expense_aids'),
       biens_immo:          sheetToObjects(ss, 'biens_immo'),
       depenses_immo:       sheetToObjects(ss, 'depenses_immo'),
+      residences:          sheetToObjects(ss, 'residences'),
       ui_prefs:            sheetToObjects(ss, 'ui_prefs'),
     };
     return jsonResponse({ ok: true, data });
@@ -213,6 +214,50 @@ function doPost(e) {
         });
       },
       deleteDepenseImmo: () => deleteRow('depenses_immo', payload.id),
+
+      // ─── Résidences ──────────────────────────────────────────────────────────
+      addResidence: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        const hdrs = ['id','nom','type','quote_part_pct','surface_m2','prix_achat','valeur_estimee','date_valeur_estimee',
+                      'montant_credit','duree_credit_mois','taux_credit','mensualite_assurance','numero_pret','date_debut_credit','credit_part_soldee'];
+        ensureSheet(ss2, 'residences', hdrs);
+        return createRow('residences', {
+          id: newId('res'),
+          nom:                  payload.nom                  || '',
+          type:                 payload.type                 || 'principale',
+          quote_part_pct:       Number(payload.quote_part_pct ?? 100),
+          surface_m2:           Number(payload.surface_m2    || 0),
+          prix_achat:           Number(payload.prix_achat    || 0),
+          valeur_estimee:       Number(payload.valeur_estimee || payload.prix_achat || 0),
+          date_valeur_estimee:  payload.date_valeur_estimee  || '',
+          montant_credit:       Number(payload.montant_credit || 0),
+          duree_credit_mois:    Number(payload.duree_credit_mois || 0),
+          taux_credit:          Number(payload.taux_credit   || 0),
+          mensualite_assurance: Number(payload.mensualite_assurance || 0),
+          numero_pret:          payload.numero_pret          || '',
+          date_debut_credit:    payload.date_debut_credit    || '',
+          credit_part_soldee:   Number(payload.credit_part_soldee || 0),
+        });
+      },
+      updateResidence: () => {
+        return updateRow('residences', payload.id, {
+          nom:                  payload.nom                  || '',
+          type:                 payload.type                 || 'principale',
+          quote_part_pct:       Number(payload.quote_part_pct ?? 100),
+          surface_m2:           Number(payload.surface_m2    || 0),
+          prix_achat:           Number(payload.prix_achat    || 0),
+          valeur_estimee:       Number(payload.valeur_estimee || 0),
+          date_valeur_estimee:  payload.date_valeur_estimee  || '',
+          montant_credit:       Number(payload.montant_credit || 0),
+          duree_credit_mois:    Number(payload.duree_credit_mois || 0),
+          taux_credit:          Number(payload.taux_credit   || 0),
+          mensualite_assurance: Number(payload.mensualite_assurance || 0),
+          numero_pret:          payload.numero_pret          || '',
+          date_debut_credit:    payload.date_debut_credit    || '',
+          credit_part_soldee:   Number(payload.credit_part_soldee || 0),
+        });
+      },
+      deleteResidence: () => deleteRow('residences', payload.id),
 
       // ─── VPW Simulator ───────────────────────────────────────────────────────
       // Écrit le capital en B11 de "VPW Retirement Simulator", force le recalcul,

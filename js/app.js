@@ -1,5 +1,5 @@
 // État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [], biens_immo: [], depenses_immo: [], ui_prefs: [] };
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [], biens_immo: [], depenses_immo: [], residences: [], ui_prefs: [] };
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
@@ -88,6 +88,8 @@ async function render() {
   if (route === 'expenses')    return renderExpenses(app);
   if (route === 'immo' && !id) return renderImmo(app);
   if (route === 'immo' &&  id) return renderImmoDetail(app, id);
+  if (route === 'residences' && !id) return renderResidences(app);
+  if (route === 'residences' &&  id) return renderResidenceDetail(app, id);
   renderDashboard(app);
 }
 
@@ -884,6 +886,12 @@ function _dashBlock(id, stats) {
         <a href="#immo" onclick="navigate('#immo');return false;" class="btn-secondary text-sm">Détail →</a>
       </div>
       ${immoDashboardCard()}`;
+    case 'residences': return `
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-white">🏡 Résidences</h2>
+        <a href="#residences" onclick="navigate('#residences');return false;" class="btn-secondary text-sm">Détail →</a>
+      </div>
+      ${residDashboardCard()}`;
     case 'eoy': return `
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">📅 Projection fin d'année</h2>
@@ -1658,6 +1666,7 @@ function navbar(left = '') {
         <a href="#fire" onclick="navigate('#fire');return false;" class="text-orange-400 hover:text-orange-300 text-sm font-medium transition whitespace-nowrap">🔥 FIRE</a>
         <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition whitespace-nowrap">💰 Dépenses</a>
         <a href="#immo" onclick="navigate('#immo');return false;" class="text-blue-400 hover:text-blue-300 text-sm font-medium transition whitespace-nowrap">🏠 Immo</a>
+        <a href="#residences" onclick="navigate('#residences');return false;" class="text-violet-400 hover:text-violet-300 text-sm font-medium transition whitespace-nowrap">🏡 Résidences</a>
       </div>
       <div class="flex items-center gap-3 flex-shrink-0">
         <button onclick="openCacheSettings()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
@@ -2450,6 +2459,7 @@ const DASH_ORDER_KEY = 'dashboard_block_order';
 const DASH_BLOCKS_DEF = [
   { id: 'stats',       label: '📊 Stats & Historique'       },
   { id: 'immo',        label: '🏠 Immobilier locatif'        },
+  { id: 'residences',  label: '🏡 Résidences'                },
   { id: 'eoy',         label: '📅 Projection fin d\'année'   },
   { id: 'projections', label: '🎯 Simulations'               },
   { id: 'milestones',  label: '🏆 Jalons'                    },
@@ -4761,6 +4771,652 @@ async function confirmDeleteExpenseAid(id) {
     closeModal('expense-aid');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RÉSIDENCES (principale / secondaire)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _editingResidId = null;
+let _residValeurId  = null;
+
+// ── Calculs financiers ────────────────────────────────────────────────────────
+
+function residMensualite(res) {
+  const C  = Number(res.montant_credit || 0);
+  const tm = Number(res.taux_credit    || 0) / 12;
+  const n  = Number(res.duree_credit_mois || 0);
+  if (!C || !n) return 0;
+  if (tm === 0) return C / n;
+  return (C * tm) / (1 - Math.pow(1 + tm, -n));
+}
+
+function residCapitalRestantDu(res, now = new Date()) {
+  // Si l'utilisateur indique avoir déjà remboursé sa part → 0 restant
+  if (res.credit_part_soldee == 1 || res.credit_part_soldee === true || res.credit_part_soldee === 'true') return 0;
+  const C = Number(res.montant_credit || 0);
+  const n = Number(res.duree_credit_mois || 0);
+  if (!C || !n || !res.date_debut_credit) return C;
+  const tm    = Number(res.taux_credit || 0) / 12;
+  const start = new Date(res.date_debut_credit);
+  const k     = Math.min(Math.max(0, (now.getFullYear() - start.getFullYear()) * 12 + now.getMonth() - start.getMonth()), n);
+  if (tm === 0) return C * (1 - k / n);
+  return C * (Math.pow(1 + tm, n) - Math.pow(1 + tm, k)) / (Math.pow(1 + tm, n) - 1);
+}
+
+function residCapitalRembourse(res, now = new Date()) {
+  const C = Number(res.montant_credit || 0);
+  if (!C) return 0;
+  // Si part soldée → 100% remboursé
+  if (res.credit_part_soldee == 1 || res.credit_part_soldee === true || res.credit_part_soldee === 'true') return C;
+  return Math.max(0, C - residCapitalRestantDu(res, now));
+}
+
+function residValeurRef(res) {
+  // Valeur totale du bien (estimée ou prix d'achat par défaut)
+  return Number(res.valeur_estimee || res.prix_achat || 0);
+}
+
+function residQP(res) {
+  // Quote-part de détention (0–1), défaut 1 (100%)
+  return Math.min(1, Math.max(0, Number(res.quote_part_pct ?? 100) / 100));
+}
+
+function residValeurPart(res) {
+  // Valeur de l'actif correspondant à la part de l'utilisateur
+  return residValeurRef(res) * residQP(res);
+}
+
+function residPrixAchatPart(res) {
+  return Number(res.prix_achat || 0) * residQP(res);
+}
+
+function residPatrimoineNet(res, now = new Date()) {
+  // Patrimoine net = valeur (part utilisateur) − capital restant dû (son propre crédit)
+  return Math.max(0, residValeurPart(res) - residCapitalRestantDu(res, now));
+}
+
+function residPlusValue(res) {
+  return residValeurPart(res) - residPrixAchatPart(res);
+}
+
+// ── Dashboard card ────────────────────────────────────────────────────────────
+
+function residDashboardCard() {
+  if (!STATE.residences?.length) return `
+    <div class="bg-slate-800 rounded-xl p-5 text-center cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#residences')">
+      <p class="text-slate-400 text-sm">Aucune résidence enregistrée</p>
+      <p class="text-slate-500 text-xs mt-1">Cliquer pour ajouter</p>
+    </div>`;
+  const now = new Date();
+  let valEstimee = 0, dette = 0, remb = 0;
+  STATE.residences.forEach(r => {
+    valEstimee += residValeurPart(r);          // part utilisateur
+    dette      += residCapitalRestantDu(r, now); // son propre crédit
+    remb       += residCapitalRembourse(r, now);
+  });
+  const patriNet = valEstimee - dette;
+  const principale = STATE.residences.find(r => r.type === 'principale');
+  return `
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#residences')">
+        <p class="text-slate-400 text-xs mb-1">Valeur estimée</p>
+        <p class="text-white font-bold text-lg">${fmt(Math.round(valEstimee))}</p>
+        <p class="text-slate-500 text-xs">${STATE.residences.length} bien${STATE.residences.length > 1 ? 's' : ''}${principale ? ' · ' + esc(principale.nom) : ''}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#residences')">
+        <p class="text-slate-400 text-xs mb-1">Patrimoine net</p>
+        <p class="text-emerald-400 font-bold text-lg">${fmt(Math.round(patriNet))}</p>
+        <p class="text-slate-500 text-xs">Estimé − dette</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#residences')">
+        <p class="text-slate-400 text-xs mb-1">Capital remboursé</p>
+        <p class="text-blue-400 font-bold text-lg">${fmt(Math.round(remb))}</p>
+        <p class="text-slate-500 text-xs">Equity constituée</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#residences')">
+        <p class="text-slate-400 text-xs mb-1">Dette restante</p>
+        <p class="${dette > 0 ? 'text-amber-400' : 'text-slate-400'} font-bold text-lg">${fmt(Math.round(dette))}</p>
+        <p class="text-slate-500 text-xs">Capital restant dû</p>
+      </div>
+    </div>`;
+}
+
+// ── Vue liste ─────────────────────────────────────────────────────────────────
+
+function renderResidences(app) {
+  app.innerHTML = `
+    ${navbar(`<a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
+      <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-white">🏡 Mes Résidences</h1>
+        <button onclick="openResidenceModal()" class="btn-primary text-sm">+ Ajouter</button>
+      </div>
+      ${STATE.residences?.length ? `
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          ${STATE.residences.map(r => residenceCard(r)).join('')}
+        </div>` : `
+        <div class="bg-slate-800 rounded-xl p-12 text-center">
+          <p class="text-4xl mb-4">🏡</p>
+          <p class="text-slate-300 text-lg font-medium mb-2">Aucune résidence</p>
+          <p class="text-slate-500 text-sm mb-6">Ajoutez votre résidence principale ou secondaire pour suivre votre patrimoine immobilier personnel</p>
+          <button onclick="openResidenceModal()" class="btn-primary">+ Ajouter une résidence</button>
+        </div>`}
+    </div>
+    ${modalResidence()}
+    ${modalResidenceValeur()}`;
+}
+
+function residenceCard(res) {
+  const now    = new Date();
+  const qp     = residQP(res);
+  const val    = residValeurPart(res);           // part utilisateur
+  const crd    = residCapitalRestantDu(res, now);
+  const remb   = residCapitalRembourse(res, now);
+  const net    = residPatrimoineNet(res, now);
+  const pv     = residPlusValue(res);
+  const hasCr  = Number(res.montant_credit || 0) > 0;
+  const badge  = res.type === 'principale'
+    ? '<span class="bg-violet-500/20 text-violet-300 text-xs font-semibold px-2 py-0.5 rounded-full">PRINCIPALE</span>'
+    : '<span class="bg-slate-600/60 text-slate-300 text-xs font-semibold px-2 py-0.5 rounded-full">SECONDAIRE</span>';
+  const qpBadge = qp < 1
+    ? `<span class="bg-amber-500/20 text-amber-300 text-xs font-semibold px-2 py-0.5 rounded-full">${Math.round(qp * 100)}%</span>`
+    : '';
+  const pvColor = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer" onclick="navigate('#residences/${res.id}')">
+      <div class="flex items-start justify-between mb-3">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 mb-1">${badge}${qpBadge}</div>
+          <h3 class="text-white font-semibold truncate">${esc(res.nom)}</h3>
+          <p class="text-slate-400 text-xs mt-0.5">${res.surface_m2 ? res.surface_m2 + ' m²' : ''}${res.surface_m2 && res.prix_achat ? ' · ' : ''}${res.prix_achat ? fmt(Number(res.prix_achat)) + ' achat total' : ''}</p>
+        </div>
+        <span class="text-blue-400 text-xs ml-2 flex-shrink-0">Voir →</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <p class="text-slate-500 text-xs">Valeur ma part${qp < 1 ? ' (' + Math.round(qp * 100) + '%)' : ''}</p>
+          <p class="text-white font-bold text-sm">${fmt(Math.round(val))}</p>
+          ${res.date_valeur_estimee ? `<p class="text-slate-600 text-xs">MAJ ${fmtDate(res.date_valeur_estimee)}</p>` : ''}
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs">Patrimoine net</p>
+          <p class="text-emerald-400 font-bold text-sm">${fmt(Math.round(net))}</p>
+          ${!hasCr ? '<p class="text-slate-600 text-xs">Crédit soldé ✓</p>' : ''}
+        </div>
+        ${hasCr ? `
+        <div>
+          <p class="text-slate-500 text-xs">Capital remboursé</p>
+          <p class="text-blue-400 font-bold text-sm">${fmt(Math.round(remb))}</p>
+        </div>` : ''}
+        <div>
+          <p class="text-slate-500 text-xs">Plus-value latente</p>
+          <p class="${pvColor} font-bold text-sm">${pv >= 0 ? '+' : ''}${fmt(Math.round(pv))}</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Vue détail ────────────────────────────────────────────────────────────────
+
+function renderResidenceDetail(app, id) {
+  const res = STATE.residences?.find(r => r.id === id);
+  if (!res) { navigate('#residences'); return; }
+  const hasCr = Number(res.montant_credit || 0) > 0;
+  app.innerHTML = `
+    ${navbar(`<a href="#residences" onclick="navigate('#residences');return false;" class="text-slate-400 hover:text-white text-sm">← Mes résidences</a>`)}
+    <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            ${res.type === 'principale'
+              ? '<span class="bg-violet-500/20 text-violet-300 text-xs font-semibold px-2 py-0.5 rounded-full">PRINCIPALE</span>'
+              : '<span class="bg-slate-600/60 text-slate-300 text-xs font-semibold px-2 py-0.5 rounded-full">SECONDAIRE</span>'}
+          </div>
+          <h1 class="text-2xl font-bold text-white">${esc(res.nom)}</h1>
+          <p class="text-slate-400 text-sm mt-0.5">${res.surface_m2 ? res.surface_m2 + ' m²' : ''} · Acheté ${fmt(Number(res.prix_achat || 0))}</p>
+        </div>
+        <div class="flex gap-2 flex-shrink-0">
+          <button onclick="openResidValeurModal('${id}')" class="btn-secondary text-sm">📍 Valeur estimée</button>
+          <button onclick="openResidenceModal('${id}')" class="btn-secondary text-sm">✏ Modifier</button>
+          <button onclick="confirmDeleteResidence('${id}')" class="btn-secondary text-sm text-red-400">✕</button>
+        </div>
+      </div>
+      ${residBloc1(res)}
+      <div class="grid gap-6 lg:grid-cols-2">
+        ${residBloc2(res)}
+        ${hasCr ? residBloc3(res) : ''}
+      </div>
+    </div>
+    ${modalResidence()}
+    ${modalResidenceValeur()}`;
+}
+
+function residBloc1(res) {
+  const mens  = residMensualite(res);
+  const assur = Number(res.mensualite_assurance || 0);
+  const hasCr = Number(res.montant_credit || 0) > 0;
+  const qp    = residQP(res);
+  const row   = (label, val) => `<div><p class="text-slate-500 text-xs">${label}</p><p class="text-white font-medium text-sm">${val}</p></div>`;
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Caractéristiques</h2>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        ${row('Surface', res.surface_m2 ? res.surface_m2 + ' m²' : '—')}
+        ${row('Ma quote-part', `<span class="${qp < 1 ? 'text-amber-400' : 'text-slate-300'} font-bold">${Math.round(qp * 100)}%</span>`)}
+        ${row("Prix d'achat total", fmt(Number(res.prix_achat || 0)))}
+        ${qp < 1 ? row("Prix d'achat ma part", fmt(Math.round(residPrixAchatPart(res)))) : ''}
+        ${row('Valeur estimée totale', '<span class="text-emerald-400">' + fmt(Math.round(residValeurRef(res))) + '</span>')}
+        ${qp < 1 ? row('Valeur estimée ma part', '<span class="text-emerald-400 font-bold">' + fmt(Math.round(residValeurPart(res))) + '</span>') : ''}
+        ${row('Date estimation', res.date_valeur_estimee ? fmtDate(res.date_valeur_estimee) : '—')}
+        ${hasCr ? `
+        ${row('Mon crédit', fmt(Number(res.montant_credit)))}
+        ${row('Durée crédit', res.duree_credit_mois + ' mois')}
+        ${row('Taux annuel', (Number(res.taux_credit) * 100).toFixed(2) + '%')}
+        ${row('Mensualité crédit', '<span class="text-amber-400">' + fmt(Math.round(mens)) + '/mois</span>')}
+        ${assur > 0 ? row('Assurance', fmt(assur) + '/mois') : ''}
+        ${row('Mensualité totale', '<span class="text-amber-400 font-bold">' + fmt(Math.round(mens + assur)) + '/mois</span>')}
+        ${res.numero_pret ? row('N° prêt', esc(res.numero_pret)) : ''}
+        ${res.date_debut_credit ? row('Début crédit', res.date_debut_credit) : ''}
+        ${residCapitalRestantDu(res) === 0 ? row('Ma part', '<span class="text-emerald-400 font-bold">✓ Remboursée</span>') : ''}
+        ` : `${row('Crédit', '<span class="text-emerald-400 font-bold">Soldé ✓</span>')}`}
+      </div>
+    </div>`;
+}
+
+function residBloc2(res) {
+  const now    = new Date();
+  const qp     = residQP(res);
+  const valTot = residValeurRef(res);
+  const valPart= residValeurPart(res);
+  const pxPart = residPrixAchatPart(res);
+  const crd    = residCapitalRestantDu(res, now);
+  const remb   = residCapitalRembourse(res, now);
+  const net    = residPatrimoineNet(res, now);
+  const pv     = residPlusValue(res);
+  const C      = Number(res.montant_credit || 0);
+  const hasCr  = C > 0;
+  const pct    = hasCr ? Math.round(remb / C * 100) : 100;
+  const pvCol  = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const row    = (label, val, cls = 'text-white') =>
+    `<tr class="border-b border-slate-700/40"><td class="py-2.5 text-slate-300 text-sm">${label}</td><td class="py-2.5 text-right font-semibold ${cls}">${val}</td></tr>`;
+  const isPartial = qp < 1;
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Patrimoine</h2>
+        ${isPartial ? `<span class="bg-amber-500/20 text-amber-300 text-xs font-semibold px-2 py-0.5 rounded-full">Ma part : ${Math.round(qp * 100)}%</span>` : ''}
+      </div>
+      <table class="w-full">
+        <tbody>
+          ${isPartial ? `
+          ${row("Prix d'achat total", fmt(Number(res.prix_achat || 0)), 'text-slate-400')}
+          ${row("Prix d'achat ma part", fmt(Math.round(pxPart)))}
+          ${row('Valeur estimée totale', fmt(Math.round(valTot)), 'text-slate-400')}
+          ${row('Valeur estimée ma part', fmt(Math.round(valPart)), 'text-emerald-400')}
+          ` : `
+          ${row("Prix d'achat", fmt(Number(res.prix_achat || 0)))}
+          ${row('Valeur estimée', fmt(Math.round(valPart)), 'text-emerald-400')}
+          `}
+          ${row('Plus-value latente', (pv >= 0 ? '+' : '') + fmt(Math.round(pv)), pvCol)}
+          ${hasCr ? `
+          ${row('Mon crédit', fmt(C))}
+          ${row('Capital remboursé', fmt(Math.round(remb)), 'text-blue-400')}
+          ${row('Capital restant dû', fmt(Math.round(crd)), crd > 0 ? 'text-amber-400' : 'text-emerald-400')}
+          ` : `${row('Crédit', '<span class="text-emerald-400">Soldé ✓</span>', 'text-emerald-400')}`}
+          <tr class="border-t-2 border-slate-600">
+            <td class="py-3 text-white font-semibold">Patrimoine net</td>
+            <td class="py-3 text-right text-emerald-400 font-bold text-lg">${fmt(Math.round(net))}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="mt-3">
+        <div class="w-full bg-slate-700 rounded-full h-2.5">
+          <div class="bg-blue-500 h-2.5 rounded-full transition-all" style="width:${pct}%"></div>
+        </div>
+        <p class="text-slate-500 text-xs mt-1.5 text-right">${hasCr ? pct + '% de mon crédit remboursé' : '100% — crédit soldé ✓'}</p>
+      </div>
+    </div>`;
+}
+
+function residBloc3(res) {
+  const now   = new Date();
+  const C     = Number(res.montant_credit || 0);
+  const n     = Number(res.duree_credit_mois || 0);
+  if (!C || !n) return '';
+  const start = res.date_debut_credit ? new Date(res.date_debut_credit) : null;
+  const k     = start ? Math.min(Math.max(0,
+    (now.getFullYear() - start.getFullYear()) * 12 + now.getMonth() - start.getMonth()), n) : 0;
+  const restant = Math.max(0, n - k);
+  let dateFin = null;
+  if (start) {
+    dateFin = new Date(start);
+    dateFin.setMonth(dateFin.getMonth() + n);
+  }
+  const MOIS_FR = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+  const fmtDateFin = dateFin
+    ? `${MOIS_FR[dateFin.getMonth()]} ${dateFin.getFullYear()}`
+    : '—';
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Crédit</h2>
+      <div class="grid grid-cols-2 gap-4">
+        ${res.numero_pret ? `<div><p class="text-slate-500 text-xs">N° prêt</p><p class="text-white text-sm font-medium">${esc(res.numero_pret)}</p></div>` : ''}
+        <div><p class="text-slate-500 text-xs">Début</p><p class="text-white text-sm font-medium">${res.date_debut_credit || '—'}</p></div>
+        <div><p class="text-slate-500 text-xs">Durée totale</p><p class="text-white text-sm font-medium">${n} mois (${Math.round(n / 12 * 10) / 10} ans)</p></div>
+        <div><p class="text-slate-500 text-xs">Fin théorique</p><p class="text-white text-sm font-medium">${fmtDateFin}</p></div>
+        <div><p class="text-slate-500 text-xs">Mensualités écoulées</p><p class="text-blue-400 text-sm font-bold">${k} / ${n}</p></div>
+        <div><p class="text-slate-500 text-xs">Mensualités restantes</p><p class="${restant > 0 ? 'text-amber-400' : 'text-emerald-400'} text-sm font-bold">${restant}</p></div>
+      </div>
+      ${restant === 0 ? `
+      <div class="mt-4 bg-emerald-900/30 border border-emerald-500/30 rounded-lg p-3 text-center">
+        <p class="text-emerald-400 font-semibold text-sm">🎉 Crédit soldé !</p>
+      </div>` : ''}
+    </div>`;
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
+
+function modalResidence() {
+  return `
+    <div id="modal-residence" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeResidenceModal()">
+      <div class="modal-box w-full max-w-lg overflow-y-auto" style="max-height:90vh">
+        <h3 id="resid-modal-title" class="text-lg font-bold text-white mb-5">Nouvelle résidence</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Nom *</label>
+            <input id="res-nom" type="text" placeholder="Ex : Appartement Paris 11e"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Type *</label>
+              <select id="res-type" class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="principale">Résidence principale</option>
+                <option value="secondaire">Résidence secondaire</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Ma quote-part (%)</label>
+              <div class="flex items-center gap-2">
+                <input id="res-qp" type="number" min="1" max="100" step="1" value="100"
+                  oninput="document.getElementById('res-qp-lbl').textContent=this.value+'%'"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <span id="res-qp-lbl" class="text-amber-400 text-xs font-bold w-10 text-right flex-shrink-0">100%</span>
+              </div>
+              <p class="text-slate-600 text-xs mt-1">Si copropriété (ex : 50%)</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Surface (m²)</label>
+              <input id="res-surface" type="number" min="0" step="1"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Prix d'achat (€) *</label>
+              <input id="res-prix" type="number" min="0" step="1000"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Valeur estimée (€)</label>
+              <input id="res-valeur" type="number" min="0" step="1000"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Date estimation</label>
+              <input id="res-date-valeur" type="date"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <hr class="border-slate-700">
+          <p class="text-slate-500 text-xs font-medium uppercase tracking-wider">Crédit immobilier (optionnel)</p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Montant emprunté (€)</label>
+              <input id="res-credit" type="number" min="0" step="1000" oninput="previewResidMens()"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Durée (mois)</label>
+              <input id="res-duree" type="number" min="0" step="12" oninput="previewResidMens()"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Taux annuel (%)</label>
+              <input id="res-taux" type="number" min="0" max="20" step="0.01" oninput="previewResidMens()"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Assurance (€/mois)</label>
+              <input id="res-assur" type="number" min="0" step="1"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <div id="res-mens-preview" class="hidden bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
+            <span class="text-slate-400 text-xs">Mensualité crédit calculée</span>
+            <span id="res-mens-val" class="text-amber-400 font-semibold text-sm">—</span>
+          </div>
+          <label class="flex items-center gap-3 cursor-pointer bg-emerald-900/20 border border-emerald-500/25 rounded-lg px-3 py-2.5 hover:bg-emerald-900/30 transition">
+            <input id="res-credit-solde" type="checkbox"
+              class="w-4 h-4 rounded accent-emerald-500 cursor-pointer">
+            <div>
+              <p class="text-emerald-400 text-sm font-medium">J'ai déjà remboursé ma part du crédit</p>
+              <p class="text-slate-500 text-xs">Capital restant dû = 0 · Barre de progression 100%</p>
+            </div>
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Numéro de prêt</label>
+              <input id="res-numpret" type="text" placeholder="Ex : 12345678"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Date 1ère échéance</label>
+              <input id="res-datecredit" type="date"
+                class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-2 mt-5">
+          <button onclick="saveResidence()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeResidenceModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+        <div id="res-delete-row" class="hidden mt-2">
+          <button onclick="confirmDeleteResidenceFromModal()" class="w-full text-center text-red-400 hover:text-red-300 text-xs py-1.5 rounded hover:bg-slate-700 transition">
+            🗑 Supprimer cette résidence
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function modalResidenceValeur() {
+  return `
+    <div id="modal-resid-valeur" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onclick="if(event.target===this)closeResidValeurModal()">
+      <div class="modal-box w-full max-w-sm">
+        <h3 id="resval-title" class="text-base font-bold text-white mb-4">📍 Mettre à jour la valeur estimée</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Valeur estimée du marché (€) *</label>
+            <input id="resval-montant" type="number" min="0" step="1000"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 text-xs mb-1">Date d'estimation</label>
+            <input id="resval-date" type="date"
+              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+        <div class="flex gap-3 mt-5">
+          <button onclick="saveResidValeur()" class="btn-primary flex-1">Enregistrer</button>
+          <button onclick="closeResidValeurModal()" class="btn-secondary flex-1">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── CRUD ──────────────────────────────────────────────────────────────────────
+
+function openResidenceModal(id = null) {
+  _editingResidId = id;
+  const res = id ? STATE.residences?.find(r => r.id === id) : null;
+  document.getElementById('resid-modal-title').textContent = res ? 'Modifier — ' + res.nom : 'Nouvelle résidence';
+  const set = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = (val ?? ''); };
+  set('res-nom',        res?.nom || '');
+  set('res-type',       res?.type || 'principale');
+  const qpVal = Math.round(Number(res?.quote_part_pct ?? 100));
+  set('res-qp', qpVal);
+  const qpLbl = document.getElementById('res-qp-lbl');
+  if (qpLbl) qpLbl.textContent = qpVal + '%';
+  set('res-surface',    res?.surface_m2 || '');
+  set('res-prix',       res?.prix_achat || '');
+  set('res-valeur',     res?.valeur_estimee || '');
+  set('res-date-valeur',res?.date_valeur_estimee || '');
+  set('res-credit',     res?.montant_credit || '');
+  set('res-duree',      res?.duree_credit_mois || '');
+  set('res-taux',       res ? (Number(res.taux_credit || 0) * 100).toFixed(2) : '');
+  set('res-assur',      res?.mensualite_assurance || '');
+  set('res-numpret',    res?.numero_pret || '');
+  set('res-datecredit', res?.date_debut_credit || '');
+  const soldEl = document.getElementById('res-credit-solde');
+  if (soldEl) soldEl.checked = !!(res?.credit_part_soldee == 1 || res?.credit_part_soldee === true || res?.credit_part_soldee === 'true');
+  document.getElementById('res-delete-row')?.classList.toggle('hidden', !id);
+  previewResidMens();
+  document.getElementById('modal-residence').classList.remove('hidden');
+  setTimeout(() => document.getElementById('res-nom')?.focus(), 50);
+}
+
+function closeResidenceModal() {
+  document.getElementById('modal-residence').classList.add('hidden');
+  _editingResidId = null;
+}
+
+function previewResidMens() {
+  const C  = parseFloat(document.getElementById('res-credit')?.value) || 0;
+  const n  = parseFloat(document.getElementById('res-duree')?.value) || 0;
+  const ta = parseFloat(document.getElementById('res-taux')?.value) || 0;
+  const tm = ta / 100 / 12;
+  const m  = C > 0 && n > 0 ? (tm === 0 ? C / n : (C * tm) / (1 - Math.pow(1 + tm, -n))) : 0;
+  const prev = document.getElementById('res-mens-preview');
+  const val  = document.getElementById('res-mens-val');
+  if (prev && val) {
+    if (C > 0 && n > 0) { prev.classList.remove('hidden'); val.textContent = fmt(Math.round(m)) + '/mois'; }
+    else prev.classList.add('hidden');
+  }
+}
+
+async function saveResidence() {
+  const nom = document.getElementById('res-nom')?.value?.trim();
+  if (!nom) { alert('Le nom est obligatoire.'); return; }
+  const ta   = parseFloat(document.getElementById('res-taux')?.value) || 0;
+  const data = {
+    nom,
+    type:                 document.getElementById('res-type')?.value || 'principale',
+    quote_part_pct:       Math.min(100, Math.max(1, parseFloat(document.getElementById('res-qp')?.value) || 100)),
+    surface_m2:           parseFloat(document.getElementById('res-surface')?.value) || 0,
+    prix_achat:           parseFloat(document.getElementById('res-prix')?.value) || 0,
+    valeur_estimee:       parseFloat(document.getElementById('res-valeur')?.value) || 0,
+    date_valeur_estimee:  document.getElementById('res-date-valeur')?.value || '',
+    montant_credit:       parseFloat(document.getElementById('res-credit')?.value) || 0,
+    duree_credit_mois:    parseFloat(document.getElementById('res-duree')?.value) || 0,
+    taux_credit:          ta / 100,
+    mensualite_assurance: parseFloat(document.getElementById('res-assur')?.value) || 0,
+    numero_pret:          document.getElementById('res-numpret')?.value?.trim() || '',
+    date_debut_credit:    document.getElementById('res-datecredit')?.value || '',
+    credit_part_soldee:   document.getElementById('res-credit-solde')?.checked ? 1 : 0,
+  };
+  // Avertissement si 2e résidence principale
+  if (data.type === 'principale' && !_editingResidId) {
+    const existing = STATE.residences?.find(r => r.type === 'principale');
+    if (existing) {
+      if (!confirm('⚠ Vous avez déjà une résidence principale (' + existing.nom + '). Continuer quand même ?')) return;
+    }
+  }
+  closeResidenceModal();
+  setGlobalLoader(true, _editingResidId ? 'Mise à jour…' : 'Enregistrement…');
+  try {
+    if (_editingResidId) {
+      await API.updateResidence({ id: _editingResidId, ...data });
+      const idx = STATE.residences.findIndex(r => r.id === _editingResidId);
+      if (idx !== -1) STATE.residences[idx] = { ...STATE.residences[idx], ...data };
+    } else {
+      const result = await API.addResidence(data);
+      if (!STATE.residences) STATE.residences = [];
+      STATE.residences.push({ ...data, ...result });
+      history.replaceState(null, '', '#residences');
+    }
+    API._setCache({ ...STATE });
+    render();
+  } catch (err) { alert('Erreur : ' + (err.message || err)); }
+  finally { setGlobalLoader(false); }
+}
+
+async function confirmDeleteResidenceFromModal() {
+  if (!_editingResidId) return;
+  const res = STATE.residences?.find(r => r.id === _editingResidId);
+  if (!confirm('Supprimer "' + (res?.nom || '') + '" ?')) return;
+  const id = _editingResidId;
+  closeResidenceModal();
+  await _deleteResidenceById(id);
+}
+
+async function confirmDeleteResidence(id) {
+  const res = STATE.residences?.find(r => r.id === id);
+  if (!confirm('Supprimer "' + (res?.nom || '') + '" ?')) return;
+  await _deleteResidenceById(id);
+}
+
+async function _deleteResidenceById(id) {
+  setGlobalLoader(true, 'Suppression…');
+  try {
+    await API.deleteResidence(id);
+    STATE.residences = STATE.residences.filter(r => r.id !== id);
+    history.replaceState(null, '', '#residences');
+    API._setCache({ ...STATE });
+    render();
+  } catch (err) { alert('Erreur : ' + err.message); }
+  finally { setGlobalLoader(false); }
+}
+
+function openResidValeurModal(id) {
+  _residValeurId = id;
+  const res = STATE.residences?.find(r => r.id === id);
+  if (!res) return;
+  document.getElementById('resval-title').textContent = '📍 ' + esc(res.nom) + ' — Valeur estimée';
+  document.getElementById('resval-montant').value = res.valeur_estimee || res.prix_achat || '';
+  document.getElementById('resval-date').value    = new Date().toISOString().split('T')[0];
+  document.getElementById('modal-resid-valeur').classList.remove('hidden');
+  setTimeout(() => document.getElementById('resval-montant')?.focus(), 50);
+}
+
+function closeResidValeurModal() {
+  document.getElementById('modal-resid-valeur').classList.add('hidden');
+  _residValeurId = null;
+}
+
+async function saveResidValeur() {
+  const montant = parseFloat(document.getElementById('resval-montant')?.value) || 0;
+  const date    = document.getElementById('resval-date')?.value || '';
+  if (!montant) { alert('La valeur estimée est obligatoire.'); return; }
+  const id  = _residValeurId;
+  const res = STATE.residences?.find(r => r.id === id);
+  if (!res) return;
+  closeResidValeurModal();
+  setGlobalLoader(true, 'Mise à jour…');
+  try {
+    const updated = { ...res, valeur_estimee: montant, date_valeur_estimee: date };
+    await API.updateResidence(updated);
+    const idx = STATE.residences.findIndex(r => r.id === id);
+    if (idx !== -1) STATE.residences[idx] = updated;
+    API._setCache({ ...STATE });
+    render();
+  } catch (err) { alert('Erreur : ' + err.message); }
+  finally { setGlobalLoader(false); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

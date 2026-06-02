@@ -136,6 +136,11 @@ const API = {
   updateExpenseAid(data)      { return this.post('updateExpenseAid', data); },
   deleteExpenseAid(id)        { return this.post('deleteExpenseAid', { id }); },
 
+  // ─── RÉSIDENCES ─────────────────────────────────────────────────────────────
+  addResidence(data)          { return this.post('addResidence', data); },
+  updateResidence(data)       { return this.post('updateResidence', data); },
+  deleteResidence(id)         { return this.post('deleteResidence', { id }); },
+
   // ─── VPW SIMULATOR ──────────────────────────────────────────────────────────
   // postSilent : écrit B11 dans la feuille simulatrice et lit les résultats
   // sans invalider le cache principal.
