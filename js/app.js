@@ -148,6 +148,7 @@ function openCacheSettings() {
             <button onclick="generatePdfPortfolio()" class="btn-secondary text-sm w-full text-left">📊 Rapport Portfolio complet</button>
             <button onclick="generatePdfHistory()" class="btn-secondary text-sm w-full text-left">📈 Historique des valeurs</button>
             <button onclick="generatePdfImmo()" class="btn-secondary text-sm w-full text-left">🏠 Rapport Immobilier locatif</button>
+            <button onclick="generatePdfResidences()" class="btn-secondary text-sm w-full text-left">🏡 Rapport Résidences</button>
             <button onclick="generatePdfExpenses()" class="btn-secondary text-sm w-full text-left">💸 Rapport Dépenses mensuelles</button>
           </div>
         </div>
@@ -392,17 +393,92 @@ function generatePdfPortfolio() {
     </div>`;
   }
 
-  const plGlobal  = gs.invested>0?(gs.total-gs.invested)/gs.invested*100:0;
+  // Patrimoine global consolidé
+  const pfNet    = Math.max(0, gs.total - gs.totalCharges);
+  const plGlobal = gs.invested > 0 ? (gs.total - gs.invested) / gs.invested * 100 : 0;
+  let immoBrut = 0, immoDette = 0;
+  STATE.biens_immo.forEach(b => { immoBrut += Number(b.prix_achat||0); immoDette += immoCapitalRestantDu(b, now); });
+  let residBrut = 0, residNet = 0, residDette = 0;
+  (STATE.residences||[]).forEach(r => {
+    residBrut  += residValeurPart(r);
+    residNet   += residPatrimoineNet(r, now);
+    residDette += residCapitalRestantDu(r, now);
+  });
+  const totalBrut  = gs.total + immoBrut + residBrut;
+  const totalNet   = pfNet + Math.max(0, immoBrut - immoDette) + residNet;
+  const totalDette = gs.totalCharges + immoDette + residDette;
+  const hasImmo    = STATE.biens_immo.length > 0;
+  const hasResid   = (STATE.residences||[]).length > 0;
+
+  // Résidences (résumé)
+  let residSection = '';
+  if (hasResid) {
+    residSection = `<div class="section pb">
+      <h2>Résidences</h2>
+      <div class="grid3" style="margin-bottom:8pt">
+        <div class="card"><div class="lbl">Valeur estimée (ma part)</div><div class="val green">${_n(Math.round(residBrut))}</div></div>
+        <div class="card"><div class="lbl">Patrimoine net</div><div class="val green">${_n(Math.round(residNet))}</div></div>
+        <div class="card"><div class="lbl">Crédit restant</div><div class="val amber">${_n(Math.round(residDette))}</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Résidence</th><th>Type</th><th>Part</th><th class="r">Valeur estimée</th><th class="r">Valeur ma part</th><th class="r">Patrimoine net</th></tr></thead>
+        <tbody>
+        ${(STATE.residences||[]).map(r => {
+          const qp   = Math.round(residQP(r) * 100);
+          const val  = Math.round(residValeurRef(r));
+          const vPart= Math.round(residValeurPart(r));
+          const net  = Math.round(residPatrimoineNet(r, now));
+          const pv   = Math.round(residPlusValue(r));
+          return `<tr>
+            <td><strong>${r.nom}</strong></td>
+            <td>${r.type === 'principale' ? 'Principale' : 'Secondaire'}</td>
+            <td>${qp}%</td>
+            <td class="r">${_n(val)}</td>
+            <td class="r">${_n(vPart)}</td>
+            <td class="r ${_sgn(net)}">${_n(net)}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
   const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport Portfolio — ${dateStr}</title>
   ${_pdfStyle()}
   </head><body>
     <div class="no-print"><button onclick="window.print()" style="padding:6pt 14pt;background:#1a365d;color:#fff;border:none;border-radius:4pt;cursor:pointer;font-size:10pt">🖨 Imprimer / Enregistrer PDF</button></div>
     ${_pdfHeader('Rapport Portfolio', `Synthèse au ${dateStr}`, dateStr)}
 
+    ${(hasImmo || hasResid) ? `
     <div class="section">
-      <h2>Synthèse globale</h2>
+      <h2>🌍 Patrimoine global consolidé</h2>
+      <div class="grid4" style="margin-bottom:8pt">
+        <div class="card"><div class="lbl">Valeur brute totale</div><div class="val">${_n(Math.round(totalBrut))}</div><div class="sub">Tous actifs</div></div>
+        <div class="card"><div class="lbl">Valeur nette totale</div><div class="val green">${_n(Math.round(totalNet))}</div><div class="sub">Après dettes</div></div>
+        <div class="card"><div class="lbl">Dette totale</div><div class="val amber">${_n(Math.round(totalDette))}</div><div class="sub">Crédits + charges</div></div>
+        <div class="card"><div class="lbl">Ratio net / brut</div><div class="val">${totalBrut > 0 ? (totalNet/totalBrut*100).toFixed(1)+'%' : '—'}</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Composante</th><th class="r">Valeur brute</th><th class="r">Valeur nette</th></tr></thead>
+        <tbody>
+          <tr><td>📊 Patrimoine financier</td><td class="r">${_n(gs.total)}</td><td class="r ${_sgn(pfNet)}">${_n(pfNet)}</td></tr>
+          ${hasImmo  ? `<tr><td>🏠 Immobilier locatif</td><td class="r">${_n(immoBrut)}</td><td class="r green">${_n(Math.round(immoBrut-immoDette))}</td></tr>` : ''}
+          ${hasResid ? `<tr><td>🏡 Résidences</td><td class="r">${_n(Math.round(residBrut))}</td><td class="r green">${_n(Math.round(residNet))}</td></tr>` : ''}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;border-top:2px solid #a0aec0">
+            <td>Total</td>
+            <td class="r">${_n(Math.round(totalBrut))}</td>
+            <td class="r green">${_n(Math.round(totalNet))}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>` : ''}
+
+    <div class="section">
+      <h2>📊 Patrimoine financier</h2>
       <div class="grid4">
-        <div class="card"><div class="lbl">Valeur totale</div><div class="val">${_n(gs.total)}</div><div class="sub">Hors immobilier</div></div>
+        <div class="card"><div class="lbl">Valeur totale</div><div class="val">${_n(gs.total)}</div><div class="sub">Portefeuille</div></div>
         <div class="card"><div class="lbl">Capital investi</div><div class="val">${_n(gs.invested)}</div></div>
         <div class="card"><div class="lbl">Plus-value</div><div class="val ${_sgn(gs.total-gs.invested)}">${_n(gs.total-gs.invested)}</div><div class="sub ${_sgn(plGlobal)}">${_pct(plGlobal)}</div></div>
         <div class="card"><div class="lbl">Répartition</div>
@@ -417,6 +493,7 @@ function generatePdfPortfolio() {
 
     ${sections}
     ${immoSection}
+    ${residSection}
     ${chargesSection}
     ${_pdfFooter(dateStr)}
   </body></html>`;
@@ -513,6 +590,150 @@ function generatePdfImmo() {
     </div>
 
     ${biensHtml}
+    ${_pdfFooter(dateStr)}
+  </body></html>`;
+  _pdfOpen(html);
+}
+
+// ── Rapport Résidences ───────────────────────────────────────────────────────
+
+function generatePdfResidences() {
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+  const resids  = STATE.residences || [];
+
+  if (!resids.length) { alert('Aucune résidence enregistrée.'); return; }
+
+  // Totaux globaux
+  let totalBrut = 0, totalNet = 0, totalDette = 0, totalRemb = 0;
+  resids.forEach(r => {
+    totalBrut  += residValeurPart(r);
+    totalNet   += residPatrimoineNet(r, now);
+    totalDette += residCapitalRestantDu(r, now);
+    totalRemb  += residCapitalRembourse(r, now);
+  });
+
+  // Détail par résidence
+  const residHtml = resids.map(r => {
+    const qp      = residQP(r);
+    const valTot  = residValeurRef(r);
+    const valPart = residValeurPart(r);
+    const pxPart  = residPrixAchatPart(r);
+    const crd     = residCapitalRestantDu(r, now);
+    const remb    = residCapitalRembourse(r, now);
+    const net     = residPatrimoineNet(r, now);
+    const pv      = residPlusValue(r);
+    const C       = Number(r.montant_credit || 0);
+    const hasCr   = C > 0;
+    const mens    = residMensualite(r);
+    const assur   = Number(r.mensualite_assurance || 0);
+    const soldee  = r.credit_part_soldee == 1 || r.credit_part_soldee === true || r.credit_part_soldee === 'true';
+    const pct     = hasCr ? Math.round((soldee ? C : remb) / C * 100) : 100;
+    const pvCol   = pv >= 0 ? 'green' : 'red';
+    const badge   = r.type === 'principale' ? 'PRINCIPALE' : 'SECONDAIRE';
+    const qpLabel = qp < 1 ? ` · Ma part : ${Math.round(qp*100)}%` : '';
+
+    // Calcul date de fin du crédit
+    let dateFin = '—';
+    if (hasCr && r.date_debut_credit && Number(r.duree_credit_mois)) {
+      const d = new Date(r.date_debut_credit);
+      d.setMonth(d.getMonth() + Number(r.duree_credit_mois));
+      dateFin = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    }
+
+    return `
+    <div class="section">
+      <h2>${r.nom} <span style="font-size:9pt;font-weight:400;background:#e9d8fd;color:#553c9a;padding:1pt 6pt;border-radius:3pt">${badge}</span>${qpLabel ? `<span style="font-size:9pt;font-weight:400;color:#975a16"> ${qpLabel}</span>` : ''}</h2>
+
+      <div class="grid${qp < 1 ? '4' : '3'}" style="margin-bottom:8pt">
+        ${qp < 1 ? `<div class="card"><div class="lbl">Valeur totale estimée</div><div class="val">${_n(Math.round(valTot))}</div></div>` : ''}
+        <div class="card"><div class="lbl">Valeur ma part (${Math.round(qp*100)}%)</div><div class="val green">${_n(Math.round(valPart))}</div>${r.date_valeur_estimee ? `<div class="sub">MAJ ${new Date(r.date_valeur_estimee+'T00:00:00').toLocaleDateString('fr-FR')}</div>` : ''}</div>
+        <div class="card"><div class="lbl">Patrimoine net</div><div class="val green">${_n(Math.round(net))}</div></div>
+        <div class="card"><div class="lbl">Plus-value latente</div><div class="val ${pvCol}">${pv>=0?'+':''}${_n(Math.round(pv))}</div></div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <h3>Patrimoine</h3>
+          <table>
+            <tbody>
+              ${qp < 1 ? `
+              <tr><td>Prix d'achat total</td><td class="r muted">${_n(Number(r.prix_achat||0))}</td></tr>
+              <tr><td>Prix d'achat ma part</td><td class="r">${_n(Math.round(pxPart))}</td></tr>
+              <tr><td>Valeur estimée totale</td><td class="r muted">${_n(Math.round(valTot))}</td></tr>
+              <tr><td>Valeur estimée ma part</td><td class="r green">${_n(Math.round(valPart))}</td></tr>
+              ` : `
+              <tr><td>Prix d'achat</td><td class="r">${_n(Number(r.prix_achat||0))}</td></tr>
+              <tr><td>Valeur estimée</td><td class="r green">${_n(Math.round(valPart))}</td></tr>
+              `}
+              <tr><td>Plus-value latente</td><td class="r ${pvCol}">${pv>=0?'+':''}${_n(Math.round(pv))}</td></tr>
+              ${hasCr ? `
+              <tr><td>Mon crédit</td><td class="r">${_n(C)}</td></tr>
+              <tr><td>Capital remboursé</td><td class="r" style="color:#2b6cb0">${soldee ? _n(C)+' ✓' : _n(Math.round(remb))}</td></tr>
+              <tr><td>Capital restant dû</td><td class="r ${crd > 0 ? 'amber' : 'green'}">${soldee ? '0 — Soldé ✓' : _n(Math.round(crd))}</td></tr>
+              ` : `<tr><td>Crédit</td><td class="r green">Soldé ✓</td></tr>`}
+              <tr style="font-weight:700;border-top:1.5px solid #a0aec0">
+                <td>Patrimoine net</td><td class="r green">${_n(Math.round(net))}</td>
+              </tr>
+            </tbody>
+          </table>
+          ${hasCr ? `
+          <div style="margin-top:6pt">
+            <div style="background:#e2e8f0;border-radius:2pt;height:6pt">
+              <div style="background:#3182ce;height:6pt;border-radius:2pt;width:${pct}%"></div>
+            </div>
+            <p style="font-size:8.5pt;color:#718096;text-align:right;margin-top:2pt">${soldee ? '100% — Soldé ✓' : pct + '% de mon crédit remboursé'}</p>
+          </div>` : ''}
+        </div>
+        <div>
+          <h3>Crédit${hasCr ? '' : ' (aucun)'}</h3>
+          ${hasCr ? `<table>
+            <tbody>
+              <tr><td>Montant</td><td class="r">${_n(C)}</td></tr>
+              <tr><td>Durée</td><td class="r">${r.duree_credit_mois} mois</td></tr>
+              <tr><td>Taux annuel</td><td class="r">${(Number(r.taux_credit||0)*100).toFixed(2)}%</td></tr>
+              <tr><td>Mensualité crédit</td><td class="r amber">${_n(Math.round(mens))}/mois</td></tr>
+              ${assur > 0 ? `<tr><td>Assurance</td><td class="r">${_n(assur)}/mois</td></tr>` : ''}
+              <tr><td>Mensualité totale</td><td class="r" style="font-weight:700">${_n(Math.round(mens+assur))}/mois</td></tr>
+              ${r.numero_pret ? `<tr><td>N° prêt</td><td class="r muted">${r.numero_pret}</td></tr>` : ''}
+              ${r.date_debut_credit ? `<tr><td>Début</td><td class="r">${r.date_debut_credit}</td></tr>` : ''}
+              <tr><td>Fin théorique</td><td class="r">${dateFin}</td></tr>
+              <tr><td>Ma part</td><td class="r ${soldee ? 'green' : 'amber'}">${soldee ? 'Remboursée ✓' : 'En cours'}</td></tr>
+            </tbody>
+          </table>` : `<p class="muted" style="padding:8pt 0">Pas de crédit — bien entièrement acquis.</p>`}
+          ${r.surface_m2 || r.prix_achat ? `
+          <h3 style="margin-top:10pt">Caractéristiques</h3>
+          <table><tbody>
+            ${r.surface_m2 ? `<tr><td>Surface</td><td class="r">${r.surface_m2} m²</td></tr>` : ''}
+            ${r.surface_m2 && r.prix_achat ? `<tr><td>Prix/m²</td><td class="r muted">${_n(Math.round(Number(r.prix_achat)/Number(r.surface_m2)))}/m²</td></tr>` : ''}
+          </tbody></table>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Rapport Résidences — ${dateStr}</title>
+  ${_pdfStyle()}
+  </head><body>
+    <div class="no-print">
+      <button onclick="window.print()" style="padding:6pt 14pt;background:#1a365d;color:#fff;border:none;border-radius:4pt;cursor:pointer;font-size:10pt">
+        🖨 Imprimer / Enregistrer PDF
+      </button>
+    </div>
+    ${_pdfHeader('Rapport Résidences', `${resids.length} bien${resids.length>1?'s':''} · Synthèse au ${dateStr}`, dateStr)}
+
+    <div class="section">
+      <h2>Patrimoine résidentiel</h2>
+      <div class="grid4">
+        <div class="card"><div class="lbl">Valeur estimée (mes parts)</div><div class="val green">${_n(Math.round(totalBrut))}</div></div>
+        <div class="card"><div class="lbl">Patrimoine net</div><div class="val green">${_n(Math.round(totalNet))}</div></div>
+        <div class="card"><div class="lbl">Capital remboursé</div><div class="val" style="color:#2b6cb0">${_n(Math.round(totalRemb))}</div></div>
+        <div class="card"><div class="lbl">Crédits restants</div><div class="val ${totalDette > 0 ? 'amber' : 'green'}">${_n(Math.round(totalDette))}</div></div>
+      </div>
+    </div>
+
+    ${residHtml}
     ${_pdfFooter(dateStr)}
   </body></html>`;
   _pdfOpen(html);
