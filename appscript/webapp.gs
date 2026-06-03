@@ -65,15 +65,44 @@ function doPost(e) {
     const handlers = {
       createPortfolio:    () => createRow('portfolios',     { id: newId('p'), nom: payload.nom, cible_actions: Number(payload.cible_actions), cible_obligations: Number(payload.cible_obligations), cible_cash: Number(payload.cible_cash) }),
       updatePortfolio:    () => updateRow('portfolios',     payload.id, { nom: payload.nom, cible_actions: Number(payload.cible_actions), cible_obligations: Number(payload.cible_obligations), cible_cash: Number(payload.cible_cash) }),
-      deletePortfolio:    () => deleteRow('portfolios',     payload.id),
+      deletePortfolio: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        // Récupérer toutes les enveloppes du portfolio pour cascade
+        const allEnvs = sheetToObjects(ss2, 'envelopes').filter(e => String(e.portfolio_id) === String(payload.id));
+        allEnvs.forEach(env => {
+          deleteWhere(ss2, 'positions', 'envelope_id', env.id);
+          deleteWhere(ss2, 'history',   'envelope_id', env.id);
+        });
+        deleteWhere(ss2, 'envelopes',     'portfolio_id', payload.id);
+        deleteWhere(ss2, 'sub_portfolios','portfolio_id', payload.id);
+        deleteWhere(ss2, 'charges',       'portfolio_id', payload.id);
+        deleteRow('portfolios', payload.id);
+        return { deleted: payload.id };
+      },
 
       createSubPortfolio: () => createRow('sub_portfolios', { id: newId('sp'), nom: payload.nom, portfolio_id: payload.portfolio_id }),
       updateSubPortfolio: () => updateRow('sub_portfolios', payload.id, { nom: payload.nom, portfolio_id: payload.portfolio_id }),
-      deleteSubPortfolio: () => deleteRow('sub_portfolios', payload.id),
+      deleteSubPortfolio: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        const allEnvs = sheetToObjects(ss2, 'envelopes').filter(e => String(e.sub_portfolio_id) === String(payload.id));
+        allEnvs.forEach(env => {
+          deleteWhere(ss2, 'positions', 'envelope_id', env.id);
+          deleteWhere(ss2, 'history',   'envelope_id', env.id);
+        });
+        deleteWhere(ss2, 'envelopes', 'sub_portfolio_id', payload.id);
+        deleteRow('sub_portfolios', payload.id);
+        return { deleted: payload.id };
+      },
 
       createEnvelope:     () => createRow('envelopes',      { id: newId('e'), nom: payload.nom, type: payload.type, portfolio_id: payload.portfolio_id, sub_portfolio_id: payload.sub_portfolio_id || '' }),
       updateEnvelope:     () => updateRow('envelopes',      payload.id, { nom: payload.nom, type: payload.type }),
-      deleteEnvelope:     () => deleteRow('envelopes',      payload.id),
+      deleteEnvelope: () => {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        deleteWhere(ss2, 'positions', 'envelope_id', payload.id);
+        deleteWhere(ss2, 'history',   'envelope_id', payload.id);
+        deleteRow('envelopes', payload.id);
+        return { deleted: payload.id };
+      },
 
       addPosition:        () => createRow('positions',      { id: newId('pos'), envelope_id: payload.envelope_id, identifiant: payload.identifiant, nom: payload.nom || '', quantite: Number(payload.quantite), prix_achat: Number(payload.prix_achat), date_achat: payload.date_achat || new Date().toISOString().slice(0, 10) }),
       updatePosition:     () => updateRow('positions',      payload.id, { nom: payload.nom, quantite: Number(payload.quantite), prix_achat: Number(payload.prix_achat) }),
