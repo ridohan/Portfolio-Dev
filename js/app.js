@@ -6634,6 +6634,7 @@ function renderImmoDetail(app, bienId) {
         <div id="immo-reel">${immoBloc3(bienId)}</div>
       </div>
       ${hasCr ? immoBloc4(bien) : ''}
+      ${hasCr ? immoEcheancesBloc(bien) : ''}
       <div>
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-lg font-semibold text-white">📋 Dépenses & Loyers</h2>
@@ -6781,6 +6782,106 @@ function immoBloc4(bien) {
       </div>
       <p class="text-slate-500 text-xs mt-1.5 text-right">${pct}% remboursé</p>
     </div>`;
+}
+
+// ── Suivi des échéances de prêt ───────────────────────────────────────────────
+
+function immoEcheancesBloc(bien, year = new Date().getFullYear()) {
+  if (!Number(bien.montant_credit || 0)) return '';
+  const MOIS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const mensualite = immoMensualite(bien);
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth() + 1;
+
+  // Pour chaque mois, chercher une entrée echeance_pret dont la date tombe dans ce mois
+  const echeances = STATE.depenses_immo.filter(d =>
+    d.bien_id === bien.id && d.type === 'echeance_pret' && d.date &&
+    new Date(d.date).getFullYear() === year
+  );
+
+  const yBtns = [year - 1, year, year + 1].map(y =>
+    `<button onclick="setEl('immo-echeances-bloc',immoEcheancesBloc(STATE.biens_immo.find(b=>b.id==='${bien.id}'),${y}))"
+      class="px-2 py-1 rounded text-xs ${y === year ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`
+  ).join('');
+
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const entry = echeances.find(d => new Date(d.date).getMonth() + 1 === m);
+    const isFuture = year > thisYear || (year === thisYear && m > thisMonth);
+    const isCurrentMonth = year === thisYear && m === thisMonth;
+
+    let badge, action;
+    if (entry) {
+      const dateLabel = fmtDate(entry.date);
+      badge = `<span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        Virée
+      </span>
+      <span class="text-slate-500 text-xs block mt-0.5">${dateLabel}</span>
+      <button onclick="confirmDeleteDepenseImmo('${entry.id}','${bien.id}')" class="text-slate-600 hover:text-red-400 text-xs mt-1 transition">annuler</button>`;
+    } else if (isFuture) {
+      badge = `<span class="text-slate-600 text-xs italic">À venir</span>`;
+    } else {
+      badge = `<button onclick="openEcheanceQuick('${bien.id}',${year},${m})"
+        class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium bg-amber-500/15 text-amber-400 hover:bg-amber-500/30 transition">
+        ↑ Marquer virée
+      </button>`;
+    }
+
+    const borderCls = isCurrentMonth ? 'border border-blue-500/50' : 'border border-slate-700/50';
+    const bgCls     = entry ? 'bg-slate-800/60' : isFuture ? 'bg-slate-800/20' : 'bg-slate-800/60';
+
+    return `
+      <div class="${bgCls} ${borderCls} rounded-xl p-3 flex flex-col gap-1.5">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-300 text-xs font-semibold">${MOIS[i]}${isCurrentMonth ? ' <span class="text-blue-400">·</span>' : ''}</span>
+          <span class="text-slate-400 text-xs">${fmt(mensualite)}</span>
+        </div>
+        <div>${badge}</div>
+      </div>`;
+  });
+
+  const virées = echeances.length;
+  const restantes = Math.max(0, (year < thisYear ? 12 : thisMonth) - virées);
+
+  return `
+    <div id="immo-echeances-bloc">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white">💳 Suivi des échéances prêt</h2>
+          <p class="text-slate-500 text-xs mt-0.5">${virées}/12 virées en ${year}${restantes > 0 ? ` · <span class="text-amber-400">${restantes} en attente</span>` : ''}</p>
+        </div>
+        <div class="flex gap-1">${yBtns}</div>
+      </div>
+      <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+        ${months.join('')}
+      </div>
+    </div>`;
+}
+
+function openEcheanceQuick(bienId, year, month) {
+  const bien = STATE.biens_immo.find(b => b.id === bienId);
+  if (!bien) return;
+  const mensualite = immoMensualite(bien);
+  // Construire une date au 1er du mois visé (ou aujourd'hui si mois en cours)
+  const now = new Date();
+  const isCurrent = now.getFullYear() === year && now.getMonth() + 1 === month;
+  const dateStr = isCurrent
+    ? now.toISOString().slice(0, 10)
+    : `${year}-${String(month).padStart(2, '0')}-01`;
+
+  openDepenseImmoModal(bienId);
+
+  // Forcer les valeurs après ouverture du modal
+  requestAnimationFrame(() => {
+    document.getElementById('dep-type').value    = 'echeance_pret';
+    document.getElementById('dep-date').value    = dateStr;
+    document.getElementById('dep-montant').value = mensualite.toFixed(2);
+    document.getElementById('dep-note').value    = `Échéance ${['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'][month-1]} ${year}`;
+    toggleTvaFields();
+    refreshDepPreview();
+  });
 }
 
 // ── TVA globale immobilier ────────────────────────────────────────────────────
@@ -7636,6 +7737,8 @@ async function saveDepenseImmo() {
     if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
     setEl('immo-dep-table', immoDepensesTable(bienId));
     setEl('immo-reel',      immoBloc3(bienId));
+    const b = STATE.biens_immo.find(x => x.id === bienId);
+    if (b && document.getElementById('immo-echeances-bloc')) setEl('immo-echeances-bloc', immoEcheancesBloc(b));
   } catch (err) {
     console.error('saveDepenseImmo error:', err);
     alert('Erreur : ' + (err.message || err));
@@ -7652,6 +7755,8 @@ async function confirmDeleteDepenseImmo(id, bienId) {
     if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
     setEl('immo-dep-table', immoDepensesTable(bienId));
     setEl('immo-reel',      immoBloc3(bienId));
+    const b = STATE.biens_immo.find(x => x.id === bienId);
+    if (b && document.getElementById('immo-echeances-bloc')) setEl('immo-echeances-bloc', immoEcheancesBloc(b));
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
 }
