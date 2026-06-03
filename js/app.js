@@ -3183,12 +3183,22 @@ function projCard(sim) {
   const yearsLeft = Number(sim.annee) - new Date().getFullYear();
   const yLabel    = yearsLeft > 0 ? `dans ${yearsLeft} an${yearsLeft > 1 ? 's' : ''}` : 'cette année';
   return `
-    <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition">
+    <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition"
+         data-proj-id="${sim.id}"
+         draggable="true"
+         ondragstart="projDragStart(event,'${sim.id}')"
+         ondragend="projDragEnd(event)"
+         ondragover="projDragOver(event,'${sim.id}')"
+         ondragleave="projDragLeave(event)"
+         ondrop="projDrop(event,'${sim.id}')">
       <div class="flex items-start justify-between mb-3">
         <p class="text-slate-400 text-xs">🎯 <span class="font-medium text-slate-300">${esc(sim.nom)}</span></p>
         <div class="flex items-center gap-0.5 flex-shrink-0 ml-2">
-          <button onclick="moveProjSim('${sim.id}',-1)" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition text-lg font-bold ${isFirst ? 'opacity-20 pointer-events-none' : ''}" title="Monter">↑</button>
-          <button onclick="moveProjSim('${sim.id}',1)"  class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition text-lg font-bold ${isLast  ? 'opacity-20 pointer-events-none' : ''}" title="Descendre">↓</button>
+          <!-- Handle drag desktop -->
+          <span class="hidden sm:flex w-6 h-8 items-center justify-center text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing transition select-none" title="Glisser pour réordonner">⠿</span>
+          <!-- Flèches mobile -->
+          <button onclick="moveProjSim('${sim.id}',-1)" class="sm:hidden w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition text-lg font-bold ${isFirst ? 'opacity-20 pointer-events-none' : ''}" title="Monter">↑</button>
+          <button onclick="moveProjSim('${sim.id}',1)"  class="sm:hidden w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition text-lg font-bold ${isLast  ? 'opacity-20 pointer-events-none' : ''}" title="Descendre">↓</button>
         </div>
       </div>
       <div class="cursor-pointer" onclick="openProjModal('${sim.id}')">
@@ -3202,6 +3212,47 @@ function projCard(sim) {
         </div>
       </div>
     </div>`;
+}
+
+let _projDragId = null;
+
+function projDragStart(e, id) {
+  _projDragId = id;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => e.target.closest('[data-proj-id]')?.classList.add('opacity-40'), 0);
+}
+
+function projDragEnd(e) {
+  e.target.closest('[data-proj-id]')?.classList.remove('opacity-40');
+  document.querySelectorAll('[data-proj-id]').forEach(el => el.classList.remove('border-blue-500', 'border-2'));
+  _projDragId = null;
+}
+
+function projDragOver(e, id) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('[data-proj-id]').forEach(el => el.classList.remove('border-blue-500', 'border-2'));
+  if (id !== _projDragId) {
+    e.currentTarget.classList.add('border-blue-500', 'border-2');
+  }
+}
+
+function projDragLeave(e) {
+  e.currentTarget.classList.remove('border-blue-500', 'border-2');
+}
+
+function projDrop(e, targetId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('border-blue-500', 'border-2');
+  if (!_projDragId || _projDragId === targetId) return;
+  const sims    = loadProjections();
+  const fromIdx = sims.findIndex(s => s.id === _projDragId);
+  const toIdx   = sims.findIndex(s => s.id === targetId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const [moved] = sims.splice(fromIdx, 1);
+  sims.splice(toIdx, 0, moved);
+  saveProjections(sims);
+  setEl('proj-section', projBlock());
 }
 
 function projBlock() {
