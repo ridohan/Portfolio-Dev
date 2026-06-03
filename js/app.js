@@ -1077,8 +1077,8 @@ function renderSetup(app) {
             <input id="setup-token" type="password" required placeholder="ton-token-secret"
               class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded-lg transition">
-            Se connecter
+          <button type="submit" id="setup-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded-lg transition flex items-center justify-center gap-2">
+            <span id="setup-btn-text">Se connecter</span>
           </button>
           <p id="setup-error" class="text-red-400 text-sm hidden"></p>
         </form>
@@ -1089,13 +1089,35 @@ function renderSetup(app) {
     e.preventDefault();
     const url   = document.getElementById('setup-url').value;
     const token = document.getElementById('setup-token').value;
+    const btn   = document.getElementById('setup-btn');
+    const btnText = document.getElementById('setup-btn-text');
+    const errEl = document.getElementById('setup-error');
+
+    // État chargement
+    btn.disabled = true;
+    btn.classList.add('opacity-75', 'cursor-not-allowed');
+    btn.classList.remove('hover:bg-blue-500');
+    btnText.innerHTML = `<svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+    </svg> Connexion en cours…`;
+    errEl.classList.add('hidden');
+
     API.save(url, token);
     try {
       STATE = await API.getData();
+      btnText.innerHTML = `✓ Connecté !`;
+      btn.classList.remove('bg-blue-600');
+      btn.classList.add('bg-emerald-600');
       navigate('#dashboard');
     } catch (err) {
-      document.getElementById('setup-error').textContent = 'Connexion échouée : ' + err.message;
-      document.getElementById('setup-error').classList.remove('hidden');
+      // Réinitialiser le bouton en cas d'erreur
+      btn.disabled = false;
+      btn.classList.remove('opacity-75', 'cursor-not-allowed');
+      btn.classList.add('hover:bg-blue-500');
+      btnText.textContent = 'Se connecter';
+      errEl.textContent = 'Connexion échouée : ' + err.message;
+      errEl.classList.remove('hidden');
     }
   });
 }
