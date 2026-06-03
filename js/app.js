@@ -85,20 +85,31 @@ async function render() {
   const hash = location.hash || '#dashboard';
   const [route, id] = hash.slice(1).split('/');
 
-  if (route === 'dashboard')  return renderDashboard(app);
-  if (route === 'portfolio')  return renderPortfolio(app, id);
-  if (route === 'envelope')   return renderEnvelope(app, id);
-  if (route === 'hist-env')    return renderHistoryEnv(app, id);
-  if (route === 'hist-pf')     return renderHistoryPf(app, id);
-  if (route === 'hist-global') return renderHistoryGlobal(app);
-  if (route === 'fire')        return renderFire(app);
-  if (route === 'expenses')    return renderExpenses(app);
-  if (route === 'immo' && !id) return renderImmo(app);
-  if (route === 'immo' &&  id) return renderImmoDetail(app, id);
-  if (route === 'investissements')   return renderInvestissements(app);
-  if (route === 'residences' && !id) return renderResidences(app);
-  if (route === 'residences' &&  id) return renderResidenceDetail(app, id);
-  renderDashboard(app);
+  if (route === 'dashboard')  renderDashboard(app);
+  else if (route === 'portfolio')  renderPortfolio(app, id);
+  else if (route === 'envelope')   renderEnvelope(app, id);
+  else if (route === 'hist-env')    renderHistoryEnv(app, id);
+  else if (route === 'hist-pf')     renderHistoryPf(app, id);
+  else if (route === 'hist-global') renderHistoryGlobal(app);
+  else if (route === 'fire')        renderFire(app);
+  else if (route === 'expenses')    renderExpenses(app);
+  else if (route === 'immo' && !id) renderImmo(app);
+  else if (route === 'immo' &&  id) renderImmoDetail(app, id);
+  else if (route === 'investissements')   renderInvestissements(app);
+  else if (route === 'residences' && !id) renderResidences(app);
+  else if (route === 'residences' &&  id) renderResidenceDetail(app, id);
+  else renderDashboard(app);
+
+  // Réouvre le menu mobile si l'état était ouvert avant le re-render
+  if (_navOpen) {
+    requestAnimationFrame(() => {
+      const menu = document.getElementById('nav-mobile-menu');
+      if (menu) {
+        menu.classList.remove('hidden');
+        requestAnimationFrame(() => menu.classList.remove('opacity-0', '-translate-y-2'));
+      }
+    });
+  }
 }
 
 // ─── MODE CONFIDENTIALITÉ ────────────────────────────────────────────────────
@@ -113,7 +124,9 @@ function togglePrivacyMode() {
   applyPrivacyMode();
   // Mettre à jour l'icône du bouton sans re-render
   const btn = document.getElementById('privacy-btn');
-  if (btn) btn.textContent = next ? '🙈' : '👁';
+  if (btn) btn.innerHTML = next
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 }
 
 function applyPrivacyMode() {
@@ -132,6 +145,17 @@ function applyPrivacyMode() {
     }
     .privacy-mode .num:hover {
       filter: blur(0);
+    }
+    /* Empêche les valeurs monétaires de faire déborder les cartes sur mobile */
+    @media (max-width: 639px) {
+      .num {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: inline-block;
+        vertical-align: bottom;
+      }
     }
   `;
   document.head.appendChild(style);
@@ -1197,13 +1221,14 @@ function patrimoineGlobalBloc(pfStats) {
   const pct  = (net, brut) => brut > 0 ? (net / brut * 100).toFixed(1) + '%' : '—';
   const row  = (icon, label, brut, net, href) => `
     <tr class="border-b border-slate-700/40 hover:bg-slate-700/20 transition cursor-pointer" onclick="navigate('${href}')">
-      <td class="py-3 px-4 text-sm">
-        <span class="text-slate-300">${icon}</span>
-        <span class="text-slate-300 ml-1.5">${label}</span>
+      <td class="py-3 px-3 text-sm">
+        <span class="inline-flex items-center gap-1.5 whitespace-nowrap text-slate-300">
+          ${icon} <span>${label}</span>
+        </span>
       </td>
-      <td class="py-3 px-4 text-right text-slate-300 text-sm">${fmt(Math.round(brut))}</td>
-      <td class="py-3 px-4 text-right font-semibold text-sm ${cc(net)}">${fmt(Math.round(net))}</td>
-      <td class="py-3 px-4 text-right text-slate-500 text-xs">${pct(net, brut)}</td>
+      <td class="py-3 px-2 text-right text-slate-300 text-xs sm:text-sm">${fmt(Math.round(brut))}</td>
+      <td class="py-3 px-2 text-right font-semibold text-xs sm:text-sm ${cc(net)}">${fmt(Math.round(net))}</td>
+      <td class="py-3 px-2 text-right text-slate-500 text-xs hidden sm:table-cell">${pct(net, brut)}</td>
     </tr>`;
 
   return `
@@ -1243,10 +1268,10 @@ function patrimoineGlobalBloc(pfStats) {
         <table class="w-full text-sm">
           <thead class="bg-slate-800 text-slate-500 text-xs">
             <tr>
-              <th class="py-2.5 px-4 text-left font-medium">Composante</th>
-              <th class="py-2.5 px-4 text-right font-medium">Valeur brute</th>
-              <th class="py-2.5 px-4 text-right font-medium">Valeur nette</th>
-              <th class="py-2.5 px-4 text-right font-medium">% du brut</th>
+              <th class="py-2.5 px-3 text-left font-medium">Composante</th>
+              <th class="py-2.5 px-2 text-right font-medium">Valeur brute</th>
+              <th class="py-2.5 px-2 text-right font-medium">Valeur nette</th>
+              <th class="py-2.5 px-2 text-right font-medium hidden sm:table-cell">% du brut</th>
             </tr>
           </thead>
           <tbody>
@@ -1256,10 +1281,10 @@ function patrimoineGlobalBloc(pfStats) {
           </tbody>
           <tfoot class="border-t-2 border-slate-600">
             <tr class="bg-slate-800/60">
-              <td class="py-3 px-4 text-white font-bold text-sm">Total</td>
-              <td class="py-3 px-4 text-right text-white font-bold">${fmt(Math.round(totalBrut))}</td>
-              <td class="py-3 px-4 text-right text-emerald-400 font-bold text-base">${fmt(Math.round(totalNet))}</td>
-              <td class="py-3 px-4 text-right text-blue-400 font-semibold text-sm">${pct(totalNet, totalBrut)}</td>
+              <td class="py-3 px-3 text-white font-bold text-sm">Total</td>
+              <td class="py-3 px-2 text-right text-white font-bold text-xs sm:text-sm">${fmt(Math.round(totalBrut))}</td>
+              <td class="py-3 px-2 text-right text-emerald-400 font-bold text-sm sm:text-base">${fmt(Math.round(totalNet))}</td>
+              <td class="py-3 px-2 text-right text-blue-400 font-semibold text-xs hidden sm:table-cell">${pct(totalNet, totalBrut)}</td>
             </tr>
           </tfoot>
         </table>
@@ -1271,12 +1296,18 @@ function _dashBlock(id, stats) {
   const { total, invested, alloc, totalCharges } = stats;
   switch (id) {
     case 'stats': return `
-      <div class="flex items-center justify-between mb-1">
-        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-blue-300 transition"
+      <div class="flex items-center justify-between mb-1 gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white cursor-pointer hover:text-blue-300 transition truncate"
             onclick="navigate('#investissements')">📊 Patrimoine financier</h2>
-        <div class="flex gap-2">
-          <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm">📈 Historique</a>
-          <a href="#investissements" onclick="navigate('#investissements');return false;" class="btn-secondary text-sm">Détail →</a>
+        <div class="flex gap-1.5 flex-shrink-0">
+          <a href="#hist-global" onclick="navigate('#hist-global');return false;"
+            class="btn-secondary text-xs px-2 py-1 whitespace-nowrap">
+            <span class="hidden sm:inline">📈 </span>Historique
+          </a>
+          <a href="#investissements" onclick="navigate('#investissements');return false;"
+            class="btn-secondary text-xs px-2 py-1 whitespace-nowrap">
+            <span class="hidden sm:inline">Détail </span>→
+          </a>
         </div>
       </div>
       ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
@@ -1284,47 +1315,47 @@ function _dashBlock(id, stats) {
       ${historySparkline(globalHistory(), '#hist-global')}`;
     case 'patrimoine_global': return patrimoineGlobalBloc(stats);
     case 'immo': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-blue-300 transition"
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white cursor-pointer hover:text-blue-300 transition truncate"
             onclick="navigate('#immo')">🏠 Immobilier locatif</h2>
-        <a href="#immo" onclick="navigate('#immo');return false;" class="btn-secondary text-sm">Détail →</a>
+        <a href="#immo" onclick="navigate('#immo');return false;" class="btn-secondary text-xs px-2 py-1 flex-shrink-0">Détail →</a>
       </div>
       ${immoDashboardCard()}`;
     case 'residences': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-violet-300 transition"
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white cursor-pointer hover:text-violet-300 transition truncate"
             onclick="navigate('#residences')">🏡 Résidences</h2>
-        <a href="#residences" onclick="navigate('#residences');return false;" class="btn-secondary text-sm">Détail →</a>
+        <a href="#residences" onclick="navigate('#residences');return false;" class="btn-secondary text-xs px-2 py-1 flex-shrink-0">Détail →</a>
       </div>
       ${residDashboardCard()}`;
     case 'eoy': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">📅 Projection fin d'année</h2>
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white truncate">📅 Projection fin d'année</h2>
       </div>
       <div id="eoy-card-wrapper">${eoyCard()}</div>`;
     case 'projections': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">🎯 Simulations</h2>
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white truncate">🎯 Simulations</h2>
       </div>
       <div id="proj-section">${projBlock()}</div>`;
     case 'milestones': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">🏆 Jalons</h2>
-        <button onclick="openMilestoneModal()" class="btn-secondary text-sm">+ Jalon</button>
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white truncate">🏆 Jalons</h2>
+        <button onclick="openMilestoneModal()" class="btn-secondary text-xs px-2 py-1 flex-shrink-0">+ Jalon</button>
       </div>
       <div id="milestone-section">${milestoneGauge()}</div>`;
     case 'fire': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-orange-300 transition"
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white cursor-pointer hover:text-orange-300 transition truncate"
             onclick="navigate('#fire')">🔥 Simulation FIRE</h2>
-        <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-sm">Configurer →</a>
+        <a href="#fire" onclick="navigate('#fire');return false;" class="btn-secondary text-xs px-2 py-1 flex-shrink-0">Configurer →</a>
       </div>
       ${fireDashboardCards()}`;
     case 'expenses': return `
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white cursor-pointer hover:text-emerald-300 transition"
+      <div class="flex items-center justify-between gap-2 min-w-0">
+        <h2 class="text-base sm:text-lg font-semibold text-white cursor-pointer hover:text-emerald-300 transition truncate"
             onclick="navigate('#expenses')">💰 Dépenses</h2>
-        <a href="#expenses" onclick="navigate('#expenses');return false;" class="btn-secondary text-sm">Détail →</a>
+        <a href="#expenses" onclick="navigate('#expenses');return false;" class="btn-secondary text-xs px-2 py-1 flex-shrink-0">Détail →</a>
       </div>
       ${expenseDashboardCard()}`;
     default: return '';
@@ -1336,13 +1367,8 @@ function renderDashboard(app) {
   const order = loadDashOrder();
 
   app.innerHTML = `
-    ${navbar()}
+    ${navbar({ dashReorder: true })}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
-      <div class="flex justify-end">
-        <button onclick="openDashOrderModal()" class="text-slate-600 hover:text-slate-300 text-xs flex items-center gap-1.5 transition px-2 py-1 rounded hover:bg-slate-800">
-          ⊞ <span>Réorganiser</span>
-        </button>
-      </div>
       ${order.map(id => _dashBlock(id, stats)).join('')}
     </div>
     ${modalPortfolio()}
@@ -1388,17 +1414,25 @@ function renderPortfolio(app, portfolioId) {
   app.innerHTML = `
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Retour</a>`)}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
-      <div class="flex items-start justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-white">${esc(p.nom)}</h1>
-          <p class="text-slate-400 text-sm mt-1">Cible : ${p.cible_actions}% actions · ${p.cible_obligations}% obligations · ${p.cible_cash}% cash</p>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <h1 class="text-lg sm:text-2xl font-bold text-white truncate">${esc(p.nom)}</h1>
+          <div class="flex gap-1.5 flex-shrink-0">
+            <button onclick='openEditPortfolio(${JSON.stringify(p)})' class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Modifier">
+              <span class="sm:hidden">✏</span><span class="hidden sm:inline">✏ Modifier</span>
+            </button>
+            <a href="#hist-pf/${p.id}" onclick="navigate('#hist-pf/${p.id}');return false;" class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Historique">
+              <span class="sm:hidden">📈</span><span class="hidden sm:inline">📈 Historique</span>
+            </a>
+            <button onclick="openModal('envelope','${portfolioId}')" class="btn-primary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2">
+              +<span class="hidden sm:inline"> Enveloppe</span>
+            </button>
+            <button onclick="confirmDelete('portfolio','${p.id}')" class="btn-danger text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Supprimer">
+              <span class="sm:hidden">✕</span><span class="hidden sm:inline">Supprimer</span>
+            </button>
+          </div>
         </div>
-        <div class="flex gap-2">
-          <button onclick='openEditPortfolio(${JSON.stringify(p)})' class="btn-secondary text-sm">✏ Modifier</button>
-          <a href="#hist-pf/${p.id}" onclick="navigate('#hist-pf/${p.id}');return false;" class="btn-secondary text-sm">📈 Historique</a>
-          <button onclick="openModal('envelope','${portfolioId}')" class="btn-primary text-sm">+ Enveloppe</button>
-          <button onclick="confirmDelete('portfolio','${p.id}')" class="btn-danger text-sm">Supprimer</button>
-        </div>
+        <p class="text-slate-400 text-xs sm:text-sm">Cible : ${p.cible_actions}% actions · ${p.cible_obligations}% obligations · ${p.cible_cash}% cash</p>
       </div>
       ${statCards(total, invested, totalCharges, computeAnnualReturn(portfolioHistory(portfolioId)))}
       ${historySparkline(portfolioHistory(portfolioId), '#hist-pf/' + portfolioId)}
@@ -1446,17 +1480,25 @@ function renderEnvelope(app, envelopeId) {
   app.innerHTML = `
     ${navbar(`<a href="#portfolio/${e.portfolio_id}" class="text-slate-400 hover:text-white text-sm">← ${esc(portfolio?.nom || 'Retour')}</a>`)}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
-      <div class="flex items-start justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-white">${esc(e.nom)}</h1>
-          <p class="text-slate-400 text-sm capitalize">${e.type}</p>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <h1 class="text-lg sm:text-2xl font-bold text-white truncate">${esc(e.nom)}</h1>
+          <div class="flex gap-1.5 flex-shrink-0">
+            <button onclick='openEditEnvelope(${JSON.stringify(e)})' class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Renommer">
+              <span class="sm:hidden">✏</span><span class="hidden sm:inline">✏ Renommer</span>
+            </button>
+            <a href="#hist-env/${e.id}" onclick="navigate('#hist-env/${e.id}');return false;" class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Historique">
+              <span class="sm:hidden">📈</span><span class="hidden sm:inline">📈 Historique</span>
+            </a>
+            <button onclick="openModal('position','${envelopeId}','${e.type}')" class="btn-primary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2">
+              +<span class="hidden sm:inline"> Position</span>
+            </button>
+            <button onclick="confirmDelete('envelope','${e.id}')" class="btn-danger text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Supprimer">
+              <span class="sm:hidden">✕</span><span class="hidden sm:inline">Supprimer</span>
+            </button>
+          </div>
         </div>
-        <div class="flex gap-2">
-          <button onclick='openEditEnvelope(${JSON.stringify(e)})' class="btn-secondary text-sm">✏ Renommer</button>
-          <a href="#hist-env/${e.id}" onclick="navigate('#hist-env/${e.id}');return false;" class="btn-secondary text-sm">📈 Historique</a>
-          <button onclick="openModal('position','${envelopeId}','${e.type}')" class="btn-primary text-sm">+ Position</button>
-          <button onclick="confirmDelete('envelope','${e.id}')" class="btn-danger text-sm">Supprimer</button>
-        </div>
+        <p class="text-slate-400 text-xs sm:text-sm capitalize">${e.type}</p>
       </div>
       ${statCards(total, invested, 0, computeAnnualReturn(envelopeHistory(envelopeId)))}
       ${historySparkline(envelopeHistory(envelopeId), '#hist-env/' + envelopeId)}
@@ -1508,7 +1550,7 @@ function positionsTable(positions, type) {
     return `<th class="py-3 px-4 cursor-pointer select-none hover:text-slate-200 transition whitespace-nowrap" onclick="sortPositions('${col}')">${label}${icon}</th>`;
   };
 
-    const rows = sorted.map(pos => {
+    const rowData = sorted.map(pos => {
     const prix = currentPrice(pos.identifiant, type);
     const valAchat  = isEpargne ? Number(pos.prix_achat) : Number(pos.prix_achat) * Number(pos.quantite);
     const valActuel  = isEpargne ? Number(pos.prix_achat) : prix * Number(pos.quantite);
@@ -1529,24 +1571,14 @@ function positionsTable(positions, type) {
         : '';
     const label = etfNom || pos.identifiant;
 
-    return `
-      <tr class="border-t border-slate-700 hover:bg-slate-750">
-        <td class="py-3 px-4">
-          <p class="text-white font-medium">${esc(label)}</p>
-          <p class="text-slate-500 text-xs">${esc(pos.identifiant)}</p>
-        </td>
-        ${type === 'bourse' ? `<td class="py-3 px-4">${typeBadge}</td>` : ''}
-        ${isEpargne
-          ? `<td class="py-3 px-4 text-slate-300">${Number(pos.quantite).toFixed(2)}%</td>`
-          : `<td class="py-3 px-4 text-slate-300">${pos.quantite} × ${fmt(Number(pos.prix_achat))}</td>`}
-        <td class="py-3 px-4 text-white">${fmt(valActuel)}</td>
-        <td class="py-3 px-4 ${pv >= 0 ? 'text-emerald-400' : 'text-red-400'}">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)</td>
-        <td class="py-3 px-4 flex gap-3">
-          <button onclick='openEditPosition(${JSON.stringify(pos)})' class="text-slate-400 hover:text-blue-400 text-xs transition">Modifier</button>
-          <button onclick="confirmDelete('position','${pos.id}')" class="text-slate-500 hover:text-red-400 text-xs transition">Supprimer</button>
-        </td>
-      </tr>`;
-  }).join('');
+    const pvColor = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
+    const pvStr   = `${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)`;
+    const qtyStr  = isEpargne
+      ? `${Number(pos.quantite).toFixed(2)}%`
+      : `${pos.quantite} × ${fmt(Number(pos.prix_achat))}`;
+
+    return { pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel, pv };
+  });
 
   // Récap allocation pour les enveloppes bourse
   const allocRecap = (() => {
@@ -1576,9 +1608,48 @@ function positionsTable(positions, type) {
       </div>`;
   })();
 
+  const mobileCards = rowData.map(({ pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel }) => `
+    <div class="border-t border-slate-700 px-4 py-3">
+      <div class="flex items-start justify-between gap-2 mb-1.5">
+        <div class="min-w-0">
+          <p class="text-white font-medium text-sm truncate">${esc(label)}</p>
+          <p class="text-slate-500 text-xs">${esc(pos.identifiant)}</p>
+        </div>
+        <div class="flex gap-2 flex-shrink-0">
+          <button onclick='openEditPosition(${JSON.stringify(pos)})' class="text-slate-400 hover:text-blue-400 text-xs transition" title="Modifier">✏</button>
+          <button onclick="confirmDelete('position','${pos.id}')" class="text-slate-500 hover:text-red-400 text-xs transition" title="Supprimer">✕</button>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap mt-1">
+        ${typeBadge}
+        <span class="text-slate-400 text-xs">${qtyStr}</span>
+        <span class="text-white text-sm font-semibold">${fmt(valActuel)}</span>
+        <span class="${pvColor} text-xs font-medium">${pvStr}</span>
+      </div>
+    </div>`).join('');
+
+  const desktopRows = rowData.map(({ pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel }) => `
+    <tr class="border-t border-slate-700 hover:bg-slate-750">
+      <td class="py-3 px-4">
+        <p class="text-white font-medium">${esc(label)}</p>
+        <p class="text-slate-500 text-xs">${esc(pos.identifiant)}</p>
+      </td>
+      ${type === 'bourse' ? `<td class="py-3 px-4">${typeBadge}</td>` : ''}
+      <td class="py-3 px-4 text-slate-300">${qtyStr}</td>
+      <td class="py-3 px-4 text-white">${fmt(valActuel)}</td>
+      <td class="py-3 px-4 ${pvColor}">${pvStr}</td>
+      <td class="py-3 px-4 flex gap-3">
+        <button onclick='openEditPosition(${JSON.stringify(pos)})' class="text-slate-400 hover:text-blue-400 text-xs transition" title="Modifier">✏</button>
+        <button onclick="confirmDelete('position','${pos.id}')" class="text-slate-500 hover:text-red-400 text-xs transition" title="Supprimer">✕</button>
+      </td>
+    </tr>`).join('');
+
   return `${allocRecap}
     <div class="bg-slate-800 rounded-xl overflow-hidden">
-      <table class="w-full text-sm">
+      <!-- Vue cartes mobile -->
+      <div class="sm:hidden">${mobileCards}</div>
+      <!-- Vue tableau desktop -->
+      <table class="hidden sm:table w-full text-sm">
         <thead>
           <tr class="text-slate-400 text-left">
             ${th('identifiant', isEpargne ? 'Compte' : 'Identifiant')}
@@ -1589,7 +1660,7 @@ function positionsTable(positions, type) {
             <th class="py-3 px-4"></th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>${desktopRows}</tbody>
       </table>
     </div>`;
 }
@@ -2047,28 +2118,130 @@ function rebalancingSuggestions(portfolioId) {
 
 // ─── COMPOSANTS UI ───────────────────────────────────────────────────────────
 
-function navbar(left = '') {
-  const age     = API.cacheAge();
+let _navOpen = false;
+
+function toggleNav() {
+  _navOpen = !_navOpen;
+  const menu = document.getElementById('nav-mobile-menu');
+  const icon = document.getElementById('nav-hamburger-icon');
+  if (!menu) return;
+  if (_navOpen) {
+    menu.classList.remove('hidden');
+    requestAnimationFrame(() => menu.classList.remove('opacity-0', '-translate-y-2'));
+    if (icon) icon.textContent = '✕';
+  } else {
+    menu.classList.add('opacity-0', '-translate-y-2');
+    setTimeout(() => menu.classList.add('hidden'), 150);
+    if (icon) icon.textContent = '☰';
+  }
+}
+
+function navLink(href, label, extraCls = '') {
+  return `<a href="${href}" onclick="navigate('${href}');_navOpen=false;document.getElementById('nav-mobile-menu')?.classList.add('hidden');return false;"
+    class="${extraCls} transition">${label}</a>`;
+}
+
+function navbar(optsOrLeft = '') {
+  const opts  = typeof optsOrLeft === 'object' ? optsOrLeft : {};
+  const left  = typeof optsOrLeft === 'string'  ? optsOrLeft : (opts.left || '');
+  const showReorder = !!opts.dashReorder;
+  const age      = API.cacheAge();
   const ageLabel = age === null ? 'aucun cache'
     : age < 60  ? `il y a ${age}s`
     : `il y a ${Math.floor(age / 60)}min`;
 
+  const links = [
+    { href: '#dashboard',      label: '🏠 Dashboard',      cls: 'text-white font-bold' },
+    { href: '#investissements',label: '📊 Investissements', cls: 'text-cyan-400 hover:text-cyan-300' },
+    { href: '#fire',           label: '🔥 FIRE',            cls: 'text-orange-400 hover:text-orange-300' },
+    { href: '#expenses',       label: '💰 Dépenses',        cls: 'text-emerald-400 hover:text-emerald-300' },
+    { href: '#immo',           label: '🏠 Immo',            cls: 'text-blue-400 hover:text-blue-300' },
+    { href: '#residences',     label: '🏡 Résidences',      cls: 'text-violet-400 hover:text-violet-300' },
+  ];
+
+  // Liens desktop (une seule ligne)
+  const desktopLinks = links.map(l =>
+    navLink(l.href, l.label, `${l.cls} text-sm font-medium whitespace-nowrap hidden md:inline`)
+  ).join('');
+
+  // Liens mobile (menu déroulant)
+  const mobileLinks = links.map(l =>
+    `<li>${navLink(l.href, l.label, `${l.cls} text-base font-medium block py-2.5 px-4 rounded-lg hover:bg-slate-800 w-full`)}</li>`
+  ).join('');
+
   return `
-    <nav class="bg-slate-900 border-b border-slate-700 px-4 py-2.5 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-3 min-w-0">
-        ${left}
-        <a href="#dashboard" onclick="navigate('#dashboard');return false;" class="text-white font-bold text-sm hover:text-slate-300 transition whitespace-nowrap">Portfolio Manager</a>
-        <a href="#fire" onclick="navigate('#fire');return false;" class="text-orange-400 hover:text-orange-300 text-sm font-medium transition whitespace-nowrap">🔥 FIRE</a>
-        <a href="#expenses" onclick="navigate('#expenses');return false;" class="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition whitespace-nowrap">💰 Dépenses</a>
-        <a href="#investissements" onclick="navigate('#investissements');return false;" class="text-cyan-400 hover:text-cyan-300 text-sm font-medium transition whitespace-nowrap">📊 Investissements</a>
-        <a href="#immo" onclick="navigate('#immo');return false;" class="text-blue-400 hover:text-blue-300 text-sm font-medium transition whitespace-nowrap">🏠 Immo</a>
-        <a href="#residences" onclick="navigate('#residences');return false;" class="text-violet-400 hover:text-violet-300 text-sm font-medium transition whitespace-nowrap">🏡 Résidences</a>
+    <nav class="bg-slate-900 border-b border-slate-700 sticky top-0 z-40">
+      <!-- Barre principale -->
+      <div class="px-4 py-2.5 flex items-center justify-between gap-2">
+
+        <!-- Gauche : retour contextuel + logo -->
+        <div class="flex items-center gap-3 min-w-0">
+          ${left}
+          <a href="#dashboard" onclick="navigate('#dashboard');return false;"
+            class="text-white font-bold text-sm hover:text-slate-300 transition whitespace-nowrap">Portfolio Manager</a>
+          ${desktopLinks}
+        </div>
+
+        <!-- Droite : actions + hamburger -->
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <button onclick="openCacheSettings()" class="hidden lg:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
+          ${showReorder ? `<button onclick="openDashOrderModal()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs flex items-center gap-1 transition px-2 py-1 rounded hover:bg-slate-800" title="Réorganiser le dashboard">⊞</button>` : ''}
+          <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition" title="${ageLabel}">↻</button>
+          <button onclick="togglePrivacyMode()" id="privacy-btn" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="${isPrivacyMode() ? 'Afficher les chiffres' : 'Masquer les chiffres'}">
+            ${isPrivacyMode()
+              ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>`
+              : `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>`}
+          </button>
+          <button onclick="localStorage.clear();location.reload()" class="hidden sm:inline text-slate-500 hover:text-white text-xs transition" title="Déconnexion">⏻</button>
+          <!-- Hamburger — visible uniquement sur mobile -->
+          <button onclick="toggleNav()" class="md:hidden flex items-center justify-center w-8 h-8 text-slate-400 hover:text-white transition rounded-lg hover:bg-slate-800">
+            <span id="nav-hamburger-icon" class="text-lg leading-none">${_navOpen ? '✕' : '☰'}</span>
+          </button>
+        </div>
       </div>
-      <div class="flex items-center gap-3 flex-shrink-0">
-        <button onclick="openCacheSettings()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
-        <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition whitespace-nowrap" title="Cache : ${ageLabel}">↻ <span class="hidden sm:inline">Actualiser</span></button>
-        <button onclick="togglePrivacyMode()" id="privacy-btn" class="text-slate-400 hover:text-white text-sm transition" title="Masquer les chiffres">${isPrivacyMode() ? '🙈' : '👁'}</button>
-        <button onclick="localStorage.clear();location.reload()" class="text-slate-500 hover:text-white text-xs transition whitespace-nowrap" title="Déconnexion">⏻ <span class="hidden sm:inline">Déconnexion</span></button>
+
+      <!-- Menu mobile déroulant -->
+      <div id="nav-mobile-menu"
+        class="${_navOpen ? '' : 'hidden'} md:hidden opacity-0 -translate-y-2 transition-all duration-150 bg-slate-900 border-t border-slate-800 px-3 pb-4">
+        <ul class="mt-1 space-y-0.5">
+          ${mobileLinks}
+
+          <!-- Séparateur Paramètres -->
+          <li class="border-t border-slate-800 mt-2 pt-2">
+            <p class="text-slate-600 text-xs font-semibold uppercase tracking-wider px-4 py-1">Paramètres</p>
+          </li>
+          ${showReorder ? `<li>
+            <button onclick="openDashOrderModal();toggleNav()"
+              class="text-slate-300 hover:text-white text-sm font-medium block w-full text-left py-2.5 px-4 rounded-lg hover:bg-slate-800 transition">
+              ⊞ Réorganiser le dashboard
+            </button>
+          </li>` : ''}
+          <li>
+            <button onclick="openCacheSettings();toggleNav()"
+              class="text-slate-300 hover:text-white text-sm font-medium block w-full text-left py-2.5 px-4 rounded-lg hover:bg-slate-800 transition">
+              ⚙ Paramètres &amp; Rapports PDF
+            </button>
+          </li>
+          <li>
+            <button onclick="forceRefresh()"
+              class="text-slate-400 hover:text-white text-sm font-medium block w-full text-left py-2.5 px-4 rounded-lg hover:bg-slate-800 transition">
+              ↻ Actualiser les données
+            </button>
+          </li>
+          <li>
+            <button onclick="localStorage.clear();location.reload()"
+              class="text-red-400/70 hover:text-red-400 text-sm font-medium block w-full text-left py-2.5 px-4 rounded-lg hover:bg-slate-800 transition">
+              ⏻ Déconnexion
+            </button>
+          </li>
+        </ul>
       </div>
     </nav>`;
 }
@@ -2237,8 +2410,8 @@ function chargesSection(portfolioId) {
       <td class="py-3 px-4 text-red-400 font-medium">−${fmt(Number(c.montant))}</td>
       <td class="py-3 px-4 text-slate-400 text-sm">${c.date_fin ? fmtDate(c.date_fin) : '—'}</td>
       <td class="py-3 px-4 flex gap-3">
-        <button onclick='openEditCharge(${JSON.stringify(c)})' class="text-slate-400 hover:text-blue-400 text-xs transition">Modifier</button>
-        <button onclick="confirmDelete('charge','${c.id}')" class="text-slate-500 hover:text-red-400 text-xs transition">Supprimer</button>
+        <button onclick='openEditCharge(${JSON.stringify(c)})' class="text-slate-400 hover:text-blue-400 text-xs transition" title="Modifier">✏</button>
+        <button onclick="confirmDelete('charge','${c.id}')" class="text-slate-500 hover:text-red-400 text-xs transition" title="Supprimer">✕</button>
       </td>
     </tr>`).join('');
 
@@ -2675,7 +2848,7 @@ function historyStatsCards(entries) {
   const minVal     = Math.min(...entries.map(e => Number(e.valeur_actuelle)));
 
   return `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">Valeur actuelle</p>
         <p class="text-white text-2xl font-bold">${fmt(last.valeur_actuelle)}</p>
@@ -2792,7 +2965,7 @@ function renderHistoryGlobal(app) {
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div>
-        <h1 class="text-2xl font-bold text-white">Historique global</h1>
+        <h1 class="text-lg sm:text-2xl font-bold text-white">Historique global</h1>
         <p class="text-slate-400 text-sm mt-1">Tous les portfolios confondus</p>
       </div>
       ${historyContent(all, filtered)}
@@ -3634,7 +3807,7 @@ function renderFire(app) {
       <div class="flex items-center gap-3 mb-6">
         <span class="text-4xl leading-none">🔥</span>
         <div>
-          <h1 class="text-2xl font-bold text-white">Simulation FIRE</h1>
+          <h1 class="text-lg sm:text-2xl font-bold text-white">Simulation FIRE</h1>
           <p class="text-slate-400 text-sm">Financial Independence, Retire Early — projections basées sur ton portfolio</p>
         </div>
       </div>
@@ -3642,7 +3815,7 @@ function renderFire(app) {
         <div class="lg:w-72 w-full shrink-0">
           ${fireParamsPanel()}
         </div>
-        <div class="flex-1 min-w-0 space-y-4" id="fire-results">
+        <div class="flex-1 min-w-0 w-full space-y-4 overflow-x-hidden" id="fire-results">
           ${fireResults()}
         </div>
       </div>
@@ -3858,47 +4031,47 @@ function _vpwSimCard() {
 
   return `
     <div class="bg-slate-800 rounded-xl p-5 border border-purple-500/25">
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2">
-          <span class="text-xl leading-none">🔮</span>
-          <div>
+      <div class="flex items-start justify-between gap-2 mb-4">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xl leading-none flex-shrink-0">🔮</span>
+          <div class="min-w-0">
             <p class="text-white text-sm font-semibold">VPW — Capital simulé</p>
-            <p class="text-slate-500 text-xs">
+            <p class="text-slate-500 text-xs truncate">
               Basé sur <span class="text-purple-400">${fmt(Math.round(v.capital))}</span> dans "VPW Retirement Simulator"
               ${diff !== null ? `· <span class="${diff >= 0 ? 'text-emerald-400' : 'text-red-400'}">${diff >= 0 ? '+' : ''}${fmt(Math.round(diff))}/mois vs réel</span>` : ''}
             </p>
           </div>
         </div>
         ${v.vpwPct != null
-          ? `<span class="bg-purple-500/15 text-purple-400 text-xs font-bold px-2.5 py-1 rounded-full">${v.vpwPct}% appliqué</span>`
+          ? `<span class="bg-purple-500/15 text-purple-400 text-xs font-bold px-2 py-1 rounded-full flex-shrink-0">${v.vpwPct}%</span>`
           : ''}
       </div>
 
-      <div class="grid grid-cols-2 ${hasStr ? 'sm:grid-cols-4' : 'sm:grid-cols-2'} gap-4">
-        <div>
-          <p class="text-slate-500 text-xs mb-1">Retrait mensuel suggéré</p>
-          <p class="${retOk ? 'text-emerald-400' : 'text-purple-400'} text-xl font-bold">
-            ${fmt(v.monthlyWithdrawal)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+      <div class="grid grid-cols-2 ${hasStr ? 'lg:grid-cols-4' : ''} gap-3">
+        <div class="min-w-0 overflow-hidden">
+          <p class="text-slate-500 text-xs mb-1">Retrait mensuel</p>
+          <p class="${retOk ? 'text-emerald-400' : 'text-purple-400'} text-lg sm:text-xl font-bold truncate">
+            ${fmt(v.monthlyWithdrawal)}<span class="text-slate-500 text-xs font-normal">/mois</span>
           </p>
-          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5">${retOk ? '✓ Objectif atteint' : `${fmt(Math.round(cible - v.monthlyWithdrawal))} sous l'objectif`}</p>` : ''}
+          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5 truncate">${retOk ? '✓ Objectif atteint' : `${fmt(Math.round(cible - v.monthlyWithdrawal))} sous objectif`}</p>` : ''}
         </div>
-        <div>
+        <div class="min-w-0 overflow-hidden">
           <p class="text-slate-500 text-xs mb-1">Retrait annuel</p>
-          <p class="text-slate-300 text-xl font-bold">${fmt(v.annualWithdrawal ?? v.monthlyWithdrawal * 12)}</p>
+          <p class="text-slate-300 text-lg sm:text-xl font-bold truncate">${fmt(v.annualWithdrawal ?? v.monthlyWithdrawal * 12)}</p>
           ${v.age != null ? `<p class="text-slate-600 text-xs mt-0.5">Âge : ${v.age} ans</p>` : ''}
         </div>
         ${hasStr ? `
-        <div>
-          <p class="text-slate-500 text-xs mb-1">Après correction marché</p>
-          <p class="text-amber-400 text-xl font-bold">
-            ${fmt(v.monthlyAfterLoss)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+        <div class="min-w-0 overflow-hidden">
+          <p class="text-slate-500 text-xs mb-1">Après correction</p>
+          <p class="text-amber-400 text-lg sm:text-xl font-bold truncate">
+            ${fmt(v.monthlyAfterLoss)}<span class="text-slate-500 text-xs font-normal">/mois</span>
           </p>
-          ${v.monthlyReduction != null ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.monthlyReduction)}/mois</p>` : ''}
+          ${v.monthlyReduction != null ? `<p class="text-red-400 text-xs mt-0.5 truncate">${fmt(v.monthlyReduction)}/mois</p>` : ''}
         </div>
-        <div>
+        <div class="min-w-0 overflow-hidden">
           <p class="text-slate-500 text-xs mb-1">Portfolio après perte</p>
-          <p class="text-slate-300 font-semibold">${fmt(v.balanceAfterLoss)}</p>
-          ${v.portfolioLoss != null ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.portfolioLoss)} simulé</p>` : ''}
+          <p class="text-slate-300 font-semibold truncate">${fmt(v.balanceAfterLoss)}</p>
+          ${v.portfolioLoss != null ? `<p class="text-red-400 text-xs mt-0.5 truncate">${fmt(v.portfolioLoss)}</p>` : ''}
         </div>` : ''}
       </div>
     </div>`;
@@ -3919,32 +4092,32 @@ function fireVpwCard() {
   return `
     <div class="bg-slate-800 rounded-xl p-5 border border-blue-500/20">
 
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2">
-          <span class="text-xl leading-none">📊</span>
-          <div>
+      <div class="flex items-start justify-between gap-2 mb-4">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xl leading-none flex-shrink-0">📊</span>
+          <div class="min-w-0">
             <p class="text-white text-sm font-semibold">Variable Percentage Withdrawal</p>
             <p class="text-slate-500 text-xs">Calculé dans Google Sheets · Taux ajusté chaque année</p>
           </div>
         </div>
         ${v.vpwPct != null
-          ? `<span class="bg-blue-500/15 text-blue-400 text-xs font-bold px-2.5 py-1 rounded-full">${v.vpwPct}% appliqué</span>`
+          ? `<span class="bg-blue-500/15 text-blue-400 text-xs font-bold px-2 py-1 rounded-full flex-shrink-0">${v.vpwPct}%</span>`
           : ''}
       </div>
 
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
 
-        <div>
-          <p class="text-slate-500 text-xs mb-1">Retrait mensuel suggéré</p>
-          <p class="${retOk ? 'text-emerald-400' : 'text-blue-400'} text-xl font-bold">
-            ${fmt(v.monthlyWithdrawal)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+        <div class="min-w-0 overflow-hidden">
+          <p class="text-slate-500 text-xs mb-1">Retrait mensuel</p>
+          <p class="${retOk ? 'text-emerald-400' : 'text-blue-400'} text-lg sm:text-xl font-bold truncate">
+            ${fmt(v.monthlyWithdrawal)}<span class="text-slate-500 text-xs font-normal">/mois</span>
           </p>
-          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5">${retOk ? '✓ Objectif atteint' : `${fmt(cible - v.monthlyWithdrawal)} sous l'objectif`}</p>` : ''}
+          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5 truncate">${retOk ? '✓ Objectif atteint' : `sous objectif`}</p>` : ''}
         </div>
 
-        <div>
+        <div class="min-w-0 overflow-hidden">
           <p class="text-slate-500 text-xs mb-1">Retrait annuel</p>
-          <p class="text-slate-300 text-xl font-bold">${fmt(v.annualWithdrawal ?? v.monthlyWithdrawal * 12)}</p>
+          <p class="text-slate-300 text-lg sm:text-xl font-bold truncate">${fmt(v.annualWithdrawal ?? v.monthlyWithdrawal * 12)}</p>
         </div>
 
         ${hasStress ? `
@@ -4070,13 +4243,12 @@ function fireResults() {
     ${fireVpwCard()}
     <div id="fire-vpw-sim">${_vpwSimCard()}</div>
     <div class="bg-slate-800 rounded-xl p-4">
-      <p class="text-slate-400 text-xs mb-3">Projection du portfolio
-        <span class="ml-2 text-slate-600">· bleu = valeur · pointillés = capital investi${fireYear ? ' · orange = année FIRE' : ''}</span>
-      </p>
-      ${fireSvgChart(data, fireYear)}
+      <p class="text-slate-400 text-xs mb-1">Projection du portfolio</p>
+      <p class="text-slate-600 text-xs mb-3">bleu = valeur · pointillés = capital investi${fireYear ? ' · orange = année FIRE' : ''}</p>
+      <div class="overflow-x-auto">${fireSvgChart(data, fireYear)}</div>
     </div>
     <div class="rounded-xl overflow-hidden border border-slate-700">
-      <div class="max-h-96 overflow-y-auto">
+      <div class="max-h-96 overflow-y-auto overflow-x-auto">
         ${fireTable(data, fireYear)}
       </div>
     </div>`;
@@ -4105,44 +4277,44 @@ function fireStatsCards(data, fireYear) {
   const retOk         = retMensuel2 >= targetMensuel;
 
   const card2 = `
-    <div class="bg-slate-800 rounded-xl p-4">
+    <div class="bg-slate-800 rounded-xl p-3 sm:p-4">
       <p class="text-slate-400 text-xs mb-1">Retrait FIRE</p>
-      <p class="${retOk ? 'text-emerald-400' : 'text-white'} text-xl font-bold">
-        ${fmt(retMensuel2)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+      <p class="${retOk ? 'text-emerald-400' : 'text-white'} text-lg sm:text-xl font-bold truncate">
+        ${fmt(retMensuel2)}<span class="text-slate-500 text-xs font-normal">/mois</span>
       </p>
-      <p class="text-slate-400 text-xs mt-0.5">${fmt(retAnnuel)}/an</p>
+      <p class="text-slate-400 text-xs mt-0.5 truncate">${fmt(retAnnuel)}/an</p>
       <div class="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden">
         <div class="h-full rounded-full transition-all ${retOk ? 'bg-emerald-500' : 'bg-amber-500'}"
           style="width:${retPct.toFixed(1)}%"></div>
       </div>
-      <p class="text-slate-500 text-xs mt-1">${retPct.toFixed(0)}% de la cible (${fmt(targetMensuel)}/mois)</p>
+      <p class="text-slate-500 text-xs mt-1">${retPct.toFixed(0)}% cible</p>
     </div>`;
 
   return `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
 
-      <div class="bg-slate-800 rounded-xl p-4">
+      <div class="bg-slate-800 rounded-xl p-3 sm:p-4">
         <p class="text-slate-400 text-xs mb-1">Année FIRE</p>
         ${fireYear
-          ? `<p class="text-amber-400 text-2xl font-bold">An ${fireYear}</p>
-             <p class="text-slate-500 text-xs mt-0.5">Soit en ${curYear + fireYear}</p>`
-          : `<p class="text-slate-400 text-base font-semibold leading-tight mt-1">Non atteint</p>
+          ? `<p class="text-amber-400 text-lg sm:text-2xl font-bold truncate">An ${fireYear}</p>
+             <p class="text-slate-500 text-xs mt-0.5">En ${curYear + fireYear}</p>`
+          : `<p class="text-slate-400 text-sm font-semibold leading-tight mt-1">Non atteint</p>
              <p class="text-slate-600 text-xs mt-1">↑ versements ou durée</p>`}
       </div>
 
       ${card2}
 
-      <div class="bg-slate-800 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Portfolio fin an ${last.year}</p>
-        <p class="${last.ruined ? 'text-red-400' : 'text-white'} text-xl font-bold">
+      <div class="bg-slate-800 rounded-xl p-3 sm:p-4">
+        <p class="text-slate-400 text-xs mb-1">Fin an ${last.year}</p>
+        <p class="${last.ruined ? 'text-red-400' : 'text-white'} text-lg sm:text-xl font-bold truncate">
           ${last.ruined ? '⚠ Ruiné' : fmt(last.portfolio)}
         </p>
         ${last.ruined ? `<p class="text-red-500 text-xs mt-1">Fonds épuisés</p>` : ''}
       </div>
 
-      <div class="bg-slate-800 rounded-xl p-4">
-        <p class="text-slate-400 text-xs mb-1">Gains totaux générés</p>
-        <p class="${totalGains >= 0 ? 'text-emerald-400' : 'text-red-400'} text-xl font-bold">
+      <div class="bg-slate-800 rounded-xl p-3 sm:p-4">
+        <p class="text-slate-400 text-xs mb-1">Gains totaux</p>
+        <p class="${totalGains >= 0 ? 'text-emerald-400' : 'text-red-400'} text-lg sm:text-xl font-bold truncate">
           ${totalGains >= 0 ? '+' : ''}${fmt(totalGains)}
         </p>
         <p class="text-slate-500 text-xs mt-1">Intérêts composés</p>
@@ -4267,21 +4439,21 @@ function fireTable(data, fireYear) {
 
     return `
       <tr class="${rowCls} hover:bg-slate-750 transition-colors">
-        <td class="py-2.5 px-4 text-sm ${d.isFireYear ? 'text-amber-400 font-bold' : 'text-slate-300'}">
+        <td class="py-2.5 px-3 text-sm ${d.isFireYear ? 'text-amber-400 font-bold' : 'text-slate-300'}">
           An ${d.year}${d.isFireYear ? ' 🔥' : ''}
         </td>
-        <td class="py-2.5 px-4 text-right text-sm text-slate-400">${fmt(d.yearStart)}</td>
-        <td class="py-2.5 px-4 text-right text-sm text-emerald-400">+${fmt(d.gain)}</td>
-        <td class="py-2.5 px-4 text-right text-sm ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'}">
+        <td class="py-2.5 px-3 text-right text-sm text-slate-400 hidden sm:table-cell">${fmt(d.yearStart)}</td>
+        <td class="py-2.5 px-3 text-right text-sm text-emerald-400 hidden sm:table-cell">+${fmt(d.gain)}</td>
+        <td class="py-2.5 px-3 text-right text-sm ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'} hidden md:table-cell">
           ${d.contribution > 0 ? '+' + fmt(d.contribution) : '—'}
         </td>
-        <td class="py-2.5 px-4 text-right text-sm ${d.withdrawal > 0 ? 'text-red-400' : 'text-slate-700'}">
+        <td class="py-2.5 px-3 text-right text-sm ${d.withdrawal > 0 ? 'text-red-400' : 'text-slate-700'} hidden md:table-cell">
           ${d.withdrawal > 0 ? '−' + fmt(d.withdrawal) : '—'}
         </td>
-        <td class="py-2.5 px-4 text-right text-sm ${retCls}">
+        <td class="py-2.5 px-3 text-right text-sm ${retCls}">
           ${fmt(d.retMensuel)}/m
         </td>
-        <td class="py-2.5 px-4 text-right text-sm font-semibold ${d.ruined ? 'text-red-400' : 'text-white'}">
+        <td class="py-2.5 px-3 text-right text-sm font-semibold ${d.ruined ? 'text-red-400' : 'text-white'}">
           ${d.ruined ? '⚠ 0 €' : fmt(d.portfolio)}
         </td>
       </tr>`;
@@ -4289,16 +4461,16 @@ function fireTable(data, fireYear) {
 
   return `
     <div class="bg-slate-800">
-      <table class="w-full text-sm">
+      <table class="w-full text-sm" style="min-width:480px">
         <thead class="sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10">
           <tr class="text-slate-400 text-left">
-            <th class="py-3 px-4 font-medium">Année</th>
-            <th class="py-3 px-4 text-right font-medium">Début</th>
-            <th class="py-3 px-4 text-right font-medium">Rendement</th>
-            <th class="py-3 px-4 text-right font-medium">Versements</th>
-            <th class="py-3 px-4 text-right font-medium">Retraits FIRE</th>
-            <th class="py-3 px-4 text-right font-medium">Retrait/mois</th>
-            <th class="py-3 px-4 text-right font-medium">Fin</th>
+            <th class="py-3 px-3 font-medium">Année</th>
+            <th class="py-3 px-3 text-right font-medium hidden sm:table-cell">Début</th>
+            <th class="py-3 px-3 text-right font-medium hidden sm:table-cell">Rendement</th>
+            <th class="py-3 px-3 text-right font-medium hidden md:table-cell">Versements</th>
+            <th class="py-3 px-3 text-right font-medium hidden md:table-cell">Retraits</th>
+            <th class="py-3 px-3 text-right font-medium">Retrait/mois</th>
+            <th class="py-3 px-3 text-right font-medium">Fin</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -4433,7 +4605,7 @@ function expenseDashboardCard() {
   const totalAids = expTotalAids();
   const netAvg    = Math.max(0, avg - totalAids);
   return `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#expenses')">
         <p class="text-slate-400 text-xs mb-1">${MONTHS[currentMonth - 1]} ${year}</p>
         <p class="text-white font-bold text-lg">${fmt(currentTotal)}</p>
@@ -4478,7 +4650,7 @@ function expensesContent(year) {
 
   return `
     <div class="flex items-center justify-between flex-wrap gap-3">
-      <h1 class="text-2xl font-bold text-white">💰 Dépenses</h1>
+      <h1 class="text-lg sm:text-2xl font-bold text-white">💰 Dépenses</h1>
       <div class="flex items-center gap-2 flex-wrap">
         <select class="input text-sm py-1.5" onchange="refreshExpenses(+this.value)">
           ${years.map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}
@@ -5454,16 +5626,18 @@ function renderInvestissements(app) {
     ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
 
-      <div class="flex items-start justify-between gap-4">
-        <div>
-          <h1 class="text-2xl font-bold text-white">📊 Investissements financiers</h1>
-          <p class="text-slate-400 text-sm mt-0.5">Analyse de ton patrimoine financier · ${allPositions.length} positions</p>
+      <div class="space-y-1">
+        <div class="flex items-center justify-between gap-2">
+          <h1 class="text-lg sm:text-2xl font-bold text-white truncate">📊 Investissements financiers</h1>
+          <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2 flex-shrink-0">
+            <span class="sm:hidden">📈</span><span class="hidden sm:inline">📈 Historique</span>
+          </a>
         </div>
-        <a href="#hist-global" onclick="navigate('#hist-global');return false;" class="btn-secondary text-sm flex-shrink-0">📈 Historique</a>
+        <p class="text-slate-400 text-sm">Analyse de ton patrimoine financier · ${allPositions.length} positions</p>
       </div>
 
       <!-- Stats globales -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="bg-slate-800 rounded-xl p-4">
           <p class="text-slate-400 text-xs mb-1">Valeur totale</p>
           <p class="text-white font-bold text-xl">${fmt(Math.round(gs.total))}</p>
@@ -5645,7 +5819,7 @@ function residDashboardCard() {
   const patriNet = valEstimee - dette;
   const principale = STATE.residences.find(r => r.type === 'principale');
   return `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#residences')">
         <p class="text-slate-400 text-xs mb-1">Valeur estimée</p>
         <p class="text-white font-bold text-lg">${fmt(Math.round(valEstimee))}</p>
@@ -5676,8 +5850,8 @@ function renderResidences(app) {
     ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-white">🏡 Mes Résidences</h1>
-        <button onclick="openResidenceModal()" class="btn-primary text-sm">+ Ajouter</button>
+        <h1 class="text-lg sm:text-2xl font-bold text-white">🏡 Mes Résidences</h1>
+        <button onclick="openResidenceModal()" class="btn-primary text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5 flex-shrink-0">+ Ajouter</button>
       </div>
       ${STATE.residences?.length ? `
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -5753,21 +5927,25 @@ function renderResidenceDetail(app, id) {
   app.innerHTML = `
     ${navbar(`<a href="#residences" onclick="navigate('#residences');return false;" class="text-slate-400 hover:text-white text-sm">← Mes résidences</a>`)}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
-      <div class="flex items-start justify-between gap-4">
-        <div>
-          <div class="flex items-center gap-2 mb-1">
+      <div class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
             ${res.type === 'principale'
-              ? '<span class="bg-violet-500/20 text-violet-300 text-xs font-semibold px-2 py-0.5 rounded-full">PRINCIPALE</span>'
-              : '<span class="bg-slate-600/60 text-slate-300 text-xs font-semibold px-2 py-0.5 rounded-full">SECONDAIRE</span>'}
+              ? '<span class="bg-violet-500/20 text-violet-300 text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0">PRINCIPALE</span>'
+              : '<span class="bg-slate-600/60 text-slate-300 text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0">SECONDAIRE</span>'}
+            <h1 class="text-lg sm:text-2xl font-bold text-white truncate">${esc(res.nom)}</h1>
           </div>
-          <h1 class="text-2xl font-bold text-white">${esc(res.nom)}</h1>
-          <p class="text-slate-400 text-sm mt-0.5">${res.surface_m2 ? res.surface_m2 + ' m²' : ''} · Acheté ${fmt(Number(res.prix_achat || 0))}</p>
+          <div class="flex gap-1.5 flex-shrink-0">
+            <button onclick="openResidValeurModal('${id}')" class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Valeur estimée">
+              <span class="sm:hidden">📍</span><span class="hidden sm:inline">📍 Valeur estimée</span>
+            </button>
+            <button onclick="openResidenceModal('${id}')" class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2" title="Modifier">
+              <span class="sm:hidden">✏</span><span class="hidden sm:inline">✏ Modifier</span>
+            </button>
+            <button onclick="confirmDeleteResidence('${id}')" class="btn-secondary text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2 text-red-400" title="Supprimer">✕</button>
+          </div>
         </div>
-        <div class="flex gap-2 flex-shrink-0">
-          <button onclick="openResidValeurModal('${id}')" class="btn-secondary text-sm">📍 Valeur estimée</button>
-          <button onclick="openResidenceModal('${id}')" class="btn-secondary text-sm">✏ Modifier</button>
-          <button onclick="confirmDeleteResidence('${id}')" class="btn-secondary text-sm text-red-400">✕</button>
-        </div>
+        <p class="text-slate-400 text-xs sm:text-sm">${res.surface_m2 ? res.surface_m2 + ' m²' : ''} · Acheté ${fmt(Number(res.prix_achat || 0))}</p>
       </div>
       ${residBloc1(res)}
       <div class="grid gap-6 lg:grid-cols-2">
@@ -6438,7 +6616,7 @@ function immoGlobalBloc() {
     <!-- Patrimoine -->
     <div class="bg-slate-800 rounded-xl p-5">
       <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">🏦 Patrimoine immobilier · ${g.nbBiens} bien${g.nbBiens > 1 ? 's' : ''}</h2>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <div>
           <p class="text-slate-500 text-xs mb-1">Valeur brute</p>
           <p class="text-white font-bold text-lg">${fmt(g.brut)}</p>
@@ -6562,7 +6740,7 @@ function immoDashboardCard() {
   const equity = brute - crd;
   const cfCol  = cf >= 0 ? 'text-emerald-400' : 'text-red-400';
   return `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="bg-slate-800 rounded-xl p-4 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#immo')">
         <p class="text-slate-400 text-xs mb-1">Valeur brute</p>
         <p class="text-white font-bold text-lg">${fmt(brute)}</p>
@@ -6593,8 +6771,8 @@ function renderImmo(app) {
     ${navbar()}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold text-white">🏠 Immobilier Locatif</h1>
-        <button onclick="openBienImmoModal()" class="btn-primary text-sm">+ Ajouter un bien</button>
+        <h1 class="text-lg sm:text-2xl font-bold text-white">🏠 Immobilier Locatif</h1>
+        <button onclick="openBienImmoModal()" class="btn-primary text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-1.5 flex-shrink-0">+ Ajouter</button>
       </div>
 
       ${STATE.biens_immo.length ? `
@@ -6668,7 +6846,7 @@ function renderImmoDetail(app, bienId) {
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold text-white">${esc(bien.nom)}</h1>
+          <h1 class="text-lg sm:text-2xl font-bold text-white truncate">${esc(bien.nom)}</h1>
           <p class="text-slate-400 text-sm mt-0.5">${bien.surface_m2 ? bien.surface_m2 + ' m²' : ''} · Acheté ${fmt(Number(bien.prix_achat))}</p>
         </div>
         <div class="flex gap-2 flex-shrink-0">
@@ -7028,7 +7206,7 @@ function immoTvaBloc() {
       </div>
 
       <!-- Cartes résumé -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <div class="bg-slate-700/40 rounded-lg p-3">
           <p class="text-slate-400 text-xs mb-1">TVA collectée</p>
           <p class="text-white font-bold">${fmt(Math.round(collectee))}</p>
