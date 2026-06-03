@@ -398,10 +398,18 @@ function getSheetAndIndex(ss, tabName, id) {
 }
 
 function createRow(tabName, obj) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(tabName);
+  const ss      = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet   = ss.getSheetByName(tabName);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  sheet.appendRow(headers.map(h => obj[h] ?? ''));
+  const values  = headers.map(h => obj[h] ?? '');
+  const newRow  = sheet.getLastRow() + 1;
+  sheet.appendRow(values);
+  // Force le format numérique sur toute cellule dont la valeur est un nombre
+  values.forEach((val, i) => {
+    if (typeof val === 'number' && !isNaN(val)) {
+      sheet.getRange(newRow, i + 1).setNumberFormat('0.##########');
+    }
+  });
   return obj;
 }
 
@@ -411,7 +419,13 @@ function updateRow(tabName, id, fields) {
   if (rowIndex < 1) throw new Error(`Ligne introuvable : ${id}`);
   Object.entries(fields).forEach(([key, val]) => {
     const col = headers.indexOf(key) + 1;
-    if (col > 0) sheet.getRange(rowIndex, col).setValue(val);
+    if (col > 0) {
+      const cell = sheet.getRange(rowIndex, col);
+      cell.setValue(val);
+      if (typeof val === 'number' && !isNaN(val)) {
+        cell.setNumberFormat('0.##########');
+      }
+    }
   });
   return { id, ...fields };
 }
