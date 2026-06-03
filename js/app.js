@@ -101,6 +101,43 @@ async function render() {
   renderDashboard(app);
 }
 
+// ─── MODE CONFIDENTIALITÉ ────────────────────────────────────────────────────
+
+function isPrivacyMode() {
+  return localStorage.getItem('privacy_mode') === '1';
+}
+
+function togglePrivacyMode() {
+  const next = !isPrivacyMode();
+  localStorage.setItem('privacy_mode', next ? '1' : '0');
+  applyPrivacyMode();
+  // Mettre à jour l'icône du bouton sans re-render
+  const btn = document.getElementById('privacy-btn');
+  if (btn) btn.textContent = next ? '🙈' : '👁';
+}
+
+function applyPrivacyMode() {
+  document.body.classList.toggle('privacy-mode', isPrivacyMode());
+}
+
+// Injection CSS une seule fois
+(function injectPrivacyCSS() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .privacy-mode .num {
+      filter: blur(7px);
+      user-select: none;
+      transition: filter 0.15s ease;
+      border-radius: 3px;
+    }
+    .privacy-mode .num:hover {
+      filter: blur(0);
+    }
+  `;
+  document.head.appendChild(style);
+  applyPrivacyMode();
+})();
+
 // ─── PARAMÈTRES CACHE ────────────────────────────────────────────────────────
 
 function openCacheSettings() {
@@ -696,7 +733,7 @@ function generatePdfResidences() {
               <tr><td>Mensualité crédit</td><td class="r amber">${_n(Math.round(mens))}/mois</td></tr>
               ${assur > 0 ? `<tr><td>Assurance</td><td class="r">${_n(assur)}/mois</td></tr>` : ''}
               <tr><td>Mensualité totale</td><td class="r" style="font-weight:700">${_n(Math.round(mens+assur))}/mois</td></tr>
-              ${r.numero_pret ? `<tr><td>N° prêt</td><td class="r muted">${r.numero_pret}</td></tr>` : ''}
+              ${r.numero_pret ? `<tr><td>N° prêt</td><td class="r muted"><span class="num">${r.numero_pret}</span></td></tr>` : ''}
               ${r.date_debut_credit ? `<tr><td>Début</td><td class="r">${r.date_debut_credit}</td></tr>` : ''}
               <tr><td>Fin théorique</td><td class="r">${dateFin}</td></tr>
               <tr><td>Ma part</td><td class="r ${soldee ? 'green' : 'amber'}">${soldee ? 'Remboursée ✓' : 'En cours'}</td></tr>
@@ -2030,6 +2067,7 @@ function navbar(left = '') {
       <div class="flex items-center gap-3 flex-shrink-0">
         <button onclick="openCacheSettings()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
         <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition whitespace-nowrap" title="Cache : ${ageLabel}">↻ <span class="hidden sm:inline">Actualiser</span></button>
+        <button onclick="togglePrivacyMode()" id="privacy-btn" class="text-slate-400 hover:text-white text-sm transition" title="Masquer les chiffres">${isPrivacyMode() ? '🙈' : '👁'}</button>
         <button onclick="localStorage.clear();location.reload()" class="text-slate-500 hover:text-white text-xs transition whitespace-nowrap" title="Déconnexion">⏻ <span class="hidden sm:inline">Déconnexion</span></button>
       </div>
     </nav>`;
@@ -2049,7 +2087,7 @@ function statCards(total, invested, totalCharges = 0, annualReturn = null) {
     const est = annualReturn.estimated;
     // Même couleur que la PV, légèrement atténuée
     const arColor = ar >= 0 ? 'text-emerald-500/70' : 'text-red-500/70';
-    annualLine = `<p class="text-xs ${arColor} mt-0.5">${est ? '~' : ''}${ar >= 0 ? '+' : ''}${ar}%/an${est ? '*' : ''}</p>`;
+    annualLine = `<p class="text-xs ${arColor} mt-0.5"><span class="num">${est ? '~' : ''}${ar >= 0 ? '+' : ''}${ar}%/an${est ? '*' : ''}</span></p>`;
   }
 
   return `
@@ -2065,7 +2103,7 @@ function statCards(total, invested, totalCharges = 0, annualReturn = null) {
       <div class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0">
         <p class="text-slate-400 text-xs mb-1">Plus-value</p>
         <p class="text-base sm:text-2xl font-bold leading-tight break-all ${pvColor}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
-        <p class="text-xs ${pctColor}">${pvPct}%</p>
+        <p class="text-xs ${pctColor}"><span class="num">${pvPct}%</span></p>
         ${annualLine}
       </div>
     </div>
@@ -2234,8 +2272,18 @@ function errorBanner(msg) {
   return `<div class="m-8 bg-red-900/30 border border-red-500 text-red-300 rounded-xl p-4 text-sm">Erreur : ${esc(msg)}</div>`;
 }
 
-function fmt(n) {
+function fmtRaw(n) {
   return Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+}
+
+function fmt(n) {
+  return `<span class="num">${fmtRaw(n)}</span>`;
+}
+
+function fmtPct(v, sign = true) {
+  const p = Number(v || 0);
+  const str = (sign && p >= 0 ? '+' : '') + p.toFixed(2) + '%';
+  return `<span class="num">${str}</span>`;
 }
 
 function fmtDate(dateStr) {
@@ -2449,7 +2497,7 @@ function svgLineChart(entries, { width = 600, height = 200, mini = false } = {})
       <line x1="${padL}" y1="${y}" x2="${(padL + cw).toFixed(1)}" y2="${y}"
         stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
       <text x="${(padL - 7).toFixed(1)}" y="${y}" text-anchor="end" dominant-baseline="middle"
-        fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif">${fmtAxisSmart(t, tickStep)}</text>`;
+        fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif" class="num">${fmtAxisSmart(t, tickStep)}</text>`;
   }).join('');
 
   // Labels X : max 7 étiquettes, bien réparties
@@ -2489,12 +2537,12 @@ function svgLineChart(entries, { width = 600, height = 200, mini = false } = {})
       : e.date;
     const pv      = Number(e.pv_euros);
     const pct     = Math.abs(Number(e.pv_pct)).toFixed(2);
-    const pvFmt   = fmt(Math.abs(Math.round(pv)));
+    const pvFmt   = fmtRaw(Math.abs(Math.round(pv)));
     const sign    = pv >= 0 ? '+' : '−';
-    const invest  = Number(e.valeur_investie) > 0 ? fmt(Math.round(Number(e.valeur_investie))) : '';
+    const invest  = Number(e.valeur_investie) > 0 ? fmtRaw(Math.round(Number(e.valeur_investie))) : '';
     return `<circle cx="${toX(i).toFixed(1)}" cy="${toY(v).toFixed(1)}" r="14"
       fill="transparent" style="cursor:crosshair"
-      data-date="${dateStr}" data-val="${fmt(Math.round(v))}"
+      data-date="${dateStr}" data-val="${fmtRaw(Math.round(v))}"
       data-invest="${invest}"
       data-pv="${sign}${pvFmt}" data-pct="${sign}${pct}%" data-up="${pv >= 0}"
       onmouseenter="showChartTip(event,this)"
@@ -3236,7 +3284,7 @@ function refreshMilePreview() {
   const rate = parseFloat(document.getElementById('mile-retrait')?.value) || 4;
   const fire = Math.round(val * rate / 100 / 12);
   const el   = document.getElementById('mile-preview');
-  if (el) el.textContent = val > 0 ? `FIRE : +${fmt(fire)}/mois (${rate}% SWR)` : '—';
+  if (el) el.innerHTML = val > 0 ? `FIRE : +${fmt(fire)}/mois (${rate}% SWR)` : '—';
 }
 
 function saveMilestone() {
@@ -4128,7 +4176,7 @@ function fireSvgChart(data, fireYear) {
       <line x1="${padL}" y1="${y}" x2="${(padL + cw).toFixed(1)}" y2="${y}"
         stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
       <text x="${(padL - 8).toFixed(1)}" y="${y}" text-anchor="end" dominant-baseline="middle"
-        fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif">${fmtAxis(t)}</text>`;
+        fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif" class="num">${fmtAxis(t)}</text>`;
   }).join('');
 
   // Labels axe X (années)
@@ -4686,7 +4734,7 @@ function refreshCellPreview() {
   const added = parseFloat(String(document.getElementById('ecell-amount').value).replace(',', '.')) || 0;
   const total = _cellEdit.mode === 'add' ? _cellEdit.currentVal + added : added;
   const el    = document.getElementById('ecell-preview');
-  if (el) el.textContent = fmt(Math.max(0, total));
+  if (el) el.innerHTML = fmt(Math.max(0, total));
 }
 
 async function saveExpenseCell() {
@@ -5280,7 +5328,7 @@ function svgHorizBars(entries, title) {
     return `<line x1="${x.toFixed(0)}" y1="${padT}" x2="${x.toFixed(0)}" y2="${H - padB}"
       stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
     <text x="${x.toFixed(0)}" y="${H - padB + 16}" text-anchor="middle"
-      fill="#64748b" font-size="8" font-family="inherit">${fmtTick(t)}</text>`;
+      fill="#64748b" font-size="8" font-family="inherit" class="num">${fmtTick(t)}</text>`;
   }).join('');
 
   const bars = entries.map((e, i) => {
@@ -5292,7 +5340,7 @@ function svgHorizBars(entries, title) {
       <text x="${(padL - 8).toFixed(0)}" y="${(y + barH/2 + 1).toFixed(0)}" text-anchor="end"
         dominant-baseline="middle" fill="#94a3b8" font-size="8" font-family="inherit">${e.key}</text>
       <text x="${(padL + w + 6).toFixed(0)}" y="${(y + barH/2).toFixed(0)}" dominant-baseline="middle"
-        fill="#e2e8f0" font-size="8" font-family="inherit">
+        fill="#e2e8f0" font-size="8" font-family="inherit" class="num">
         ${new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0}).format(e.val)} € <tspan fill="#64748b">(${pct}%)</tspan>
       </text>`;
   }).join('');
@@ -5755,7 +5803,7 @@ function residBloc1(res) {
         ${row('Mensualité crédit', '<span class="text-amber-400">' + fmt(Math.round(mens)) + '/mois</span>')}
         ${assur > 0 ? row('Assurance', fmt(assur) + '/mois') : ''}
         ${row('Mensualité totale', '<span class="text-amber-400 font-bold">' + fmt(Math.round(mens + assur)) + '/mois</span>')}
-        ${res.numero_pret ? row('N° prêt', esc(res.numero_pret)) : ''}
+        ${res.numero_pret ? row('N° prêt', `<span class="num">${esc(res.numero_pret)}</span>`) : ''}
         ${res.date_debut_credit ? row('Début crédit', res.date_debut_credit) : ''}
         ${residCapitalRestantDu(res) === 0 ? row('Ma part', '<span class="text-emerald-400 font-bold">✓ Remboursée</span>') : ''}
         ` : `${row('Crédit', '<span class="text-emerald-400 font-bold">Soldé ✓</span>')}`}
@@ -5840,7 +5888,7 @@ function residBloc3(res) {
     <div class="bg-slate-800 rounded-xl p-5">
       <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Crédit</h2>
       <div class="grid grid-cols-2 gap-4">
-        ${res.numero_pret ? `<div><p class="text-slate-500 text-xs">N° prêt</p><p class="text-white text-sm font-medium">${esc(res.numero_pret)}</p></div>` : ''}
+        ${res.numero_pret ? `<div><p class="text-slate-500 text-xs">N° prêt</p><p class="text-white text-sm font-medium"><span class="num">${esc(res.numero_pret)}</span></p></div>` : ''}
         <div><p class="text-slate-500 text-xs">Début</p><p class="text-white text-sm font-medium">${res.date_debut_credit || '—'}</p></div>
         <div><p class="text-slate-500 text-xs">Durée totale</p><p class="text-white text-sm font-medium">${n} mois (${Math.round(n / 12 * 10) / 10} ans)</p></div>
         <div><p class="text-slate-500 text-xs">Fin théorique</p><p class="text-white text-sm font-medium">${fmtDateFin}</p></div>
@@ -6044,7 +6092,7 @@ function previewResidMens() {
   const prev = document.getElementById('res-mens-preview');
   const val  = document.getElementById('res-mens-val');
   if (prev && val) {
-    if (C > 0 && n > 0) { prev.classList.remove('hidden'); val.textContent = fmt(Math.round(m)) + '/mois'; }
+    if (C > 0 && n > 0) { prev.classList.remove('hidden'); val.innerHTML = fmt(Math.round(m)) + '/mois'; }
     else prev.classList.add('hidden');
   }
 }
@@ -6668,7 +6716,7 @@ function immoBloc1(bien) {
         ${row('Taux annuel', (Number(bien.taux_credit) * 100).toFixed(2) + '%')}
         ${row('Mensualité crédit', '<span class="text-amber-400">' + fmt(mens) + '/mois</span>')}
         ${row('Assurance', fmt(Number(bien.mensualite_assurance || 0)) + '/mois')}
-        ${bien.numero_pret ? row('N° prêt', esc(bien.numero_pret)) : ''}
+        ${bien.numero_pret ? row('N° prêt', `<span class="num">${esc(bien.numero_pret)}</span>`) : ''}
         ${bien.date_debut_credit ? row('Début crédit', bien.date_debut_credit) : ''}
         ` : ''}
       </div>
@@ -7491,7 +7539,7 @@ function previewMensualite() {
   const prev = document.getElementById('bi-mens-preview');
   const val  = document.getElementById('bi-mens-val');
   if (prev && val) {
-    if (C > 0 && n > 0) { prev.classList.remove('hidden'); val.textContent = fmt(m) + '/mois'; }
+    if (C > 0 && n > 0) { prev.classList.remove('hidden'); val.innerHTML = fmt(m) + '/mois'; }
     else prev.classList.add('hidden');
   }
 }
@@ -7669,7 +7717,7 @@ function refreshDepPreview() {
   const rate   = parseFloat(document.getElementById('dep-tva-rate')?.value) || 10;
   if (type === 'loyer' && hasTva && m > 0) {
     const el = document.getElementById('dep-ht-val');
-    if (el) el.textContent = fmt(m / (1 + rate / 100));
+    if (el) el.innerHTML = fmt(m / (1 + rate / 100));
   }
 }
 
