@@ -299,30 +299,31 @@ function _poncutelAmount(itemId, month, year) {
 function _initImmo(ss, now) {
   _log('  → Immobilier locatif...');
 
-  _resetSheet(ss, 'biens_immo', [
+  const IMMO_HEADERS = [
     'id','nom','prix_achat','surface_m2',
     'loyer_annuel_ht','charges_annuelles','taxe_fonciere',
     'montant_credit','taux_credit','duree_credit_mois','date_debut_credit',
     'mensualite_assurance','numero_pret','charges_mensuelles',
-  ], ['prix_achat','surface_m2','loyer_annuel_ht','charges_annuelles','taxe_fonciere','montant_credit','taux_credit','duree_credit_mois','mensualite_assurance','charges_mensuelles']);
-  const biensSheet = ss.getSheetByName('biens_immo');
+  ];
+  const IMMO_NUMERIC = ['prix_achat','surface_m2','loyer_annuel_ht','charges_annuelles','taxe_fonciere','montant_credit','taux_credit','duree_credit_mois','mensualite_assurance','charges_mensuelles'];
+  const biensSheet = _resetSheet(ss, 'biens_immo', IMMO_HEADERS, IMMO_NUMERIC);
 
   // Début des crédits : il y a 9 et 6 mois
   const debut1 = new Date(now); debut1.setMonth(debut1.getMonth() - 9);
   const debut2 = new Date(now); debut2.setMonth(debut2.getMonth() - 6);
 
-  biensSheet.appendRow([
+  _appendRow(biensSheet, IMMO_HEADERS, [
     D.IMMO1, 'Appartement T2 — Lyon 7e', 98000, 42,
-    8400, 1200, 720,                         // loyer annuel HT, charges, TF
-    78000, 0.034, 300, _isoDate(debut1),     // crédit 78K, 3.4%, 25 ans
-    20, 'PRD-2024-04721', 100,               // assurance, n° prêt, charges mens.
-  ]);
-  biensSheet.appendRow([
+    8400, 1200, 720,
+    78000, 0.034, 300, _isoDate(debut1),
+    20, 'PRD-2024-04721', 100,
+  ], IMMO_NUMERIC);
+  _appendRow(biensSheet, IMMO_HEADERS, [
     D.IMMO2, 'Studio — Paris 18e', 105000, 22,
-    9600, 900, 850,                          // loyer annuel HT, charges, TF
-    84000, 0.032, 300, _isoDate(debut2),     // crédit 84K, 3.2%, 25 ans
-    18, 'PRD-2024-09182', 75,               // assurance, n° prêt, charges mens.
-  ]);
+    9600, 900, 850,
+    84000, 0.032, 300, _isoDate(debut2),
+    18, 'PRD-2024-09182', 75,
+  ], IMMO_NUMERIC);
 
   // ── dépenses immo (loyers + échéances + charges) ──────────────────────────
   _resetSheet(ss, 'depenses_immo', [
@@ -398,34 +399,35 @@ function _initImmo(ss, now) {
 function _initResidences(ss, now) {
   _log('  → Résidences...');
 
-  _resetSheet(ss, 'residences', [
+  const RESID_HEADERS = [
     'id','nom','type','prix_achat','valeur_estimee','date_valeur_estimee',
     'quote_part','montant_credit','taux_credit','duree_credit_mois',
     'date_debut_credit','mensualite_assurance','numero_pret','credit_part_soldee',
-  ], ['prix_achat','valeur_estimee','quote_part','montant_credit','taux_credit','duree_credit_mois','mensualite_assurance','credit_part_soldee']);
-  const residSheet = ss.getSheetByName('residences');
+  ];
+  const RESID_NUMERIC = ['prix_achat','valeur_estimee','quote_part','montant_credit','taux_credit','duree_credit_mois','mensualite_assurance','credit_part_soldee'];
+  const residSheet = _resetSheet(ss, 'residences', RESID_HEADERS, RESID_NUMERIC);
 
   // Crédit commencé il y a 3 ans
   const debutRP = new Date(now);
   debutRP.setFullYear(debutRP.getFullYear() - 3);
   debutRP.setDate(1);
 
-  residSheet.appendRow([
+  _appendRow(residSheet, RESID_HEADERS, [
     D.RESID1,
     'Résidence Principale',
     'principale',
-    250000,           // prix d'achat
-    272000,           // valeur estimée actuelle
-    _isoDate(now),    // date MAJ valeur
-    1,                // quote-part 100%
-    200000,           // crédit 200K
-    0.012,            // taux 1.2%
-    240,              // 20 ans
+    250000,            // prix d'achat
+    272000,            // valeur estimée actuelle
+    _isoDate(now),     // date MAJ valeur
+    1,                 // quote-part 100%
+    200000,            // crédit 200K
+    0.012,             // taux 1.2%
+    240,               // 20 ans
     _isoDate(debutRP),
-    35,               // assurance 35€/mois
-    'HAB-2021-00347', // n° prêt
-    0,                // non soldé
-  ]);
+    35,                // assurance 35€/mois
+    'HAB-2021-00347',  // n° prêt
+    0,                 // non soldé
+  ], RESID_NUMERIC);
 
   _log('    ✓ 1 résidence principale');
 }
@@ -489,19 +491,20 @@ function _initMilestones(ss) {
 // ─── UTILITAIRES ─────────────────────────────────────────────────────────────
 
 function _resetSheet(ss, name, headers, numericCols) {
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) {
-    sheet = ss.insertSheet(name);
-  } else {
-    sheet.clearContents();
-    sheet.clearFormats();
-  }
-  sheet.appendRow(headers);
+  // Supprime et recrée la feuille pour garantir un état propre
+  // (clearFormats seul ne réinitialise pas les colonnes au format Texte)
+  const existing = ss.getSheetByName(name);
+  if (existing) ss.deleteSheet(existing);
+  const sheet = ss.insertSheet(name);
 
-  // Force le format numérique sur les colonnes spécifiées (évite le format Texte)
+  // En-têtes en gras
+  sheet.appendRow(headers);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+
+  // Force le format numérique sur toute la colonne (hors en-tête)
   if (numericCols && numericCols.length) {
     numericCols.forEach(colName => {
-      const colIdx = headers.indexOf(colName) + 1; // 1-based
+      const colIdx = headers.indexOf(colName) + 1;
       if (colIdx > 0) {
         sheet.getRange(2, colIdx, sheet.getMaxRows() - 1, 1).setNumberFormat('0.##########');
       }
@@ -509,6 +512,21 @@ function _resetSheet(ss, name, headers, numericCols) {
   }
 
   return sheet;
+}
+
+// Ajoute une ligne en forçant explicitement le type numérique sur chaque valeur
+// (appendRow seul peut stocker un nombre comme texte si la colonne a un historique de format Texte)
+function _appendRow(sheet, headers, values, numericCols) {
+  numericCols = numericCols || [];
+  sheet.appendRow(values);
+  const row = sheet.getLastRow();
+  values.forEach((val, i) => {
+    if (numericCols.includes(headers[i]) && val !== null && val !== '') {
+      const cell = sheet.getRange(row, i + 1);
+      cell.setValue(Number(val));
+      cell.setNumberFormat('0.##########');
+    }
+  });
 }
 
 function _isoDate(d) {

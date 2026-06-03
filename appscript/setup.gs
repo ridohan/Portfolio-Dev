@@ -1,5 +1,10 @@
 // setup.gs
 // Lance ces fonctions UNE SEULE FOIS depuis l'éditeur AppScript.
+// Ordre recommandé :
+//   1. setSecretToken()
+//   2. setCMCApiKey()
+//   3. setup()
+//   4. setupTriggers()
 
 // 1. Définit le token secret de l'app (protection de la Web App).
 function setSecretToken() {
@@ -44,4 +49,36 @@ function setup() {
   });
 
   Logger.log('Setup terminé — tous les onglets sont prêts.');
+}
+
+// 4. Crée les déclencheurs temporels automatiques.
+//    ⚠️  À exécuter UNE SEULE FOIS. Supprime les anciens déclencheurs existants
+//    pour éviter les doublons avant d'en créer de nouveaux.
+function setupTriggers() {
+  // Supprime tous les déclencheurs existants sur ce projet
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+
+  // refreshDashboards() — toutes les 8 heures
+  ScriptApp.newTrigger('refreshDashboards')
+    .timeBased()
+    .everyHours(8)
+    .create();
+
+  // updateAllPrices() — toutes les 4 heures
+  ScriptApp.newTrigger('updateAllPrices')
+    .timeBased()
+    .everyHours(4)
+    .create();
+
+  // takeDailySnapshot() — chaque jour entre 18h et 19h
+  ScriptApp.newTrigger('takeDailySnapshot')
+    .timeBased()
+    .everyDays(1)
+    .atHour(18)
+    .create();
+
+  // Résumé
+  const triggers = ScriptApp.getProjectTriggers();
+  Logger.log('✅ ' + triggers.length + ' déclencheurs créés :');
+  triggers.forEach(t => Logger.log('  · ' + t.getHandlerFunction() + ' — ' + t.getEventType()));
 }
