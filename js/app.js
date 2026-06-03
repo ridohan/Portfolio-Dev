@@ -202,6 +202,32 @@ function openCacheSettings() {
           <p id="import-json-status" class="text-xs hidden"></p>
         </div>
 
+        <!-- Paramètres rendement -->
+        <div class="bg-slate-700/40 rounded-lg p-4 space-y-3">
+          <p class="text-slate-300 text-sm font-medium">📈 Calcul du rendement</p>
+          <p class="text-slate-500 text-xs">Utilisé dans les simulations, FIRE et projection fin d'année.</p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Historique minimum</label>
+              <div class="relative">
+                <input id="return-min-history" type="number" min="1" max="60" step="1" value="${getMinHistoryMonths()}"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-12">
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">mois</span>
+              </div>
+            </div>
+            <div>
+              <label class="block text-slate-400 text-xs mb-1">Taux par défaut</label>
+              <div class="relative">
+                <input id="return-default-rate" type="number" min="0" max="30" step="0.5" value="${getDefaultReturnRate()}"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-8">
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">%</span>
+              </div>
+            </div>
+          </div>
+          <p class="text-slate-600 text-xs">Si historique &lt; seuil → taux par défaut utilisé pour les simulations</p>
+          <button onclick="saveReturnSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto block">Sauvegarder</button>
+        </div>
+
         <!-- Rapports PDF -->
         <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
           <p class="text-slate-300 text-sm font-medium">📄 Rapports PDF</p>
@@ -224,6 +250,15 @@ function openCacheSettings() {
   document.getElementById('modal-cache-settings').classList.remove('hidden');
 }
 
+function saveReturnSettings() {
+  const months = parseInt(document.getElementById('return-min-history')?.value) || 6;
+  const rate   = parseFloat(document.getElementById('return-default-rate')?.value) || 7;
+  persistUiPref('return_min_history_months', Math.max(1, Math.min(60, months)));
+  persistUiPref('return_default_rate',       Math.max(0, Math.min(30, rate)));
+  const btn = document.querySelector('#return-min-history')?.closest('.bg-slate-700\\/40')?.querySelector('button');
+  if (btn) { btn.textContent = '✓ Sauvegardé'; setTimeout(() => { btn.textContent = 'Sauvegarder'; }, 1500); }
+}
+
 function closeCacheSettings() {
   const el = document.getElementById('modal-cache-settings');
   if (el) el.classList.add('hidden');
@@ -232,7 +267,9 @@ function closeCacheSettings() {
 function saveCacheSettings() {
   const val = parseInt(document.getElementById('cache-ttl-input').value, 10);
   if (val >= 1) API.setCacheTTL(val);
-  render(); // rafraîchit la navbar pour afficher le nouveau TTL
+  const btn = document.querySelector('#cache-ttl-input')?.closest('.bg-slate-700\\/40')?.querySelector('button');
+  if (btn) { btn.textContent = '✓ Sauvegardé'; setTimeout(() => { btn.textContent = 'Sauvegarder'; render(); }, 1500); }
+  else render();
 }
 
 function exportDataJSON() {
@@ -1336,6 +1373,7 @@ function _dashBlock(id, stats) {
     case 'projections': return `
       <div class="flex items-center justify-between gap-2 min-w-0">
         <h2 class="text-base sm:text-lg font-semibold text-white truncate">🎯 Simulations</h2>
+        <button onclick="openProjModal()" class="btn-secondary text-xs px-2 py-1 flex-shrink-0">+ Simulation</button>
       </div>
       <div id="proj-section">${projBlock()}</div>`;
     case 'milestones': return `
@@ -2977,6 +3015,12 @@ function renderHistoryGlobal(app) {
 // Paramètres de simulation (persistés pendant la session)
 let _fp = null;
 
+// ─── PARAMÈTRES RENDEMENT ────────────────────────────────────────────────────
+// Durée minimale d'historique (en mois) pour considérer le calcul comme fiable
+function getMinHistoryMonths() { return Number(getUiPref('return_min_history_months', 6)); }
+// Taux de rendement par défaut si l'historique est insuffisant (en %)
+function getDefaultReturnRate()  { return Number(getUiPref('return_default_rate', 7)); }
+
 // Calcule le rendement annualisé (CAGR) à partir d'un tableau d'entrées history.
 // Retourne { value: number|null, estimated: boolean }
 //   • value      : rendement annualisé en %, arrondi à 0.1 %
@@ -2992,8 +3036,9 @@ function computeAnnualReturn(histEntries) {
     ? (new Date(last.date) - new Date(first.date)) / 86400000
     : 0;
 
-  // Moins de 6 mois d'historique → hypothèse 5 ans de détention
-  const estimated = histDays < 180;
+  // Moins de N mois d'historique → hypothèse 5 ans de détention
+  const minDays   = getMinHistoryMonths() * 30;
+  const estimated = histDays < minDays;
   const years     = estimated ? 5 : histDays / 365;
 
   const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
@@ -3013,7 +3058,7 @@ function estimateAnnualReturn() {
 
   // PV% : ratio rendement total depuis le prix d'achat
   const totalReturn = last ? Number(last.pv_pct) / 100 : null;
-  if (totalReturn === null || !isFinite(totalReturn) || totalReturn <= -1) return 7;
+  if (totalReturn === null || !isFinite(totalReturn) || totalReturn <= -1) return getDefaultReturnRate();
 
   // Durée réelle de l'historique en jours
   const first       = hist[0];
@@ -3021,8 +3066,9 @@ function estimateAnnualReturn() {
     ? (new Date(last.date) - new Date(first.date)) / 86400000
     : 0;
 
-  // Si moins de 6 mois d'historique : on pose l'hypothèse de 5 ans de détention
-  const years = histDays >= 180 ? histDays / 365 : 5;
+  // Si moins de N mois d'historique : on pose l'hypothèse de 5 ans de détention
+  const minDays = getMinHistoryMonths() * 30;
+  const years   = histDays >= minDays ? histDays / 365 : 5;
 
   const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
   // Arrondi au 0.5 % le plus proche, borné entre 0 et 20 %
@@ -3261,13 +3307,6 @@ function projBlock() {
   return `
     <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       ${cards}
-      <div class="bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-xl p-5 flex items-center justify-center cursor-pointer hover:border-slate-500 hover:bg-slate-800 transition min-h-[112px]"
-        onclick="openProjModal()">
-        <div class="text-center">
-          <p class="text-slate-500 text-2xl mb-1">+</p>
-          <p class="text-slate-500 text-xs">Nouvelle simulation</p>
-        </div>
-      </div>
     </div>`;
 }
 
