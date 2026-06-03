@@ -3161,26 +3161,44 @@ function projCalc(sim) {
 
 // ── Rendu carte simulation ────────────────────────────────────────────────────
 
+function moveProjSim(id, dir) {
+  const sims = loadProjections();
+  const idx  = sims.findIndex(s => s.id === id);
+  const to   = idx + dir;
+  if (to < 0 || to >= sims.length) return;
+  [sims[idx], sims[to]] = [sims[to], sims[idx]];
+  saveProjections(sims);
+  setEl('proj-section', projBlock());
+}
+
 function projCard(sim) {
   const { pv, fv, gain, t } = projCalc(sim);
+  const sims     = loadProjections();
+  const idx      = sims.findIndex(s => s.id === sim.id);
+  const isFirst  = idx === 0;
+  const isLast   = idx === sims.length - 1;
   const gainPct  = pv > 0 ? ((gain / pv) * 100).toFixed(1) : '0.0';
   const gc       = gain >= 0 ? 'text-emerald-400' : 'text-red-400';
   const pmtLine  = sim.pmt > 0 ? ` · +${fmt(sim.pmt)}/mois` : '';
   const yearsLeft = Number(sim.annee) - new Date().getFullYear();
   const yLabel    = yearsLeft > 0 ? `dans ${yearsLeft} an${yearsLeft > 1 ? 's' : ''}` : 'cette année';
   return `
-    <div class="bg-slate-800 rounded-xl p-5 cursor-pointer hover:bg-slate-750 transition"
-         onclick="openProjModal('${sim.id}')">
-      <div class="flex items-start justify-between">
-        <div class="min-w-0 flex-1">
-          <p class="text-slate-400 text-xs mb-0.5">🎯 <span class="font-medium text-slate-300">${esc(sim.nom)}</span></p>
-          <p class="text-white text-2xl font-bold">${fmt(fv)}</p>
-          <p class="${gc} text-sm mt-0.5">${gain >= 0 ? '+' : ''}${fmt(gain)} <span class="text-xs opacity-70">(${gain >= 0 ? '+' : ''}${gainPct}%)</span></p>
+    <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition">
+      <div class="flex items-start justify-between mb-3">
+        <p class="text-slate-400 text-xs">🎯 <span class="font-medium text-slate-300">${esc(sim.nom)}</span></p>
+        <div class="flex items-center gap-0.5 flex-shrink-0 ml-2">
+          <button onclick="moveProjSim('${sim.id}',-1)" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition text-lg font-bold ${isFirst ? 'opacity-20 pointer-events-none' : ''}" title="Monter">↑</button>
+          <button onclick="moveProjSim('${sim.id}',1)"  class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition text-lg font-bold ${isLast  ? 'opacity-20 pointer-events-none' : ''}" title="Descendre">↓</button>
         </div>
-        <div class="text-right flex-shrink-0 ml-3">
-          <p class="text-slate-500 text-xs">${sim.rate}%/an${pmtLine}</p>
-          <p class="text-slate-600 text-xs mt-0.5">Fin ${sim.annee} · ${yLabel}</p>
-          <p class="text-slate-700 text-xs mt-0.5">${t} mois</p>
+      </div>
+      <div class="cursor-pointer" onclick="openProjModal('${sim.id}')">
+        <div class="flex items-baseline justify-between gap-2">
+          <p class="text-white text-2xl font-bold">${fmt(fv)}</p>
+          <p class="text-slate-500 text-xs text-right flex-shrink-0">${sim.rate}%/an${pmtLine}</p>
+        </div>
+        <div class="flex items-baseline justify-between gap-2 mt-0.5">
+          <p class="${gc} text-sm">${gain >= 0 ? '+' : ''}${fmt(gain)} <span class="text-xs opacity-70">(${gain >= 0 ? '+' : ''}${gainPct}%)</span></p>
+          <p class="text-slate-600 text-xs text-right flex-shrink-0">Fin ${sim.annee} · ${yLabel}</p>
         </div>
       </div>
     </div>`;
