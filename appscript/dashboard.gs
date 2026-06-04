@@ -1391,6 +1391,7 @@ function residPlusValue(r) {
 // ─── CALCULS PATRIMOINE FINANCIER ────────────────────────────────────────────
 
 function currentPriceCalc(identifiant, type, priceByIsin, cryptoBySymbol) {
+  if (identifiant === 'LIQUIDITES') return 1;
   if (type === 'bourse')  return Number(priceByIsin[identifiant]?.prix_actuel) || 0;
   if (type === 'crypto')  return Number(cryptoBySymbol[String(identifiant).toUpperCase()]?.prix_actuel) || 0;
   return 0;
@@ -1424,6 +1425,7 @@ function calcPortfolioStats(portfolioId, allEnvelopes, allPositions, priceByIsin
       positions.forEach(pos => {
         const pr  = currentPriceCalc(pos.identifiant, env.type, priceByIsin, cryptoBySymbol);
         const val = pr * (Number(pos.quantite) || 0);
+        if (pos.identifiant === 'LIQUIDITES') { cash += val; return; }
         const t   = priceByIsin[pos.identifiant]?.type;
         if (env.type === 'crypto' || t === 'action') actions += val;
         else if (t === 'bond') obligations += val;

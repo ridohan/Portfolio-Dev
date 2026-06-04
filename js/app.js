@@ -1599,15 +1599,18 @@ function positionsTable(positions, type) {
       : type === 'crypto'
         ? STATE.crypto_prices.find(p => p.symbole === pos.identifiant)?.nom || ''
         : '';
-    const etfType    = type === 'bourse'
+    const isCash     = pos.identifiant === 'LIQUIDITES';
+    const etfType    = type === 'bourse' && !isCash
       ? STATE.prices.find(p => p.isin === pos.identifiant)?.type || ''
       : '';
-    const typeBadge  = etfType === 'action'
-      ? `<span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">action</span>`
-      : etfType === 'bond'
-        ? `<span class="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">bond</span>`
-        : '';
-    const label = etfNom || pos.identifiant;
+    const typeBadge  = isCash
+      ? `<span class="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">cash</span>`
+      : etfType === 'action'
+        ? `<span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">action</span>`
+        : etfType === 'bond'
+          ? `<span class="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">bond</span>`
+          : '';
+    const label = isCash ? '💶 Liquidités' : (etfNom || pos.identifiant);
 
     const pvColor = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
     const pvStr   = `${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)`;
@@ -1758,17 +1761,38 @@ function modalPosition(envelopeId, type) {
       <div class="modal-box">
         <h2 class="text-white font-semibold mb-4">Nouvelle position</h2>
         <form id="form-position" class="space-y-3">
-          <div>
-            <label class="label">${isEpargne ? 'Nom du compte' : isCrypto ? 'Symbole (ex: BTC)' : 'ISIN'}</label>
-            <input name="identifiant" placeholder="${isEpargne ? 'Livret A BNP' : isCrypto ? 'BTC' : 'LU0274208692'}" required class="input" />
+          ${!isEpargne && !isCrypto ? `
+          <!-- Toggle bourse / liquidités -->
+          <div class="flex gap-2 p-1 bg-slate-700/50 rounded-lg">
+            <button type="button" id="pos-mode-etf" onclick="setPosMode('etf')"
+              class="flex-1 py-1.5 rounded text-xs font-medium transition bg-slate-600 text-white">📊 ETF / Action</button>
+            <button type="button" id="pos-mode-cash" onclick="setPosMode('cash')"
+              class="flex-1 py-1.5 rounded text-xs font-medium transition text-slate-400 hover:text-white">💶 Liquidités</button>
+          </div>` : ''}
+          <!-- Champs ETF/Action (mode normal) -->
+          <div id="pos-fields-etf">
+            <div>
+              <label class="label">${isEpargne ? 'Nom du compte' : isCrypto ? 'Symbole (ex: BTC)' : 'ISIN'}</label>
+              <input name="identifiant" id="pos-identifiant" placeholder="${isEpargne ? 'Livret A BNP' : isCrypto ? 'BTC' : 'LU0274208692'}" required class="input" />
+            </div>
+            ${isEpargne
+              ? `<div class="mt-3"><label class="label">Montant actuel (€)</label><input name="prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
+                 <div class="mt-3"><label class="label">Taux annuel (%)</label><input name="quantite" type="number" step="0.01" min="0" required class="input" /></div>`
+              : `<div class="grid grid-cols-2 gap-2 mt-3">
+                   <div><label class="label">Prix d'achat (€)</label><input name="prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
+                   <div><label class="label">Quantité</label><input name="quantite" type="number" step="0.000001" min="0" required class="input" /></div>
+                 </div>`}
           </div>
-          ${isEpargne
-            ? `<div><label class="label">Montant actuel (€)</label><input name="prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
-               <div><label class="label">Taux annuel (%)</label><input name="quantite" type="number" step="0.01" min="0" required class="input" /></div>`
-            : `<div class="grid grid-cols-2 gap-2">
-                 <div><label class="label">Prix d'achat (€)</label><input name="prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
-                 <div><label class="label">Quantité</label><input name="quantite" type="number" step="0.000001" min="0" required class="input" /></div>
-               </div>`}
+          <!-- Champs Liquidités (mode cash) -->
+          <div id="pos-fields-cash" class="hidden space-y-3">
+            <div class="bg-slate-700/30 rounded-lg p-3 text-slate-400 text-xs">
+              💶 Le montant saisi sera compté comme <span class="text-white font-medium">poche cash</span> dans l'allocation de votre portfolio.
+            </div>
+            <div>
+              <label class="label">Montant de liquidités (€)</label>
+              <input id="pos-cash-montant" type="number" step="0.01" min="0" placeholder="ex : 1500" class="input" />
+            </div>
+          </div>
           <p id="err-position" class="text-red-400 text-xs hidden"></p>
           <div class="flex gap-2 pt-1">
             <button type="submit" class="btn-primary flex-1">Ajouter</button>
@@ -1942,17 +1966,43 @@ function openModal(type, ...args) {
       e.preventDefault();
       const btn = e.target.querySelector('[type=submit]');
       setLoading(btn, true);
-      const d = Object.fromEntries(new FormData(e.target));
       const envelopeType = args[1];
-      const payload = { envelope_id: args[0], identifiant: d.identifiant, prix_achat: d.prix_achat, quantite: d.quantite };
-      try {
+      const isCashMode = document.getElementById('pos-fields-cash') &&
+                         !document.getElementById('pos-fields-cash').classList.contains('hidden');
+      let payload;
+      if (isCashMode) {
+        const montant = parseFloat(document.getElementById('pos-cash-montant')?.value) || 0;
+        if (!montant) { setLoading(btn, false); return; }
+        payload = { envelope_id: args[0], identifiant: 'LIQUIDITES', prix_achat: 1, quantite: montant };
+      } else {
+        const d = Object.fromEntries(new FormData(e.target));
+        payload = { envelope_id: args[0], identifiant: d.identifiant, prix_achat: d.prix_achat, quantite: d.quantite };
         if (envelopeType === 'bourse') await API.addPrice({ isin: d.identifiant });
         if (envelopeType === 'crypto') await API.addCryptoPrice({ symbole: d.identifiant });
+      }
+      try {
         await withErr('position', () => API.addPosition(payload));
         closeModal('position'); render();
       } finally { setLoading(btn, false); }
     };
   }
+}
+
+function setPosMode(mode) {
+  const etfFields  = document.getElementById('pos-fields-etf');
+  const cashFields = document.getElementById('pos-fields-cash');
+  const etfBtn     = document.getElementById('pos-mode-etf');
+  const cashBtn    = document.getElementById('pos-mode-cash');
+  if (!etfFields) return;
+  const isCash = mode === 'cash';
+  etfFields.classList.toggle('hidden', isCash);
+  cashFields.classList.toggle('hidden', !isCash);
+  etfBtn.className  = `flex-1 py-1.5 rounded text-xs font-medium transition ${!isCash ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}`;
+  cashBtn.className = `flex-1 py-1.5 rounded text-xs font-medium transition ${isCash  ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}`;
+  // Rendre les champs ETF non-required en mode cash
+  etfFields.querySelectorAll('[required]').forEach(el => {
+    isCash ? el.removeAttribute('required') : el.setAttribute('required', '');
+  });
 }
 
 function closeModal(type) {
@@ -2061,6 +2111,7 @@ function setLoading(btn, isLoading) {
 // ─── CALCULS ─────────────────────────────────────────────────────────────────
 
 function currentPrice(identifiant, type) {
+  if (identifiant === 'LIQUIDITES') return 1; // 1€/unité, quantite = montant en €
   if (type === 'bourse')  return Number(STATE.prices.find(p => p.isin === identifiant)?.prix_actuel) || 0;
   if (type === 'crypto')  return Number(STATE.crypto_prices.find(p => p.symbole === identifiant)?.prix_actuel) || 0;
   return Number(identifiant) || 0;
@@ -2097,6 +2148,7 @@ function portfolioStats(portfolioId) {
       positions.forEach(pos => {
         const pr   = currentPrice(pos.identifiant, env.type);
         const val  = pr * Number(pos.quantite);
+        if (pos.identifiant === 'LIQUIDITES') { cash += val; return; }
         const type = STATE.prices.find(p => p.isin === pos.identifiant)?.type;
         if (env.type === 'crypto' || type === 'action') actions += val;
         else if (type === 'bond') obligations += val;
@@ -5504,10 +5556,12 @@ const INVEST_CATEGORIES = [
     keywords: ['monét','monetaire','money market','liquidity','liquidit','eonia','ester',
                'overnight','short term','court term','cash','pcm ','scpi'] },
   // Crypto — détecté via type d'enveloppe, pas les keywords
-  { key: 'Crypto', color: '#f687b3', keywords: [] },
+  { key: 'Crypto',      color: '#f687b3', keywords: [] },
+  { key: 'Liquidités',  color: '#68d391', keywords: [] },
 ];
 
 function inferEtfCategory(pos, envType) {
+  if (pos.identifiant === 'LIQUIDITES') return 'Liquidités';
   if (envType === 'crypto') return 'Crypto';
 
   const price = STATE.prices.find(p => p.isin === pos.identifiant);
