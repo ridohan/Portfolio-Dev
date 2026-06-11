@@ -157,6 +157,16 @@ const _fsDB = (() => {
 const LAST_SAVE_TS_KEY      = 'portfolio_last_save_ts';
 const LAST_FILE_SAVE_TS_KEY = 'portfolio_last_file_save_ts';
 
+async function forceSaveNow(btn) {
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+  await autoSaveToFile();
+  if (btn) {
+    btn.textContent = '✓ Sauvegardé';
+    btn.classList.add('text-emerald-400');
+    setTimeout(() => { btn.textContent = '↓ Sauvegarder'; btn.classList.remove('text-emerald-400'); btn.disabled = false; }, 2000);
+  }
+}
+
 async function autoSaveToFile() {
   // Toujours persister dans localStorage
   Storage.save(STATE);
@@ -279,7 +289,10 @@ function _renderAutoSaveBlock() {
           <p class="text-emerald-300 text-xs font-medium">Auto-save actif — ${_fsHandle.name}</p>
           <p class="text-slate-500 text-xs">Dernière écriture fichier : ${fileSaveLabel}</p>
         </div>
-        <button onclick="disableAutoSave()" class="text-xs text-slate-500 hover:text-red-400 transition-colors shrink-0">Désactiver</button>
+        <div class="flex flex-col gap-1 shrink-0">
+          <button onclick="forceSaveNow(this)" class="text-xs text-slate-400 hover:text-emerald-400 transition-colors">↓ Sauvegarder</button>
+          <button onclick="disableAutoSave()" class="text-xs text-slate-500 hover:text-red-400 transition-colors">Désactiver</button>
+        </div>
       </div>`;
   }
   return `
