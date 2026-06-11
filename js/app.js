@@ -386,7 +386,7 @@ function applyPrivacyMode() {
 // ─── PARAMÈTRES CACHE ────────────────────────────────────────────────────────
 
 function openCacheSettings() {
-  if (!document.getElementById('modal-cache-settings')) {
+  {
     const div = document.createElement('div');
     div.id        = 'modal-cache-settings';
     div.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4';
@@ -409,23 +409,18 @@ function openCacheSettings() {
               <p class="text-slate-500">Fréquence : 1/jour</p>
             </div>
           </div>
+          <div class="flex gap-2 items-center">
+            <label class="text-slate-400 text-xs whitespace-nowrap">Refresh toutes les</label>
+            <input id="cache-ttl-input" type="number" min="1" max="480" step="1" value="${API.getCacheTTLMinutes()}"
+              onkeydown="if(event.key==='Enter')saveCacheSettings()"
+              class="w-20 bg-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <span class="text-slate-400 text-xs">min</span>
+            <button onclick="saveCacheSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto">OK</button>
+          </div>
           <div class="flex gap-2">
             <button onclick="PriceService.refresh().then(()=>{const a=document.getElementById('app');if(a)_renderView(a);_updateSyncIndicators();autoSaveToFile();})" class="btn-secondary text-xs flex-1">↻ Forcer prix</button>
             <button onclick="SnapshotService.take();_updateSyncIndicators();autoSaveToFile();alert('Snapshot pris.');" class="btn-secondary text-xs flex-1">↻ Forcer snapshot</button>
           </div>
-        </div>
-
-        <!-- Cache TTL -->
-        <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
-          <p class="text-slate-300 text-sm font-medium">Durée du cache AppScript</p>
-          <div class="flex gap-2 items-center">
-            <input id="cache-ttl-input" type="number" min="1" max="120" step="1"
-              onkeydown="if(event.key==='Enter')saveCacheSettings()"
-              class="w-24 bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <span class="text-slate-400 text-sm">minutes</span>
-            <button onclick="saveCacheSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto">Sauvegarder</button>
-          </div>
-          <p class="text-slate-500 text-xs">Les données sont rechargées depuis le serveur après cette durée.</p>
         </div>
 
         <!-- Auto-save fichier -->
@@ -494,8 +489,6 @@ function openCacheSettings() {
     div.addEventListener('click', e => { if (e.target === div) closeCacheSettings(); });
     document.body.appendChild(div);
   }
-  document.getElementById('cache-ttl-input').value = API.getCacheTTLMinutes();
-  document.getElementById('modal-cache-settings').classList.remove('hidden');
 }
 
 function saveReturnSettings() {
@@ -509,7 +502,7 @@ function saveReturnSettings() {
 
 function closeCacheSettings() {
   const el = document.getElementById('modal-cache-settings');
-  if (el) el.classList.add('hidden');
+  if (el) el.remove();
 }
 
 function saveCacheSettings() {
@@ -2447,7 +2440,6 @@ function navbar(optsOrLeft = '') {
           <span id="price-indicator"></span>
           <span id="snapshot-indicator"></span>
           <span id="autosave-indicator"></span>
-          <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition" title="Rafraîchir">↻</button>
           <button onclick="togglePrivacyMode()" id="privacy-btn" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="${isPrivacyMode() ? 'Afficher les chiffres' : 'Masquer les chiffres'}">
             ${isPrivacyMode()
               ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
