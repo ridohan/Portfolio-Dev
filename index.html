@@ -13,6 +13,11 @@
   </script>
   <style>
     body { background: #0f172a; overflow-x: hidden; }
+    .scrollbar-dark { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .scrollbar-dark::-webkit-scrollbar { width: 4px; }
+    .scrollbar-dark::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-dark::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+    .scrollbar-dark::-webkit-scrollbar-thumb:hover { background: #475569; }
     * { box-sizing: border-box; }
     .input { display: block; width: 100%; background: #334155; color: white; border-radius: .5rem; padding: .5rem .75rem; font-size: .875rem; outline: none; }
     .input:focus { box-shadow: 0 0 0 2px #3b82f6; }

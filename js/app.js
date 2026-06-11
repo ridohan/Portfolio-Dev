@@ -15,7 +15,166 @@ let _expYear = new Date().getFullYear();
 function navigate(hash) { location.hash = hash; }
 
 window.addEventListener('hashchange', render);
-window.addEventListener('load', render);
+window.addEventListener('load', () => { render(); restoreAutoSaveHandle(); });
+
+// ─── AUTO-SAVE FILE SYSTEM ACCESS API ────────────────────────────────────────
+
+let _fsHandle = null;
+
+const _fsDB = (() => {
+  const DB_NAME = 'portfolio_fs', STORE = 'handles', KEY = 'autosave';
+  function open() {
+    return new Promise((res, rej) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
+      req.onsuccess = e => res(e.target.result);
+      req.onerror   = e => rej(e.target.error);
+    });
+  }
+  return {
+    async save(handle) {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(handle, KEY);
+        tx.oncomplete = res; tx.onerror = rej;
+      });
+    },
+    async load() {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(KEY);
+        req.onsuccess = e => res(e.target.result || null);
+        req.onerror   = e => rej(e.target.error);
+      });
+    },
+    async clear() {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(KEY);
+        tx.oncomplete = res; tx.onerror = rej;
+      });
+    },
+  };
+})();
+
+async function autoSaveToFile() {
+  if (!_fsHandle) return;
+  try {
+    const perm = await _fsHandle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return;
+    const payload = { _exported_at: new Date().toISOString(), _version: 1, ...STATE };
+    const writable = await _fsHandle.createWritable();
+    await writable.write(JSON.stringify(payload, null, 2));
+    await writable.close();
+    _updateAutoSaveIndicator('ok');
+  } catch (e) {
+    console.warn('Auto-save échoué :', e);
+    _updateAutoSaveIndicator('error');
+  }
+}
+
+async function pickAutoSaveFile() {
+  if (!window.showSaveFilePicker) {
+    alert('Votre navigateur ne supporte pas cette fonctionnalité.\nUtilisez Chrome ou Edge.');
+    return;
+  }
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: 'portfolio_autosave.json',
+      types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+    });
+    _fsHandle = handle;
+    await _fsDB.save(handle);
+    await autoSaveToFile();
+    _updateAutoSaveIndicator('ok');
+    _refreshAutoSaveSettings();
+  } catch (e) {
+    if (e.name !== 'AbortError') console.error(e);
+  }
+}
+
+async function disableAutoSave() {
+  _fsHandle = null;
+  await _fsDB.clear();
+  _updateAutoSaveIndicator('off');
+  _refreshAutoSaveSettings();
+}
+
+async function restoreAutoSaveHandle() {
+  try {
+    const handle = await _fsDB.load();
+    if (!handle) return;
+    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm === 'granted') {
+      _fsHandle = handle;
+      _updateAutoSaveIndicator('ok');
+    } else {
+      _fsHandle = handle;
+      _updateAutoSaveIndicator('pending');
+    }
+  } catch (e) {
+    console.warn('Impossible de restaurer le handle auto-save :', e);
+  }
+}
+
+async function reauthorizeAutoSave() {
+  if (!_fsHandle) return;
+  try {
+    const perm = await _fsHandle.requestPermission({ mode: 'readwrite' });
+    if (perm === 'granted') {
+      await autoSaveToFile();
+      _updateAutoSaveIndicator('ok');
+      _refreshAutoSaveSettings();
+    }
+  } catch (e) { console.error(e); }
+}
+
+function _updateAutoSaveIndicator(status) {
+  const el = document.getElementById('autosave-indicator');
+  if (!el) return;
+  const cfg = {
+    ok:      { dot: 'bg-emerald-400',              text: 'Auto-save actif',          title: 'Sauvegarde automatique active' },
+    pending: { dot: 'bg-amber-400 animate-pulse',  text: 'Cliquer pour ré-autoriser', title: 'Permission expirée — cliquer pour réactiver' },
+    error:   { dot: 'bg-red-400',                  text: 'Erreur auto-save',          title: 'Échec de la sauvegarde automatique' },
+    off:     { dot: 'hidden',                       text: '',                          title: '' },
+  }[status] || { dot: 'hidden', text: '', title: '' };
+  el.innerHTML = status === 'off' ? '' : `
+    <button onclick="${status === 'pending' ? 'reauthorizeAutoSave()' : 'openCacheSettings()'}"
+      class="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+      title="${cfg.title}">
+      <span class="w-1.5 h-1.5 rounded-full ${cfg.dot}"></span>
+      <span class="hidden sm:inline">${cfg.text}</span>
+    </button>`;
+}
+
+function _refreshAutoSaveSettings() {
+  const el = document.getElementById('autosave-settings-block');
+  if (el) el.innerHTML = _renderAutoSaveBlock();
+}
+
+function _renderAutoSaveBlock() {
+  const supported = !!window.showSaveFilePicker;
+  if (!supported) return `<p class="text-slate-500 text-xs">⚠️ Non supporté sur ce navigateur — utilisez Chrome ou Edge.</p>`;
+  if (_fsHandle) {
+    return `
+      <div class="flex items-center gap-2 p-2 bg-emerald-900/20 border border-emerald-800/40 rounded-lg">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+        <div class="flex-1 min-w-0">
+          <p class="text-emerald-300 text-xs font-medium">Auto-save actif</p>
+          <p class="text-slate-500 text-xs truncate">${_fsHandle.name}</p>
+        </div>
+        <button onclick="disableAutoSave()" class="text-xs text-slate-500 hover:text-red-400 transition-colors shrink-0">Désactiver</button>
+      </div>`;
+  }
+  return `
+    <button class="btn-secondary text-sm w-full" onclick="pickAutoSaveFile()">
+      📁 Choisir un fichier de sauvegarde automatique
+    </button>
+    <p class="text-slate-500 text-xs">Choisissez un fichier .json (ex: dans Google Drive) — l'app y écrira automatiquement à chaque modification.</p>`;
+}
 
 // ─── PRÉFÉRENCES UI CROSS-DEVICE ─────────────────────────────────────────────
 // Les prefs sont stockées dans Google Sheets (ui_prefs) ET en localStorage.
@@ -100,6 +259,8 @@ async function render() {
   else if (route === 'residences' &&  id) renderResidenceDetail(app, id);
   else renderDashboard(app);
 
+  autoSaveToFile();
+
   // Réouvre le menu mobile si l'état était ouvert avant le re-render
   if (_navOpen) {
     requestAnimationFrame(() => {
@@ -170,7 +331,7 @@ function openCacheSettings() {
     div.id        = 'modal-cache-settings';
     div.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4';
     div.innerHTML = `
-      <div class="modal-box w-full max-w-sm space-y-5" onclick="event.stopPropagation()">
+      <div class="modal-box w-full max-w-sm space-y-5 overflow-y-auto scrollbar-dark" style="max-height:90vh" onclick="event.stopPropagation()">
         <h3 class="text-base font-bold text-white">⚙ Paramètres & Sauvegarde</h3>
 
         <!-- Cache TTL -->
@@ -184,6 +345,12 @@ function openCacheSettings() {
             <button onclick="saveCacheSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto">Sauvegarder</button>
           </div>
           <p class="text-slate-500 text-xs">Les données sont rechargées depuis le serveur après cette durée.</p>
+        </div>
+
+        <!-- Auto-save fichier -->
+        <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
+          <p class="text-slate-300 text-sm font-medium">📁 Sauvegarde automatique</p>
+          <div id="autosave-settings-block">${_renderAutoSaveBlock()}</div>
         </div>
 
         <!-- Export JSON -->
@@ -2276,6 +2443,7 @@ function navbar(optsOrLeft = '') {
         <div class="flex items-center gap-2 flex-shrink-0">
           <button onclick="openCacheSettings()" class="hidden lg:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
           ${showReorder ? `<button onclick="openDashOrderModal()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs flex items-center gap-1 transition px-2 py-1 rounded hover:bg-slate-800" title="Réorganiser le dashboard">⊞</button>` : ''}
+          <span id="autosave-indicator"></span>
           <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition" title="${ageLabel}">↻</button>
           <button onclick="togglePrivacyMode()" id="privacy-btn" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="${isPrivacyMode() ? 'Afficher les chiffres' : 'Masquer les chiffres'}">
             ${isPrivacyMode()
