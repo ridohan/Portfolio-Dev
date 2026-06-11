@@ -1207,8 +1207,9 @@ function generatePdfExpenses() {
   const dateStr = now.toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
   const { entryMap, noteMap } = expLookup();
   const trackedMonths = expTrackedMonthsCount(year);
-  const TYPES = ['vital','confort','loisir','épargne','immo','autre'];
-  const TYPE_LABELS = { vital:'Vital', confort:'Confort', loisir:'Loisirs', 'épargne':'Épargne', immo:'Immo', autre:'Autre' };
+  const allCatTypes = [...new Set(STATE.expense_categories.map(c => c.type).filter(Boolean))];
+  const TYPES = ['vital', 'superflu', ...allCatTypes.filter(t => t !== 'vital' && t !== 'superflu')];
+  const TYPE_LABELS = { vital:'Vital', superflu:'Superflux', confort:'Confort', loisir:'Loisirs', 'épargne':'Épargne', immo:'Immo', autre:'Autre' };
   const MOIS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
 
   // Trier catégories par ordre
@@ -1272,12 +1273,18 @@ function generatePdfExpenses() {
 
   // Aides et reste
   const aidsTotal = STATE.expense_aids.reduce((s,a)=>s+Number(a.montant||0),0);
-  const grandTotal = TYPES.reduce((s,t) => {
+  const totalByType = {};
+  TYPES.forEach(t => {
     const ids = STATE.expense_categories.filter(c=>c.type===t).map(c=>c.id);
     const itemIds = STATE.expense_items.filter(i=>ids.includes(i.category_id)).map(i=>i.id);
-    return s + STATE.expense_entries.filter(e=>Number(e.annee)===year&&itemIds.includes(e.item_id)).reduce((ss,e)=>ss+Number(e.montant||0),0);
-  },0);
-  const grandAvg = trackedMonths>0?grandTotal/trackedMonths:0;
+    totalByType[t] = STATE.expense_entries.filter(e=>Number(e.annee)===year&&itemIds.includes(e.item_id)).reduce((ss,e)=>ss+Number(e.montant||0),0);
+  });
+  const grandTotal = TYPES.reduce((s,t)=>s+totalByType[t],0);
+  const grandAvg   = trackedMonths>0?grandTotal/trackedMonths:0;
+  const vitalTotal = totalByType['vital']||0;
+  const vitalAvg   = trackedMonths>0?vitalTotal/trackedMonths:0;
+  const resteGlobal = grandAvg - aidsTotal;
+  const resteVital  = vitalAvg - aidsTotal;
 
   const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport Dépenses ${year}</title>
   ${_pdfStyle()}
@@ -1288,9 +1295,11 @@ function generatePdfExpenses() {
     <div class="section">
       <h2>Synthèse</h2>
       <div class="grid3">
-        <div class="card"><div class="lbl">Total dépenses ${year}</div><div class="val red">${_n(grandTotal)}</div></div>
-        <div class="card"><div class="lbl">Moyenne mensuelle</div><div class="val">${_n(grandAvg)}/mois</div><div class="sub">${trackedMonths} mois de données</div></div>
+        <div class="card"><div class="lbl">Total brut ${year}</div><div class="val red">${_n(grandTotal)}</div><div class="sub">${_n(grandAvg)}/mois · ${trackedMonths} mois</div></div>
+        <div class="card"><div class="lbl">Sous-total Vital</div><div class="val red">${_n(vitalTotal)}</div><div class="sub">${_n(vitalAvg)}/mois</div></div>
         <div class="card"><div class="lbl">Aides mensuelles</div><div class="val green">${_n(aidsTotal)}/mois</div></div>
+        <div class="card"><div class="lbl">Reste à financer (global)</div><div class="val ${resteGlobal>0?'red':'green'}">${_n(resteGlobal)}/mois</div><div class="sub">après aides</div></div>
+        <div class="card"><div class="lbl">Reste à financer (vital)</div><div class="val ${resteVital>0?'red':'green'}">${_n(resteVital)}/mois</div><div class="sub">vital après aides</div></div>
       </div>
     </div>
 
