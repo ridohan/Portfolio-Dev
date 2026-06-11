@@ -1,5 +1,5 @@
 // prices.js
-// Fetch des prix ETF (JustETF) et crypto (CoinGecko) côté front.
+// Fetch des prix ETF (EODHD ou JustETF fallback) et crypto (CoinGecko) côté front.
 // Snapshot journalier de l'historique des enveloppes.
 
 const PRICES_TS_KEY    = 'portfolio_prices_ts';
@@ -26,7 +26,37 @@ const PriceService = {
     return (Date.now() - ts) > API.cacheTTL;
   },
 
-  // ─── ETF — JustETF ──────────────────────────────────────────────────────────
+  // ─── ETF — EODHD (un seul appel batch, ISINs directs) ───────────────────────
+
+  _getEODHDKey() {
+    return (STATE.ui_prefs?.eodhd_api_key || '').trim();
+  },
+
+  // Un seul appel pour tous les ISINs — EODHD accepte les ISINs directement.
+  // Premier ISIN dans le path, les suivants dans &s=
+  async fetchETFPricesBatchEODHD(isins) {
+    const apiKey = this._getEODHDKey();
+    if (!apiKey || !isins.length) return {};
+
+    const [first, ...rest] = isins;
+    const url = `https://eodhd.com/api/real-time/${first}?api_token=${apiKey}&fmt=json`
+      + (rest.length ? `&s=${rest.join(',')}` : '');
+
+    const res = await fetch(url);
+    if (!res.ok) return {};
+    const data = await res.json();
+
+    // Réponse : objet si un seul ISIN, tableau sinon
+    const rows = Array.isArray(data) ? data : [data];
+    const result = {};
+    rows.forEach(row => {
+      const prix = row.close ?? row.last ?? null;
+      if (prix != null && row.code) result[row.code] = Number(prix);
+    });
+    return result;
+  },
+
+  // ─── ETF — JustETF (fallback, un appel par ISIN) ────────────────────────────
 
   async fetchETFPrice(isin) {
     const url = `https://www.justetf.com/api/etfs/${isin}/quote?locale=fr&currency=EUR`;
@@ -46,7 +76,6 @@ const PriceService = {
     if (missing.length === 0) return mapping;
 
     try {
-      // Top 500 par market cap — couvre 99 % des cryptos courantes, une seule requête
       const res = await fetch(
         'https://api.coingecko.com/api/v3/coins/markets' +
         '?vs_currency=eur&order=market_cap_desc&per_page=500&page=1&sparkline=false'
@@ -105,21 +134,40 @@ const PriceService = {
         .map(p => p.identifiant)
     )];
 
-    // Fetch ETF en séquence (rate limiting JustETF)
-    for (const isin of isins) {
-      try {
-        const prix = await this.fetchETFPrice(isin);
-        if (prix !== null) {
-          const existing = STATE.prices.find(p => p.isin === isin);
-          if (existing) { existing.prix_actuel = prix; existing.derniere_maj = now; }
-          else STATE.prices.push({ isin, nom: isin, type: 'ETF', prix_actuel: prix, derniere_maj: now });
-          etfOk++;
-        }
-      } catch { errors++; }
-      await new Promise(r => setTimeout(r, 300));
+    // ── Fetch ETF ────────────────────────────────────────────────────────────
+    if (isins.length) {
+      const hasEODHD = !!this._getEODHDKey();
+
+      if (hasEODHD) {
+        // EODHD : un seul appel batch, ISINs directs, résultat indexé par ISIN
+        try {
+          const prices = await this.fetchETFPricesBatchEODHD(isins);
+          isins.forEach(isin => {
+            const prix = prices[isin] ?? prices[isin.toUpperCase()] ?? null;
+            if (prix == null) { errors++; return; }
+            const existing = STATE.prices.find(p => p.isin === isin);
+            if (existing) { existing.prix_actuel = prix; existing.derniere_maj = now; }
+            else STATE.prices.push({ isin, nom: isin, type: 'ETF', prix_actuel: prix, derniere_maj: now });
+            etfOk++;
+          });
+        } catch { errors += isins.length; }
+      } else {
+        // JustETF : appels parallèles (pas de rate limiting strict pour une dizaine d'ISINs)
+        const results = await Promise.allSettled(isins.map(isin => this.fetchETFPrice(isin)));
+        results.forEach((res, i) => {
+          const isin = isins[i];
+          if (res.status === 'fulfilled' && res.value !== null) {
+            const prix = res.value;
+            const existing = STATE.prices.find(p => p.isin === isin);
+            if (existing) { existing.prix_actuel = prix; existing.derniere_maj = now; }
+            else STATE.prices.push({ isin, nom: isin, type: 'ETF', prix_actuel: prix, derniere_maj: now });
+            etfOk++;
+          } else { errors++; }
+        });
+      }
     }
 
-    // Fetch crypto en une seule requête
+    // ── Fetch crypto ─────────────────────────────────────────────────────────
     if (symbols.length) {
       try {
         const prices = await this.fetchCryptoPrices(symbols);
@@ -156,21 +204,18 @@ const SnapshotService = {
   shouldSnapshot() {
     const ts = this.lastSnapshotTs();
     if (!ts) return true;
-    // Un seul snapshot par jour — on attend 20h entre deux
     return (Date.now() - ts) > 20 * 60 * 60 * 1000;
   },
 
   take() {
     const today = new Date().toISOString().slice(0, 10);
 
-    // Index des prix
     const priceIndex = {};
     STATE.prices.forEach(p => { priceIndex[p.isin] = Number(p.prix_actuel) || 0; });
     STATE.crypto_prices.forEach(p => {
       priceIndex[(p.symbole || '').toUpperCase()] = Number(p.prix_actuel) || 0;
     });
 
-    // Déduplication : on construit un index date|envelope_id → index dans STATE.history
     const existingIdx = {};
     STATE.history.forEach((h, i) => {
       const d = String(h.date).slice(0, 10);
@@ -185,8 +230,8 @@ const SnapshotService = {
       let valeurInvestie = 0, valeurActuelle = 0;
 
       positions.forEach(pos => {
-        const qte      = Number(pos.quantite)   || 0;
-        const pxAchat  = Number(pos.prix_achat) || 0;
+        const qte     = Number(pos.quantite)   || 0;
+        const pxAchat = Number(pos.prix_achat) || 0;
 
         if (pos.identifiant === 'LIQUIDITES') {
           valeurInvestie += qte;
@@ -197,7 +242,7 @@ const SnapshotService = {
         const lookupKey = envelope.type === 'crypto'
           ? (pos.identifiant || '').toUpperCase()
           : pos.identifiant;
-        const pxActuel  = isEpargne ? pxAchat : (priceIndex[lookupKey] || 0);
+        const pxActuel = isEpargne ? pxAchat : (priceIndex[lookupKey] || 0);
 
         valeurInvestie += isEpargne ? pxAchat : pxAchat * qte;
         valeurActuelle += isEpargne ? pxAchat : pxActuel * qte;
@@ -208,7 +253,7 @@ const SnapshotService = {
         ? Number(((valeurActuelle / valeurInvestie - 1) * 100).toFixed(2))
         : 0;
 
-      const key  = `${today}|${envelope.id}`;
+      const key   = `${today}|${envelope.id}`;
       const entry = { date: today, envelope_id: envelope.id, valeur_investie: valeurInvestie, valeur_actuelle: valeurActuelle, pv_euros: pvEuros, pv_pct: pvPct };
 
       if (existingIdx[key] !== undefined) {

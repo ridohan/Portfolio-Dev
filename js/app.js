@@ -417,6 +417,17 @@ function openCacheSettings() {
             <span class="text-slate-400 text-xs">min</span>
             <button onclick="saveCacheSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto">OK</button>
           </div>
+          <!-- Clé API EODHD -->
+          <div class="space-y-1">
+            <label class="text-slate-400 text-xs">Clé API EODHD <span class="text-slate-600">(optionnel — batch ETF)</span></label>
+            <div class="flex gap-2">
+              <input id="eodhd-key-input" type="password" placeholder="demo ou votre clé…"
+                value="${STATE.ui_prefs?.eodhd_api_key || ''}"
+                class="flex-1 bg-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
+              <button onclick="saveEODHDKey()" class="btn-primary text-xs px-3 py-1.5">OK</button>
+            </div>
+            <p class="text-slate-600 text-xs">${STATE.ui_prefs?.eodhd_api_key ? '✓ EODHD actif — appel batch' : 'Sans clé : JustETF (appels parallèles)'}</p>
+          </div>
           <div class="flex gap-2">
             <button onclick="PriceService.refresh().then(()=>{const a=document.getElementById('app');if(a)_renderView(a);_updateSyncIndicators();autoSaveToFile();})" class="btn-secondary text-xs flex-1">↻ Forcer prix</button>
             <button onclick="SnapshotService.take();_updateSyncIndicators();autoSaveToFile();alert('Snapshot pris.');" class="btn-secondary text-xs flex-1">↻ Forcer snapshot</button>
@@ -503,6 +514,15 @@ function saveReturnSettings() {
 function closeCacheSettings() {
   const el = document.getElementById('modal-cache-settings');
   if (el) el.remove();
+}
+
+function saveEODHDKey() {
+  const key = document.getElementById('eodhd-key-input')?.value?.trim() || '';
+  persistUiPref('eodhd_api_key', key);
+  // Vider le cache symboles EODHD si la clé change
+  localStorage.removeItem('portfolio_eodhd_syms');
+  const btn = document.getElementById('eodhd-key-input')?.nextElementSibling;
+  if (btn) { btn.textContent = '✓'; setTimeout(() => { btn.textContent = 'OK'; }, 1500); }
 }
 
 function saveCacheSettings() {
