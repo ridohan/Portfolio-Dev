@@ -76,9 +76,8 @@ async function _startBackgroundTasks() {
 function _updateSyncIndicators(state) {
   _updatePriceIndicator(state);
   _updateSnapshotIndicator();
-  // Refresh save label (timestamps age over time)
-  const ts = localStorage.getItem(LAST_SAVE_TS_KEY);
-  if (ts) _updateAutoSaveIndicator(_fsHandle ? 'ok' : 'localStorage');
+  // Refresh save label (file auto-save only)
+  if (_fsHandle && localStorage.getItem(LAST_FILE_SAVE_TS_KEY)) _updateAutoSaveIndicator('ok');
 }
 
 function _updatePriceIndicator(state) {
@@ -155,14 +154,14 @@ const _fsDB = (() => {
   };
 })();
 
-const LAST_SAVE_TS_KEY = 'portfolio_last_save_ts';
+const LAST_SAVE_TS_KEY      = 'portfolio_last_save_ts';
+const LAST_FILE_SAVE_TS_KEY = 'portfolio_last_file_save_ts';
 
 async function autoSaveToFile() {
   // Toujours persister dans localStorage
   Storage.save(STATE);
   localStorage.setItem(LAST_SAVE_TS_KEY, String(Date.now()));
-  _updateAutoSaveIndicator(_fsHandle ? 'ok' : 'localStorage');
-  if (!_fsHandle) return;
+  if (!_fsHandle) { _updateAutoSaveIndicator('off'); return; }
   try {
     const perm = await _fsHandle.queryPermission({ mode: 'readwrite' });
     if (perm !== 'granted') return;
@@ -170,7 +169,9 @@ async function autoSaveToFile() {
     const writable = await _fsHandle.createWritable();
     await writable.write(JSON.stringify(payload, null, 2));
     await writable.close();
+    localStorage.setItem(LAST_FILE_SAVE_TS_KEY, String(Date.now()));
     _updateAutoSaveIndicator('ok');
+    _refreshAutoSaveSettings();
   } catch (e) {
     console.warn('Auto-save échoué :', e);
     _updateAutoSaveIndicator('error');
@@ -178,13 +179,9 @@ async function autoSaveToFile() {
 }
 
 function _lastSaveLabel() {
-  const ts = localStorage.getItem(LAST_SAVE_TS_KEY);
+  const ts = localStorage.getItem(LAST_FILE_SAVE_TS_KEY);
   if (!ts) return '';
-  const diff = Math.floor((Date.now() - Number(ts)) / 1000);
-  if (diff < 60) return "à l'instant";
-  if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
-  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
-  return new Date(Number(ts)).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(Number(ts)).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 async function pickAutoSaveFile() {
@@ -248,13 +245,12 @@ function _updateAutoSaveIndicator(status) {
   if (!el) return;
   const label = _lastSaveLabel();
   const cfg = {
-    ok:          { dot: 'bg-emerald-400',             text: label ? `Sauvegardé ${label}` : 'Sauvegardé',  title: 'Sauvegarde automatique active' },
-    localStorage:{ dot: 'bg-slate-400',               text: label ? `Sauvegardé ${label}` : 'Sauvegardé',  title: 'Sauvegardé dans le navigateur (pas de fichier configuré)' },
+    ok:          { dot: 'bg-emerald-400',             text: label ? `Sauvegardé ${label}` : 'Sauvegardé',   title: 'Sauvegarde automatique active' },
     pending:     { dot: 'bg-amber-400 animate-pulse', text: 'Cliquer pour ré-autoriser',                    title: 'Permission expirée — cliquer pour réactiver' },
     error:       { dot: 'bg-red-400',                 text: 'Erreur auto-save',                             title: 'Échec de la sauvegarde automatique' },
-    off:         { dot: 'hidden',                     text: '',                                             title: '' },
-  }[status] || { dot: 'hidden', text: '', title: '' };
-  el.innerHTML = status === 'off' ? '' : `
+    off:         { dot: 'bg-orange-400',              text: 'Pas de sauvegarde fichier',                    title: 'Aucun fichier auto-save configuré — cliquer pour activer' },
+  }[status] || { dot: 'bg-orange-400', text: 'Pas de sauvegarde fichier', title: 'Aucun fichier auto-save configuré' };
+  el.innerHTML = `
     <button onclick="${status === 'pending' ? 'reauthorizeAutoSave()' : 'openCacheSettings()'}"
       class="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
       title="${cfg.title}">
@@ -272,12 +268,16 @@ function _renderAutoSaveBlock() {
   const supported = !!window.showSaveFilePicker;
   if (!supported) return `<p class="text-slate-500 text-xs">⚠️ Non supporté sur ce navigateur — utilisez Chrome ou Edge.</p>`;
   if (_fsHandle) {
+    const fileSaveTs = localStorage.getItem(LAST_FILE_SAVE_TS_KEY);
+    const fileSaveLabel = fileSaveTs
+      ? new Date(Number(fileSaveTs)).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      : 'jamais';
     return `
       <div class="flex items-center gap-2 p-2 bg-emerald-900/20 border border-emerald-800/40 rounded-lg">
         <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
         <div class="flex-1 min-w-0">
-          <p class="text-emerald-300 text-xs font-medium">Auto-save actif</p>
-          <p class="text-slate-500 text-xs truncate">${_fsHandle.name}</p>
+          <p class="text-emerald-300 text-xs font-medium">Auto-save actif — ${_fsHandle.name}</p>
+          <p class="text-slate-500 text-xs">Dernière écriture fichier : ${fileSaveLabel}</p>
         </div>
         <button onclick="disableAutoSave()" class="text-xs text-slate-500 hover:text-red-400 transition-colors shrink-0">Désactiver</button>
       </div>`;
