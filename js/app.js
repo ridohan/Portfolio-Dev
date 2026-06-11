@@ -67,7 +67,7 @@ async function _startBackgroundTasks() {
     await PriceService.refresh();
     // Re-render silencieux pour afficher les nouveaux prix
     const app = document.getElementById('app');
-    if (app) _renderView(app);
+    render();
     autoSaveToFile();
     _updateSyncIndicators();
   }
@@ -417,20 +417,32 @@ function openCacheSettings() {
             <span class="text-slate-400 text-xs">min</span>
             <button onclick="saveCacheSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto">OK</button>
           </div>
-          <!-- Clé API EODHD -->
+          <!-- Proxy JustETF -->
           <div class="space-y-1">
-            <label class="text-slate-400 text-xs">Clé API EODHD <span class="text-slate-600">(optionnel — batch ETF)</span></label>
+            <label class="text-slate-400 text-xs">Proxy JustETF <span class="text-slate-600">(Cloudflare Worker — requis hors localhost)</span></label>
             <div class="flex gap-2">
-              <input id="eodhd-key-input" type="password" placeholder="demo ou votre clé…"
-                value="${STATE.ui_prefs?.eodhd_api_key || ''}"
+              <input id="justetf-proxy-input" type="text" placeholder="https://mon-proxy.workers.dev"
+                value="${STATE.ui_prefs?.justetf_proxy_url || ''}"
                 class="flex-1 bg-slate-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
-              <button onclick="saveEODHDKey()" class="btn-primary text-xs px-3 py-1.5">OK</button>
+              <button onclick="saveJustETFProxy()" class="btn-primary text-xs px-3 py-1.5">OK</button>
             </div>
-            <p class="text-slate-600 text-xs">${STATE.ui_prefs?.eodhd_api_key ? '✓ EODHD actif — appel batch' : 'Sans clé : JustETF (appels parallèles)'}</p>
+            <p class="text-slate-600 text-xs">${STATE.ui_prefs?.justetf_proxy_url ? '✓ Proxy actif' : '⚠ Sans proxy : CORS error hors localhost'}</p>
           </div>
           <div class="flex gap-2">
-            <button onclick="PriceService.refresh().then(()=>{const a=document.getElementById('app');if(a)_renderView(a);_updateSyncIndicators();autoSaveToFile();})" class="btn-secondary text-xs flex-1">↻ Forcer prix</button>
-            <button onclick="SnapshotService.take();_updateSyncIndicators();autoSaveToFile();alert('Snapshot pris.');" class="btn-secondary text-xs flex-1">↻ Forcer snapshot</button>
+            <button id="btn-force-prix" onclick="
+              const btn = document.getElementById('btn-force-prix');
+              btn.disabled = true; btn.textContent = '⏳ Chargement…';
+              PriceService.refresh().then(r => {
+                render(); _updateSyncIndicators(); autoSaveToFile();
+                btn.textContent = '✓ ' + r.etfOk + ' ETF · ' + r.cryptoOk + ' crypto';
+                btn.classList.add('text-emerald-400');
+                setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Forcer prix'; btn.classList.remove('text-emerald-400'); }, 3000);
+              }).catch(() => {
+                btn.disabled = false; btn.textContent = '✗ Erreur';
+                btn.classList.add('text-red-400');
+                setTimeout(() => { btn.textContent = '↻ Forcer prix'; btn.classList.remove('text-red-400'); }, 2000);
+              });" class="btn-secondary text-xs flex-1">↻ Forcer prix</button>
+            <button onclick="SnapshotService.take();_updateSyncIndicators();autoSaveToFile();this.textContent='✓ Snapshot pris';this.classList.add('text-emerald-400');setTimeout(()=>{this.textContent='↻ Forcer snapshot';this.classList.remove('text-emerald-400');},2000);" class="btn-secondary text-xs flex-1">↻ Forcer snapshot</button>
           </div>
         </div>
 
@@ -507,7 +519,7 @@ function saveReturnSettings() {
   const rate   = parseFloat(document.getElementById('return-default-rate')?.value) || 7;
   persistUiPref('return_min_history_months', Math.max(1, Math.min(60, months)));
   persistUiPref('return_default_rate',       Math.max(0, Math.min(30, rate)));
-  const btn = document.querySelector('#return-min-history')?.closest('.bg-slate-700\\/40')?.querySelector('button');
+  const btn = document.querySelector('button[onclick="saveReturnSettings()"]');
   if (btn) { btn.textContent = '✓ Sauvegardé'; setTimeout(() => { btn.textContent = 'Sauvegarder'; }, 1500); }
 }
 
@@ -516,21 +528,19 @@ function closeCacheSettings() {
   if (el) el.remove();
 }
 
-function saveEODHDKey() {
-  const key = document.getElementById('eodhd-key-input')?.value?.trim() || '';
-  persistUiPref('eodhd_api_key', key);
-  // Vider le cache symboles EODHD si la clé change
-  localStorage.removeItem('portfolio_eodhd_syms');
-  const btn = document.getElementById('eodhd-key-input')?.nextElementSibling;
+
+function saveJustETFProxy() {
+  const url = document.getElementById('justetf-proxy-input')?.value?.trim() || '';
+  persistUiPref('justetf_proxy_url', url);
+  const btn = document.getElementById('justetf-proxy-input')?.nextElementSibling;
   if (btn) { btn.textContent = '✓'; setTimeout(() => { btn.textContent = 'OK'; }, 1500); }
 }
 
 function saveCacheSettings() {
   const val = parseInt(document.getElementById('cache-ttl-input').value, 10);
   if (val >= 1) API.setCacheTTL(val);
-  const btn = document.querySelector('#cache-ttl-input')?.closest('.bg-slate-700\\/40')?.querySelector('button');
-  if (btn) { btn.textContent = '✓ Sauvegardé'; setTimeout(() => { btn.textContent = 'Sauvegarder'; render(); }, 1500); }
-  else render();
+  const btn = document.querySelector('button[onclick="saveCacheSettings()"]');
+  if (btn) { btn.textContent = '✓'; setTimeout(() => { btn.textContent = 'OK'; }, 1500); }
 }
 
 function exportDataJSON() {
@@ -1769,7 +1779,7 @@ function positionsTable(positions, type) {
     const etfNom     = type === 'bourse'
       ? STATE.prices.find(p => p.isin === pos.identifiant)?.nom || ''
       : type === 'crypto'
-        ? STATE.crypto_prices.find(p => p.symbole === pos.identifiant)?.nom || ''
+        ? STATE.crypto_prices.find(p => p.id === pos.identifiant)?.nom || pos.identifiant
         : '';
     const isCash     = pos.identifiant === 'LIQUIDITES';
     const etfType    = type === 'bourse' && !isCash
@@ -1944,8 +1954,9 @@ function modalPosition(envelopeId, type) {
           <!-- Champs ETF/Action (mode normal) -->
           <div id="pos-fields-etf">
             <div>
-              <label class="label">${isEpargne ? 'Nom du compte' : isCrypto ? 'Symbole (ex: BTC)' : 'ISIN'}</label>
-              <input name="identifiant" id="pos-identifiant" placeholder="${isEpargne ? 'Livret A BNP' : isCrypto ? 'BTC' : 'LU0274208692'}" required class="input" />
+              <label class="label">${isEpargne ? 'Nom du compte' : isCrypto ? 'ID CoinGecko' : 'ISIN'}</label>
+              <input name="identifiant" id="pos-identifiant" placeholder="${isEpargne ? 'Livret A BNP' : isCrypto ? 'bitcoin, ethereum…' : 'LU0274208692'}" required class="input" />
+              ${isCrypto ? `<p class="text-slate-500 text-xs mt-1">Trouvez l'ID sur <a href="https://www.coingecko.com" target="_blank" class="text-blue-400 hover:underline">coingecko.com</a> — URL de la page : /en/coins/<span class="text-slate-300">bitcoin</span></p>` : ''}
             </div>
             ${isEpargne
               ? `<div class="mt-3"><label class="label">Montant actuel (€)</label><input name="prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
@@ -2066,11 +2077,18 @@ function modalEditEnvelope() {
 
 function modalEditPosition(type) {
   const isEpargne = type === 'épargne';
+  const isCrypto  = type === 'crypto';
   return `
     <div id="modal-edit-position" class="modal-backdrop hidden">
       <div class="modal-box">
         <h2 class="text-white font-semibold mb-4">Modifier la position</h2>
         <form id="form-edit-position" class="space-y-3">
+          ${isCrypto ? `
+          <div>
+            <label class="label">ID CoinGecko</label>
+            <input name="identifiant" id="edit-identifiant" placeholder="bitcoin, ethereum…" required class="input" />
+            <p class="text-slate-500 text-xs mt-1">URL coingecko.com/en/coins/<span class="text-slate-300">bitcoin</span></p>
+          </div>` : ''}
           ${isEpargne
             ? `<div><label class="label">Montant actuel (€)</label><input name="prix_achat" id="edit-prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
                <div><label class="label">Taux annuel (%)</label><input name="quantite" id="edit-quantite" type="number" step="0.01" min="0" required class="input" /></div>`
@@ -2236,6 +2254,8 @@ function openEditEnvelope(e) {
 
 function openEditPosition(pos) {
   document.getElementById('modal-edit-position')?.classList.remove('hidden');
+  const idField = document.getElementById('edit-identifiant');
+  if (idField) idField.value = pos.identifiant || '';
   document.getElementById('edit-prix_achat').value = pos.prix_achat || '';
   document.getElementById('edit-quantite').value   = pos.quantite || '';
 
@@ -2245,7 +2265,13 @@ function openEditPosition(pos) {
     setLoading(btn, true);
     const d = Object.fromEntries(new FormData(e.target));
     try {
-      STATE.positions = STATE.positions.map(p => p.id === pos.id ? { ...p, prix_achat: Number(d.prix_achat)||0, quantite: Number(d.quantite)||0, date_achat: d.date_achat||'' } : p);
+      STATE.positions = STATE.positions.map(p => p.id === pos.id ? {
+        ...p,
+        ...(d.identifiant ? { identifiant: d.identifiant.trim() } : {}),
+        prix_achat: Number(d.prix_achat)||0,
+        quantite:   Number(d.quantite)||0,
+        date_achat: d.date_achat||'',
+      } : p);
       closeModal('edit-position');
       saveAndRender();
     } finally { setLoading(btn, false); }
@@ -2298,7 +2324,7 @@ function setLoading(btn, isLoading) {
 function currentPrice(identifiant, type) {
   if (identifiant === 'LIQUIDITES') return 1; // 1€/unité, quantite = montant en €
   if (type === 'bourse')  return Number(STATE.prices.find(p => p.isin === identifiant)?.prix_actuel) || 0;
-  if (type === 'crypto')  return Number(STATE.crypto_prices.find(p => p.symbole === identifiant)?.prix_actuel) || 0;
+  if (type === 'crypto')  return Number(STATE.crypto_prices.find(p => p.id === identifiant || (p.symbole||'').toUpperCase() === identifiant.toUpperCase())?.prix_actuel) || 0;
   return Number(identifiant) || 0;
 }
 
