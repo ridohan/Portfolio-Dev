@@ -297,8 +297,45 @@ function persistUiPref(key, value) {
   autoSaveToFile();
 }
 
+function _isStateEmpty() {
+  return !STATE.portfolios?.length && !STATE.biens_immo?.length &&
+         !STATE.expense_categories?.length && !STATE.residences?.length;
+}
+
+function renderWelcome(app) {
+  app.innerHTML = `
+    <div class="min-h-screen flex items-center justify-center p-6">
+      <div class="max-w-md w-full space-y-6 text-center">
+        <div>
+          <p class="text-5xl mb-4">📊</p>
+          <h1 class="text-2xl font-bold text-white mb-2">Portfolio Manager</h1>
+          <p class="text-slate-400 text-sm">Bienvenue ! Chargez votre fichier de sauvegarde pour retrouver vos données, ou commencez à zéro.</p>
+        </div>
+        <div class="bg-slate-800/60 rounded-xl p-6 border border-slate-700/50 space-y-4 text-left">
+          <div>
+            <p class="text-white text-sm font-medium mb-1">📂 Charger une sauvegarde</p>
+            <p class="text-slate-500 text-xs mb-3">Fichier JSON exporté depuis Portfolio Manager.</p>
+            <input id="welcome-import-input" type="file" accept=".json" onchange="importDataJSON(this)" class="hidden">
+            <button onclick="document.getElementById('welcome-import-input').click()"
+              class="btn-primary w-full text-sm">Charger mon fichier JSON</button>
+            <p id="welcome-import-status" class="text-xs mt-2 hidden"></p>
+          </div>
+          <div class="border-t border-slate-700 pt-4">
+            <p class="text-white text-sm font-medium mb-1">✨ Commencer à zéro</p>
+            <p class="text-slate-500 text-xs mb-3">Créez votre premier portfolio depuis l'interface.</p>
+            <button onclick="navigate('#dashboard')"
+              class="btn-secondary w-full text-sm">Démarrer sans données</button>
+          </div>
+        </div>
+        <p class="text-slate-600 text-xs">Vos données restent sur votre appareil — aucun serveur.</p>
+      </div>
+    </div>`;
+}
+
 function render() {
   const app = document.getElementById('app');
+
+  if (_isStateEmpty()) { renderWelcome(app); return; }
 
   const hash = location.hash || '#dashboard';
   const [route, id] = hash.slice(1).split('/');
@@ -561,7 +598,7 @@ function exportDataJSON() {
 function importDataJSON(input) {
   const file = input.files?.[0];
   if (!file) return;
-  const status = document.getElementById('import-json-status');
+  const status = document.getElementById('import-json-status') || document.getElementById('welcome-import-status');
   const reader = new FileReader();
   reader.onload = e => {
     try {
