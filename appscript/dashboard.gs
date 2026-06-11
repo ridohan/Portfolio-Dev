@@ -1274,11 +1274,12 @@ function immoRentabilite(b) {
   const chg    = Number(b.charges_annuelles || Number(b.charges_mensuelles || 0) * 12);
   const tf     = Number(b.taxe_fonciere || 0);
   const mens   = immoMensualite(b);
-  const mensAss = Number(b.mensualite_assurance || 0);
+  const mensAss    = Number(b.mensualite_assurance || 0);
+  const mensAssPno = Number(b.mensualite_assurance_pno || 0);
 
   const rendBrut      = prix > 0 ? (loyer / prix * 100) : 0;
-  const cfAnnCredit   = loyer - chg - tf - (mens + mensAss) * 12;
-  const cfAnnPost     = loyer - chg - tf;
+  const cfAnnCredit   = loyer - chg - tf - (mens + mensAss) * 12 - mensAssPno * 12;
+  const cfAnnPost     = loyer - chg - tf - mensAssPno * 12;
   const rendNetCredit = prix > 0 ? (cfAnnCredit / prix * 100) : 0;
   const rendNetPost   = prix > 0 ? (cfAnnPost   / prix * 100) : 0;
 

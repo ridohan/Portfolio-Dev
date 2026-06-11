@@ -303,9 +303,9 @@ function _initImmo(ss, now) {
     'id','nom','prix_achat','surface_m2',
     'loyer_annuel_ht','charges_annuelles','taxe_fonciere',
     'montant_credit','taux_credit','duree_credit_mois','date_debut_credit',
-    'mensualite_assurance','numero_pret','charges_mensuelles',
+    'mensualite_assurance','mensualite_assurance_pno','numero_pret','charges_mensuelles',
   ];
-  const IMMO_NUMERIC = ['prix_achat','surface_m2','loyer_annuel_ht','charges_annuelles','taxe_fonciere','montant_credit','taux_credit','duree_credit_mois','mensualite_assurance','charges_mensuelles'];
+  const IMMO_NUMERIC = ['prix_achat','surface_m2','loyer_annuel_ht','charges_annuelles','taxe_fonciere','montant_credit','taux_credit','duree_credit_mois','mensualite_assurance','mensualite_assurance_pno','charges_mensuelles'];
   const biensSheet = _resetSheet(ss, 'biens_immo', IMMO_HEADERS, IMMO_NUMERIC);
 
   // Début des crédits : il y a 9 et 6 mois
@@ -316,13 +316,13 @@ function _initImmo(ss, now) {
     D.IMMO1, 'Appartement T2 — Lyon 7e', 98000, 42,
     8400, 1200, 720,
     78000, 0.034, 300, _isoDate(debut1),
-    20, 'PRD-2024-04721', 100,
+    20, 15, 'PRD-2024-04721', 100,
   ], IMMO_NUMERIC);
   _appendRow(biensSheet, IMMO_HEADERS, [
     D.IMMO2, 'Studio — Paris 18e', 105000, 22,
     9600, 900, 850,
     84000, 0.032, 300, _isoDate(debut2),
-    18, 'PRD-2024-09182', 75,
+    18, 12, 'PRD-2024-09182', 75,
   ], IMMO_NUMERIC);
 
   // ── dépenses immo (loyers + échéances + charges) ──────────────────────────

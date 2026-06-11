@@ -178,7 +178,7 @@ function doPost(e) {
       // ─── IMMOBILIER LOCATIF ──────────────────────────────────────────────────
       addBienImmo: () => {
         const ss2 = SpreadsheetApp.getActiveSpreadsheet();
-        ensureSheet(ss2, 'biens_immo', ['id','nom','surface_m2','prix_achat','loyer_annuel_ht','taxe_fonciere','charges_annuelles','montant_credit','duree_credit_mois','taux_credit','mensualite_assurance','numero_pret','date_debut_credit']);
+        ensureSheet(ss2, 'biens_immo', ['id','nom','surface_m2','prix_achat','loyer_annuel_ht','taxe_fonciere','charges_annuelles','montant_credit','duree_credit_mois','taux_credit','mensualite_assurance','mensualite_assurance_pno','numero_pret','date_debut_credit']);
         return createRow('biens_immo', {
           id: newId('bi'), nom: payload.nom,
           surface_m2: Number(payload.surface_m2 || 0),
@@ -190,6 +190,7 @@ function doPost(e) {
           duree_credit_mois: Number(payload.duree_credit_mois || 0),
           taux_credit: Number(payload.taux_credit || 0),
           mensualite_assurance: Number(payload.mensualite_assurance || 0),
+          mensualite_assurance_pno: Number(payload.mensualite_assurance_pno || 0),
           numero_pret: payload.numero_pret || '',
           date_debut_credit: payload.date_debut_credit || '',
         });
@@ -205,6 +206,7 @@ function doPost(e) {
         duree_credit_mois: Number(payload.duree_credit_mois || 0),
         taux_credit: Number(payload.taux_credit || 0),
         mensualite_assurance: Number(payload.mensualite_assurance || 0),
+        mensualite_assurance_pno: Number(payload.mensualite_assurance_pno || 0),
         numero_pret: payload.numero_pret || '',
         date_debut_credit: payload.date_debut_credit || '',
       }),

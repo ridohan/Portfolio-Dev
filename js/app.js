@@ -792,7 +792,7 @@ function generatePdfResidences() {
               <tr><td>Durée</td><td class="r">${r.duree_credit_mois} mois</td></tr>
               <tr><td>Taux annuel</td><td class="r">${(Number(r.taux_credit||0)*100).toFixed(2)}%</td></tr>
               <tr><td>Mensualité crédit</td><td class="r amber">${_n(Math.round(mens))}/mois</td></tr>
-              ${assur > 0 ? `<tr><td>Assurance</td><td class="r">${_n(assur)}/mois</td></tr>` : ''}
+              ${assur > 0 ? `<tr><td>Assurance crédit</td><td class="r">${_n(assur)}/mois</td></tr>` : ''}
               <tr><td>Mensualité totale</td><td class="r" style="font-weight:700">${_n(Math.round(mens+assur))}/mois</td></tr>
               ${r.numero_pret ? `<tr><td>N° prêt</td><td class="r muted"><span class="num">${r.numero_pret}</span></td></tr>` : ''}
               ${r.date_debut_credit ? `<tr><td>Début</td><td class="r">${r.date_debut_credit}</td></tr>` : ''}
@@ -6141,7 +6141,7 @@ function residBloc1(res) {
         ${row('Durée crédit', res.duree_credit_mois + ' mois')}
         ${row('Taux annuel', (Number(res.taux_credit) * 100).toFixed(2) + '%')}
         ${row('Mensualité crédit', '<span class="text-amber-400">' + fmt(Math.round(mens)) + '/mois</span>')}
-        ${assur > 0 ? row('Assurance', fmt(assur) + '/mois') : ''}
+        ${assur > 0 ? row('Assurance crédit', fmt(assur) + '/mois') : ''}
         ${row('Mensualité totale', '<span class="text-amber-400 font-bold">' + fmt(Math.round(mens + assur)) + '/mois</span>')}
         ${res.numero_pret ? row('N° prêt', `<span class="num">${esc(res.numero_pret)}</span>`) : ''}
         ${res.date_debut_credit ? row('Début crédit', res.date_debut_credit) : ''}
@@ -6318,7 +6318,7 @@ function modalResidence() {
                 class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             <div>
-              <label class="block text-slate-400 text-xs mb-1">Assurance (€/mois)</label>
+              <label class="block text-slate-400 text-xs mb-1">Assurance crédit (€/mois)</label>
               <input id="res-assur" type="number" min="0" step="1"
                 class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
@@ -6592,13 +6592,14 @@ function immoCapitalRembourse(bien, now = new Date()) {
 function immoRentabilite(bien) {
   const mens    = immoMensualite(bien);
   const assur   = Number(bien.mensualite_assurance || 0);
+  const assurPno = Number(bien.mensualite_assurance_pno || 0);
   const loyer   = Number(bien.loyer_annuel_ht || 0);
   const taxe    = Number(bien.taxe_fonciere || 0);
   const charges = Number(bien.charges_annuelles || 0);
   const prix    = Number(bien.prix_achat || 0);
   const creditAn  = (mens + assur) * 12;
-  const cfAnnCred = loyer - taxe - charges - creditAn;
-  const cfAnnPost = loyer - taxe - charges;
+  const cfAnnCred = loyer - taxe - charges - creditAn - assurPno * 12;
+  const cfAnnPost = loyer - taxe - charges - assurPno * 12;
   return {
     mensCredit: mens, creditAn,
     rendBrut:       prix > 0 ? loyer / prix * 100 : 0,
@@ -7055,7 +7056,8 @@ function immoBloc1(bien) {
         ${row('Durée crédit', bien.duree_credit_mois + ' mois')}
         ${row('Taux annuel', (Number(bien.taux_credit) * 100).toFixed(2) + '%')}
         ${row('Mensualité crédit', '<span class="text-amber-400">' + fmt(mens) + '/mois</span>')}
-        ${row('Assurance', fmt(Number(bien.mensualite_assurance || 0)) + '/mois')}
+        ${row('Assurance crédit', fmt(Number(bien.mensualite_assurance || 0)) + '/mois')}
+        ${Number(bien.mensualite_assurance_pno || 0) > 0 ? row('Assurance PNO', fmt(Number(bien.mensualite_assurance_pno)) + '/mois') : ''}
         ${bien.numero_pret ? row('N° prêt', `<span class="num">${esc(bien.numero_pret)}</span>`) : ''}
         ${bien.date_debut_credit ? row('Début crédit', bien.date_debut_credit) : ''}
         ` : ''}
@@ -7560,8 +7562,8 @@ function fmtPeriode(debut, fin) {
 function immoDepensesTable(bienId) {
   const year  = _immoFilter.year;
   const type  = _immoFilter.type;
-  const TYPES = { echeance_pret: 'Échéance prêt', charge: 'Charge', assurance: 'Assurance', loyer: 'Loyer' };
-  const TCOLS = { echeance_pret: 'text-amber-400', charge: 'text-red-400', assurance: 'text-orange-400', loyer: 'text-emerald-400' };
+  const TYPES = { echeance_pret: 'Échéance prêt', charge: 'Charge', assurance: 'Assurance crédit', assurance_pno: 'Assurance PNO', loyer: 'Loyer' };
+  const TCOLS = { echeance_pret: 'text-amber-400', charge: 'text-red-400', assurance: 'text-orange-400', assurance_pno: 'text-purple-400', loyer: 'text-emerald-400' };
   const deps  = STATE.depenses_immo
     .filter(d => {
       if (d.bien_id !== bienId) return false;
@@ -7576,7 +7578,7 @@ function immoDepensesTable(bienId) {
   const yBtns = [year - 1, year, year + 1].map(y =>
     `<button onclick="_immoFilter.year=${y};setEl('immo-dep-table',immoDepensesTable('${bienId}'))"
       class="px-2 py-1 rounded text-xs ${y === _immoFilter.year ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`).join('');
-  const tBtns = ['', 'loyer', 'echeance_pret', 'charge', 'assurance'].map(t =>
+  const tBtns = ['', 'loyer', 'echeance_pret', 'charge', 'assurance', 'assurance_pno'].map(t =>
     `<button onclick="_immoFilter.type='${t}';setEl('immo-dep-table',immoDepensesTable('${bienId}'))"
       class="px-2 py-1 rounded text-xs ${_immoFilter.type === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">${t ? TYPES[t] : 'Tous'}</button>`).join('');
   return `
@@ -7702,8 +7704,13 @@ function modalBienImmo() {
                   class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               </div>
               <div>
-                <label class="block text-slate-400 text-xs mb-1">Assurance mensuelle (€)</label>
+                <label class="block text-slate-400 text-xs mb-1">Assurance crédit (€/mois)</label>
                 <input id="bi-assur" type="number" min="0"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-xs mb-1">Assurance PNO (€/mois)</label>
+                <input id="bi-assur-pno" type="number" min="0"
                   class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               </div>
               <div>
@@ -7753,7 +7760,8 @@ function modalDepenseImmo() {
               <option value="loyer">Loyer</option>
               <option value="echeance_pret">Échéance prêt</option>
               <option value="charge">Charge</option>
-              <option value="assurance">Assurance</option>
+              <option value="assurance">Assurance crédit</option>
+              <option value="assurance_pno">Assurance PNO</option>
             </select>
           </div>
           <div>
@@ -7859,6 +7867,7 @@ function openBienImmoModal(id = null) {
   set('bi-duree',      bien?.duree_credit_mois || '');
   set('bi-taux',       bien ? (Number(bien.taux_credit || 0) * 100).toFixed(2) : '');
   set('bi-assur',      bien?.mensualite_assurance || '');
+  set('bi-assur-pno',  bien?.mensualite_assurance_pno || '');
   set('bi-numpret',    bien?.numero_pret || '');
   set('bi-datecredit', bien?.date_debut_credit || '');
   previewMensualite();
@@ -7898,7 +7907,8 @@ async function saveBienImmo() {
     montant_credit:       parseFloat(document.getElementById('bi-credit')?.value) || 0,
     duree_credit_mois:    parseFloat(document.getElementById('bi-duree')?.value) || 0,
     taux_credit:          ta / 100,
-    mensualite_assurance: parseFloat(document.getElementById('bi-assur')?.value) || 0,
+    mensualite_assurance:     parseFloat(document.getElementById('bi-assur')?.value) || 0,
+    mensualite_assurance_pno: parseFloat(document.getElementById('bi-assur-pno')?.value) || 0,
     numero_pret:          document.getElementById('bi-numpret')?.value?.trim() || '',
     date_debut_credit:    document.getElementById('bi-datecredit')?.value || '',
   };
