@@ -76,6 +76,9 @@ async function _startBackgroundTasks() {
 function _updateSyncIndicators(state) {
   _updatePriceIndicator(state);
   _updateSnapshotIndicator();
+  // Refresh save label (timestamps age over time)
+  const ts = localStorage.getItem(LAST_SAVE_TS_KEY);
+  if (ts) _updateAutoSaveIndicator(_fsHandle ? 'ok' : 'localStorage');
 }
 
 function _updatePriceIndicator(state) {
@@ -152,9 +155,13 @@ const _fsDB = (() => {
   };
 })();
 
+const LAST_SAVE_TS_KEY = 'portfolio_last_save_ts';
+
 async function autoSaveToFile() {
   // Toujours persister dans localStorage
   Storage.save(STATE);
+  localStorage.setItem(LAST_SAVE_TS_KEY, String(Date.now()));
+  _updateAutoSaveIndicator(_fsHandle ? 'ok' : 'localStorage');
   if (!_fsHandle) return;
   try {
     const perm = await _fsHandle.queryPermission({ mode: 'readwrite' });
@@ -168,6 +175,16 @@ async function autoSaveToFile() {
     console.warn('Auto-save échoué :', e);
     _updateAutoSaveIndicator('error');
   }
+}
+
+function _lastSaveLabel() {
+  const ts = localStorage.getItem(LAST_SAVE_TS_KEY);
+  if (!ts) return '';
+  const diff = Math.floor((Date.now() - Number(ts)) / 1000);
+  if (diff < 60) return "à l'instant";
+  if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
+  return new Date(Number(ts)).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 async function pickAutoSaveFile() {
@@ -229,11 +246,13 @@ async function reauthorizeAutoSave() {
 function _updateAutoSaveIndicator(status) {
   const el = document.getElementById('autosave-indicator');
   if (!el) return;
+  const label = _lastSaveLabel();
   const cfg = {
-    ok:      { dot: 'bg-emerald-400',              text: 'Auto-save actif',          title: 'Sauvegarde automatique active' },
-    pending: { dot: 'bg-amber-400 animate-pulse',  text: 'Cliquer pour ré-autoriser', title: 'Permission expirée — cliquer pour réactiver' },
-    error:   { dot: 'bg-red-400',                  text: 'Erreur auto-save',          title: 'Échec de la sauvegarde automatique' },
-    off:     { dot: 'hidden',                       text: '',                          title: '' },
+    ok:          { dot: 'bg-emerald-400',             text: label ? `Sauvegardé ${label}` : 'Sauvegardé',  title: 'Sauvegarde automatique active' },
+    localStorage:{ dot: 'bg-slate-400',               text: label ? `Sauvegardé ${label}` : 'Sauvegardé',  title: 'Sauvegardé dans le navigateur (pas de fichier configuré)' },
+    pending:     { dot: 'bg-amber-400 animate-pulse', text: 'Cliquer pour ré-autoriser',                    title: 'Permission expirée — cliquer pour réactiver' },
+    error:       { dot: 'bg-red-400',                 text: 'Erreur auto-save',                             title: 'Échec de la sauvegarde automatique' },
+    off:         { dot: 'hidden',                     text: '',                                             title: '' },
   }[status] || { dot: 'hidden', text: '', title: '' };
   el.innerHTML = status === 'off' ? '' : `
     <button onclick="${status === 'pending' ? 'reauthorizeAutoSave()' : 'openCacheSettings()'}"
@@ -323,7 +342,7 @@ function renderWelcome(app) {
           <div class="border-t border-slate-700 pt-4">
             <p class="text-white text-sm font-medium mb-1">✨ Commencer à zéro</p>
             <p class="text-slate-500 text-xs mb-3">Créez votre premier portfolio depuis l'interface.</p>
-            <button onclick="navigate('#dashboard')"
+            <button onclick="startFresh()"
               class="btn-secondary w-full text-sm">Démarrer sans données</button>
           </div>
         </div>
@@ -332,10 +351,17 @@ function renderWelcome(app) {
     </div>`;
 }
 
+function startFresh() {
+  persistUiPref('app_started', true);
+  autoSaveToFile();
+  location.hash = '#dashboard';
+  render();
+}
+
 function render() {
   const app = document.getElementById('app');
 
-  if (_isStateEmpty()) { renderWelcome(app); return; }
+  if (_isStateEmpty() && !getUiPref('app_started')) { renderWelcome(app); return; }
 
   const hash = location.hash || '#dashboard';
   const [route, id] = hash.slice(1).split('/');
@@ -2518,11 +2544,16 @@ function navbar(optsOrLeft = '') {
 
         <!-- Droite : actions + hamburger -->
         <div class="flex items-center gap-2 flex-shrink-0">
-          <button onclick="openCacheSettings()" class="hidden lg:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le refresh des prix">Refresh prix · TTL ${API.getCacheTTLMinutes()}min</button>
           ${showReorder ? `<button onclick="openDashOrderModal()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs flex items-center gap-1 transition px-2 py-1 rounded hover:bg-slate-800" title="Réorganiser le dashboard">⊞</button>` : ''}
           <span id="price-indicator"></span>
           <span id="snapshot-indicator"></span>
           <span id="autosave-indicator"></span>
+          <button onclick="openCacheSettings()" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="Paramètres">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
           <button onclick="togglePrivacyMode()" id="privacy-btn" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="${isPrivacyMode() ? 'Afficher les chiffres' : 'Masquer les chiffres'}">
             ${isPrivacyMode()
               ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
