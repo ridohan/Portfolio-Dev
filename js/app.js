@@ -570,19 +570,6 @@ function openCacheSettings() {
           <button onclick="saveReturnSettings()" class="btn-primary text-xs px-3 py-1.5 ml-auto block">Sauvegarder</button>
         </div>
 
-        <!-- Rapports PDF -->
-        <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
-          <p class="text-slate-300 text-sm font-medium">📄 Rapports PDF</p>
-          <p class="text-slate-500 text-xs">Génère un rapport mis en page dans un nouvel onglet — utilisez "Enregistrer en PDF" dans la boîte d'impression.</p>
-          <div class="space-y-1.5">
-            <button onclick="generatePdfPortfolio()" class="btn-secondary text-sm w-full text-left">📊 Rapport Portfolio complet</button>
-            <button onclick="generatePdfHistory()" class="btn-secondary text-sm w-full text-left">📈 Historique des valeurs</button>
-            <button onclick="generatePdfImmo()" class="btn-secondary text-sm w-full text-left">🏠 Rapport Immobilier locatif</button>
-            <button onclick="generatePdfResidences()" class="btn-secondary text-sm w-full text-left">🏡 Rapport Résidences</button>
-            <button onclick="generatePdfExpenses()" class="btn-secondary text-sm w-full text-left">💸 Rapport Dépenses mensuelles</button>
-          </div>
-        </div>
-
         <button onclick="closeCacheSettings()" class="btn-secondary w-full text-sm">Fermer</button>
       </div>`;
     div.addEventListener('click', e => { if (e.target === div) closeCacheSettings(); });
@@ -668,6 +655,33 @@ function importDataJSON(input) {
     }
   };
   reader.readAsText(file);
+}
+
+// ─── MODAL RAPPORTS PDF ───────────────────────────────────────────────────────
+
+function openPdfModal() {
+  const existing = document.getElementById('pdf-modal');
+  if (existing) { existing.remove(); return; }
+  const div = document.createElement('div');
+  div.id = 'pdf-modal';
+  div.className = 'modal-backdrop';
+  div.innerHTML = `
+    <div class="modal-box max-w-sm">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-white font-semibold">📄 Rapports PDF</h2>
+        <button onclick="document.getElementById('pdf-modal').remove()" class="text-slate-400 hover:text-white transition text-lg leading-none">✕</button>
+      </div>
+      <p class="text-slate-500 text-xs mb-4">Génère un rapport mis en page dans un nouvel onglet — utilisez "Enregistrer en PDF" dans la boîte d'impression.</p>
+      <div class="space-y-2">
+        <button onclick="generatePdfPortfolio()" class="btn-secondary text-sm w-full text-left">📊 Rapport Portfolio complet</button>
+        <button onclick="generatePdfHistory()" class="btn-secondary text-sm w-full text-left">📈 Historique des valeurs</button>
+        <button onclick="generatePdfImmo()" class="btn-secondary text-sm w-full text-left">🏠 Rapport Immobilier locatif</button>
+        <button onclick="generatePdfResidences()" class="btn-secondary text-sm w-full text-left">🏡 Rapport Résidences</button>
+        <button onclick="generatePdfExpenses()" class="btn-secondary text-sm w-full text-left">💸 Rapport Dépenses mensuelles</button>
+      </div>
+    </div>`;
+  div.addEventListener('click', e => { if (e.target === div) div.remove(); });
+  document.body.appendChild(div);
 }
 
 // ─── RAPPORTS PDF ────────────────────────────────────────────────────────────
@@ -2561,6 +2575,15 @@ function navbar(optsOrLeft = '') {
           <span id="price-indicator"></span>
           <span id="snapshot-indicator"></span>
           <span id="autosave-indicator"></span>
+          <button onclick="openPdfModal()" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="Rapports PDF">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+          </button>
           <button onclick="openCacheSettings()" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="Paramètres">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"/>
@@ -6804,6 +6827,7 @@ let _immoFilter      = { year: new Date().getFullYear(), type: '' };
 let _immoGlobalYear  = new Date().getFullYear();
 let _tvaFilter       = { year: new Date().getFullYear() };
 let _loyerFreq       = 'mensuel'; // 'mensuel' | 'trimestriel' | 'personnalise'
+let _periodicite     = 'mensuelle'; // 'mensuelle' | 'annuelle'
 let _editingBienId   = null;
 let _editingDepId    = null;
 let _depBienId       = null;
@@ -6915,24 +6939,57 @@ function immoChargesTrackedMonths(bienId, year) {
 function immoRentabiliteReelle(bienId, year) {
   const bien = STATE.biens_immo.find(b => b.id === bienId);
   if (!bien) return null;
-  const loyersHt    = immoLoyersHtYtd(bienId, year);
-  const depenses    = immoDepensesYtd(bienId, year);
-  const taxe        = Number(bien.taxe_fonciere || 0);
-  const prix        = Number(bien.prix_achat || 0);
-  const moisLoyers  = immoLoyerTrackedMonths(bienId, year);
-  const moisCharges = immoChargesTrackedMonths(bienId, year);
-  const cfReel      = loyersHt - depenses - taxe;
+  const loyersHt = immoLoyersHtYtd(bienId, year);
+  const prix     = Number(bien.prix_achat || 0);
+  const moisLoyers = immoLoyerTrackedMonths(bienId, year);
+  // Pour les dépenses mensuelles : mois écoulés dans l'année (pas nb de mois avec transactions)
+  const now = new Date();
+  const moisEcoules = year < now.getFullYear() ? 12 : (year === now.getFullYear() ? now.getMonth() + 1 : 0);
 
-  // Projection : chaque flux divisé par SES PROPRES mois déclarés → extrapolé sur 12
-  let loyersAnn = 0, depAnn = 0, cfProjete = 0, rendProjete = 0;
-  if (moisLoyers > 0)  loyersAnn = (loyersHt  / moisLoyers)  * 12;
-  if (moisCharges > 0) depAnn    = (depenses   / moisCharges) * 12;
-  if (moisLoyers > 0 || moisCharges > 0) {
-    cfProjete   = loyersAnn - depAnn - taxe;
+  // Toutes dépenses non-loyer de l'année (par date de paiement)
+  const nonLoyerDeps = STATE.depenses_immo.filter(
+    d => d.bien_id === bienId && d.type !== 'loyer' && d.date && new Date(d.date).getFullYear() === year
+  );
+  const depenses = nonLoyerDeps.reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+
+  // Taxe foncière : fallback sur champ statique si aucune transaction de ce type
+  const hasTaxeTx = nonLoyerDeps.some(d => d.type === 'taxe_fonciere');
+  const taxe      = hasTaxeTx ? 0 : Number(bien.taxe_fonciere || 0);
+
+  const cfReel = loyersHt - depenses; // réel = uniquement transactions saisies, pas de taxe statique
+
+  // Projection : chaque type annualisé par SES PROPRES mois
+  const DEP_TYPES = ['echeance_pret', 'assurance', 'assurance_pno', 'taxe_fonciere', 'charge'];
+  const depDetail = {}; // { type: { ytd, projAn, mois } }
+  let depAnn = 0;
+  DEP_TYPES.forEach(t => {
+    const tDeps = nonLoyerDeps.filter(d => d.type === t);
+    const ann   = tDeps.filter(d => d.periodicite === 'annuelle').reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+    const mens  = tDeps.filter(d => d.periodicite !== 'annuelle');
+    const mensYtd = mens.reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+    // Diviser par mois écoulés (pas par nb de mois avec transactions)
+    const mensAnn = moisEcoules > 0 ? (mensYtd / moisEcoules) * 12 : 0;
+    const projAn = ann + mensAnn;
+    depDetail[t] = { ytd: ann + mensYtd, projAn, mois: moisEcoules };
+    depAnn += projAn;
+  });
+  // Taxe foncière statique si pas de transactions → ytd: 0 (pas réel), projAn: taxe
+  if (!hasTaxeTx && taxe > 0) {
+    depDetail['taxe_fonciere'] = { ytd: 0, projAn: taxe, mois: 0, fallback: true };
+    depAnn += taxe;
+  }
+
+  let loyersAnn = 0, cfProjete = 0, rendProjete = 0;
+  if (moisLoyers > 0) loyersAnn = (loyersHt / moisLoyers) * 12;
+  if (moisLoyers > 0 || depenses > 0) {
+    cfProjete   = loyersAnn - depAnn;
     rendProjete = prix > 0 ? cfProjete / prix * 100 : 0;
   }
 
-  return { loyersHt, depenses, taxe, cfReel, moisLoyers, moisCharges, loyersAnn, depAnn, cfProjete, rendProjete };
+  // moisCharges = max des mois mensuels (pour compatibilité affichage)
+  const moisCharges = Math.max(0, ...DEP_TYPES.map(t => depDetail[t]?.mois || 0));
+
+  return { loyersHt, depenses, taxe, cfReel, moisLoyers, moisCharges, loyersAnn, depAnn, depDetail, cfProjete, rendProjete };
 }
 
 // ── Dashboard card ────────────────────────────────────────────────────────────
@@ -6991,13 +7048,16 @@ function immoGlobalStats(year) {
     .forEach(d => { if (new Date(d.date).getFullYear() === year) moisChargeSet.add(new Date(d.date).getMonth()); });
   const moisCharges = moisChargeSet.size;
 
-  let loyersAnn = 0, depAnn = 0, cfProjete = 0, rendProjete = 0;
-  if (moisLoyers  > 0) loyersAnn = (loyersHtTot / moisLoyers)  * 12;
-  if (moisCharges > 0) depAnn    = (depTot      / moisCharges) * 12;
-  if (moisLoyers > 0 || moisCharges > 0) {
-    cfProjete   = loyersAnn - depAnn - taxeTot;
-    rendProjete = brut > 0 ? cfProjete / brut * 100 : 0;
-  }
+  // Somme des cfProjete individuels — chaque bien utilise ses propres mois déclarés
+  let loyersAnn = 0, depAnn = 0, cfProjete = 0;
+  STATE.biens_immo.forEach(b => {
+    const rr = immoRentabiliteReelle(b.id, year);
+    if (!rr) return;
+    loyersAnn += rr.loyersAnn;
+    depAnn    += rr.depAnn;
+    cfProjete += rr.cfProjete;
+  });
+  const rendProjete = brut > 0 ? cfProjete / brut * 100 : 0;
 
   return {
     brut, crd, equity, pctRemb,
@@ -7378,24 +7438,60 @@ function immoBloc3(bienId) {
           <p class="text-slate-600 text-xs">${r.moisLoyers} loyer${r.moisLoyers > 1 ? 's' : ''} saisi${r.moisLoyers > 1 ? 's' : ''}</p>
         </div>
         <div class="bg-slate-700/40 rounded-lg p-3">
-          <p class="text-slate-400 text-xs mb-1">Dépenses + TF</p>
-          <p class="text-red-400 font-bold">−${fmt(Math.round(r.depenses + r.taxe))}</p>
-          <p class="text-slate-600 text-xs">${r.moisCharges} mois · TF ${fmt(r.taxe)}</p>
+          <p class="text-slate-400 text-xs mb-1">Dépenses réelles YTD</p>
+          <p class="text-red-400 font-bold">−${fmt(Math.round(r.depenses))}</p>
+          <p class="text-slate-600 text-xs">${r.moisLoyers} mois de loyers · ${r.moisCharges} mois écoulés</p>
         </div>
-        <div class="bg-slate-700/40 rounded-lg p-3">
-          <p class="text-slate-400 text-xs mb-1">Cashflow réel YTD</p>
-          <p class="${cc(r.cfReel)} font-bold">${fmtCf(Math.round(r.cfReel))}</p>
-          <p class="text-slate-500 text-xs mt-0.5">${r.moisLoyers > 0 && r.moisCharges > 0 ? fmtCf(Math.round(r.cfReel / Math.max(r.moisLoyers, r.moisCharges))) + '/mois moy.' : 'données partielles'}</p>
+        <div class="bg-slate-700/40 rounded-lg p-3 col-span-2">
+          <p class="text-slate-400 text-xs mb-2">Cashflow réel YTD</p>
+          <div class="space-y-1 mb-2">
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Loyers HT perçus</span>
+              <span class="text-emerald-400 font-medium">+${fmt(Math.round(r.loyersHt))}</span>
+            </div>
+            ${['echeance_pret','assurance','assurance_pno','taxe_fonciere','charge'].map(t => {
+              const d = r.depDetail?.[t];
+              if (!d || d.ytd === 0) return '';
+              const LABELS = { echeance_pret: 'Échéance prêt', assurance: 'Assurance crédit', assurance_pno: 'Assurance PNO', taxe_fonciere: 'Taxe Foncière', charge: 'Charge' };
+              return `<div class="flex justify-between text-xs">
+                <span class="text-slate-400">${LABELS[t]}</span>
+                <span class="text-red-400">−${fmt(Math.round(d.ytd))}</span>
+              </div>`;
+            }).join('')}
+          </div>
+          <div class="border-t border-slate-600 pt-2 flex justify-between items-baseline">
+            <span class="text-slate-300 text-xs font-medium">= CF réel YTD</span>
+            <div class="text-right">
+              <span class="${cc(r.cfReel)} font-bold text-base">${fmtCf(Math.round(r.cfReel))}</span>
+              ${r.moisLoyers > 0 ? `<p class="text-slate-500 text-xs">${fmtCf(Math.round(r.cfReel / r.moisLoyers))}/mois moy.</p>` : ''}
+            </div>
+          </div>
         </div>
-        <div class="bg-slate-700/40 rounded-lg p-3 ${r.moisLoyers !== r.moisCharges ? 'border border-blue-500/30' : ''}">
-          <p class="text-slate-400 text-xs mb-1">Cashflow projeté</p>
-          <p class="${cc(r.cfProjete)} font-bold">${fmtCf(Math.round(r.cfProjete / 12))}/mois</p>
-          <p class="text-slate-500 text-xs mt-0.5">${fmtCf(Math.round(r.cfProjete))}/an · ${r.rendProjete.toFixed(2)}%</p>
-          ${r.moisLoyers !== r.moisCharges ? `
-          <div class="mt-1.5 pt-1.5 border-t border-slate-600/50 space-y-0.5">
-            <p class="text-slate-600 text-xs">↑ ${fmtCf(Math.round(r.loyersAnn / 12))}/mois loyers (${r.moisLoyers}m)</p>
-            <p class="text-slate-600 text-xs">↓ ${fmt(Math.round(r.depAnn / 12))}/mois charges (${r.moisCharges}m)</p>
-          </div>` : ''}
+        <div class="bg-slate-700/40 rounded-lg p-3 col-span-2">
+          <p class="text-slate-400 text-xs mb-2">Cashflow projeté</p>
+          <div class="space-y-1 mb-2">
+            <div class="flex justify-between text-xs">
+              <span class="text-slate-400">Loyer (${r.moisLoyers} mois)</span>
+              <span class="text-emerald-400 font-medium">+${fmt(Math.round(r.loyersAnn / 12))}/mois</span>
+            </div>
+            ${['echeance_pret','assurance','assurance_pno','taxe_fonciere','charge'].map(t => {
+              const d = r.depDetail?.[t];
+              if (!d || d.projAn === 0) return '';
+              const LABELS = { echeance_pret: 'Échéance prêt', assurance: 'Assurance crédit', assurance_pno: 'Assurance PNO', taxe_fonciere: 'Taxe Foncière', charge: 'Charge' };
+              const detail = d.fallback ? 'statique' : d.mois > 0 ? `${d.mois} mois` : 'annuelle';
+              return `<div class="flex justify-between text-xs">
+                <span class="text-slate-400">${LABELS[t]} (${detail})</span>
+                <span class="text-red-400">−${fmt(Math.round(d.projAn / 12))}/mois</span>
+              </div>`;
+            }).join('')}
+          </div>
+          <div class="border-t border-slate-600 pt-2 flex justify-between items-baseline">
+            <span class="text-slate-300 text-xs font-medium">= CF projeté</span>
+            <div class="text-right">
+              <span class="${cc(r.cfProjete)} font-bold text-base">${fmtCf(Math.round(r.cfProjete / 12))}/mois</span>
+              <p class="text-slate-500 text-xs">${fmtCf(Math.round(r.cfProjete))}/an · ${r.rendProjete.toFixed(2)}%</p>
+            </div>
+          </div>
         </div>
       </div>`}
     </div>`;
@@ -7805,8 +7901,8 @@ function fmtPeriode(debut, fin) {
 function immoDepensesTable(bienId) {
   const year  = _immoFilter.year;
   const type  = _immoFilter.type;
-  const TYPES = { echeance_pret: 'Échéance prêt', charge: 'Charge', assurance: 'Assurance crédit', assurance_pno: 'Assurance PNO', loyer: 'Loyer' };
-  const TCOLS = { echeance_pret: 'text-amber-400', charge: 'text-red-400', assurance: 'text-orange-400', assurance_pno: 'text-purple-400', loyer: 'text-emerald-400' };
+  const TYPES = { echeance_pret: 'Échéance prêt', charge: 'Charge', assurance: 'Assurance crédit', assurance_pno: 'Assurance PNO', taxe_fonciere: 'Taxe Foncière', loyer: 'Loyer' };
+  const TCOLS = { echeance_pret: 'text-amber-400', charge: 'text-red-400', assurance: 'text-orange-400', assurance_pno: 'text-purple-400', taxe_fonciere: 'text-yellow-400', loyer: 'text-emerald-400' };
   const deps  = STATE.depenses_immo
     .filter(d => {
       if (d.bien_id !== bienId) return false;
@@ -7821,7 +7917,7 @@ function immoDepensesTable(bienId) {
   const yBtns = [year - 1, year, year + 1].map(y =>
     `<button onclick="_immoFilter.year=${y};setEl('immo-dep-table',immoDepensesTable('${bienId}'))"
       class="px-2 py-1 rounded text-xs ${y === _immoFilter.year ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-white'}">${y}</button>`).join('');
-  const tBtns = ['', 'loyer', 'echeance_pret', 'charge', 'assurance', 'assurance_pno'].map(t =>
+  const tBtns = ['', 'loyer', 'echeance_pret', 'charge', 'assurance', 'assurance_pno', 'taxe_fonciere'].map(t =>
     `<button onclick="_immoFilter.type='${t}';setEl('immo-dep-table',immoDepensesTable('${bienId}'))"
       class="px-2 py-1 rounded text-xs ${_immoFilter.type === t ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}">${t ? TYPES[t] : 'Tous'}</button>`).join('');
   return `
@@ -7873,6 +7969,39 @@ function immoDepensesTable(bienId) {
               <td class="py-2.5 px-4 text-right text-slate-300 text-xs font-semibold">${hasHtCol ? fmt(totalHt) : '—'}</td>
               <td colspan="3" class="py-2.5 px-4 text-slate-500 text-xs">${hasHtCol ? 'TVA : ' + fmt(totalTtc - totalHt) : ''}</td>
             </tr>
+            ${(() => {
+              // Synthèse annuelle : loyer + dépenses
+              const EXPENSE_TYPES = ['loyer', 'echeance_pret', 'assurance', 'assurance_pno', 'taxe_fonciere', 'charge'];
+              const allDepsYear = STATE.depenses_immo.filter(d =>
+                d.bien_id === bienId && d.date && new Date(d.date).getFullYear() === year
+              );
+              const rows = EXPENSE_TYPES.map(t => {
+                const tDeps = allDepsYear.filter(d => d.type === t);
+                if (!tDeps.length) return '';
+                let ytd, projAn;
+                if (t === 'loyer') {
+                  // Utiliser les mêmes fonctions que le CF calc (par période couverte, pas date paiement)
+                  ytd = immoLoyersHtYtd(bienId, year);
+                  const mMois = immoLoyerTrackedMonths(bienId, year);
+                  projAn = mMois > 0 ? (ytd / mMois) * 12 : 0;
+                } else {
+                  ytd = tDeps.reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+                  const ann  = tDeps.filter(d => d.periodicite === 'annuelle').reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+                  const mens = tDeps.filter(d => d.periodicite !== 'annuelle').reduce((s, d) => s + Number(d.montant_ttc || 0), 0);
+                  const now2 = new Date();
+                  const me   = year < now2.getFullYear() ? 12 : (year === now2.getFullYear() ? now2.getMonth() + 1 : 0);
+                  projAn = ann + (me > 0 ? (mens / me) * 12 : 0);
+                }
+                const tc = TCOLS[t] || 'text-slate-300';
+                return `<tr class="bg-slate-800/40 border-t border-slate-700/50">
+                  <td class="py-2 px-4 text-xs ${tc} font-medium" colspan="2">${TYPES[t]}</td>
+                  <td class="py-2 px-4 text-right text-slate-300 text-xs">${fmt(Math.round(ytd))} YTD</td>
+                  <td class="py-2 px-4 text-right text-white text-xs font-semibold">${fmt(Math.round(projAn))}/an</td>
+                  <td colspan="3" class="py-2 px-4 text-slate-500 text-xs">${fmt(Math.round(projAn / 12))}/mois projeté</td>
+                </tr>`;
+              }).join('');
+              return rows ? `<tr><td colspan="7" class="pt-1 pb-0"></td></tr>${rows}` : '';
+            })()}
           </tfoot>
         </table>
       </div>` : `
@@ -8005,6 +8134,7 @@ function modalDepenseImmo() {
               <option value="charge">Charge</option>
               <option value="assurance">Assurance crédit</option>
               <option value="assurance_pno">Assurance PNO</option>
+              <option value="taxe_fonciere">Taxe Foncière</option>
             </select>
           </div>
           <div>
@@ -8017,6 +8147,17 @@ function modalDepenseImmo() {
             <input id="dep-montant" type="number" min="0" step="0.01" oninput="refreshDepPreview()"
               class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
+          <!-- Périodicité — visible pour les dépenses non-loyer -->
+          <div id="dep-periodicite-section" class="hidden">
+            <label class="block text-slate-400 text-xs mb-1">Périodicité</label>
+            <div class="flex gap-1">
+              <button id="per-btn-mensuelle" type="button" onclick="setPeriodicite('mensuelle')"
+                class="flex-1 py-1.5 rounded text-xs font-medium transition bg-blue-600 text-white">Mensuelle</button>
+              <button id="per-btn-annuelle" type="button" onclick="setPeriodicite('annuelle')"
+                class="flex-1 py-1.5 rounded text-xs font-medium transition bg-slate-700 text-slate-400 hover:text-white">Annuelle</button>
+            </div>
+          </div>
+
           <div id="dep-tva-section" class="hidden space-y-3 bg-slate-700/30 rounded-lg p-3">
             <label class="flex items-center gap-2 cursor-pointer">
               <input id="dep-tva-toggle" type="checkbox" onchange="toggleTvaFields()">
@@ -8193,6 +8334,7 @@ async function confirmDeleteBienImmo(id) {
 function openDepenseImmoModal(bienId, depId = null) {
   _depBienId    = bienId;
   _editingDepId = depId;
+  _periodicite  = 'mensuelle';
   const dep  = depId ? STATE.depenses_immo.find(d => d.id === depId) : null;
   const now  = new Date();
   const cy   = now.getFullYear();
@@ -8237,9 +8379,10 @@ function openDepenseImmoModal(bienId, depId = null) {
     }
   }
 
+  _periodicite = (dep?.periodicite) || 'mensuelle';
   toggleTvaFields();
-  // Initialiser l'affichage de la fréquence après que toggleTvaFields ait rendu la section visible
-  setTimeout(() => setLoyerFreq(_loyerFreq), 0);
+  // Initialiser l'affichage de la fréquence et la périodicité après toggleTvaFields
+  setTimeout(() => { setLoyerFreq(_loyerFreq); setPeriodicite(_periodicite); }, 0);
   document.getElementById('modal-dep-immo').classList.remove('hidden');
   setTimeout(() => document.getElementById('dep-montant')?.focus(), 50);
 }
@@ -8292,12 +8435,27 @@ function toggleTvaFields() {
   const tvaTog  = document.getElementById('dep-tva-toggle');
   const isLoyer = type === 'loyer';
   document.getElementById('dep-tva-section')?.classList.toggle('hidden', !isLoyer);
+  document.getElementById('dep-periodicite-section')?.classList.toggle('hidden', isLoyer);
+  // Défaut annuelle pour taxe foncière et PNO (si pas en édition)
+  if (!_editingDepId && (type === 'taxe_fonciere' || type === 'assurance_pno')) {
+    setTimeout(() => setPeriodicite('annuelle'), 0);
+  }
   const withTva = isLoyer && tvaTog?.checked;
   document.getElementById('dep-tva-rate-row')?.classList.toggle('hidden', !withTva);
   document.getElementById('dep-ht-preview')?.classList.toggle('hidden', !withTva);
   const label = document.getElementById('dep-montant-label');
   if (label) label.textContent = withTva ? 'Montant TTC (€) *' : isLoyer ? 'Montant HT (€) *' : 'Montant (€) *';
   refreshDepPreview();
+}
+
+function setPeriodicite(p) {
+  _periodicite = p;
+  ['mensuelle', 'annuelle'].forEach(v => {
+    const btn = document.getElementById(`per-btn-${v}`);
+    if (!btn) return;
+    if (v === p) { btn.classList.add('bg-blue-600', 'text-white'); btn.classList.remove('bg-slate-700', 'text-slate-400'); }
+    else         { btn.classList.remove('bg-blue-600', 'text-white'); btn.classList.add('bg-slate-700', 'text-slate-400'); }
+  });
 }
 
 function refreshDepPreview() {
@@ -8329,6 +8487,7 @@ async function saveDepenseImmo() {
     montant_ttc:   m,
     tva_rate:      tvaRate,
     montant_ht:    isLoyer ? ht : m,
+    periodicite:   isLoyer ? null : _periodicite,
     periode_debut: isLoyer ? (() => {
       if (_loyerFreq === 'mensuel') {
         const mois  = parseInt(document.getElementById('dep-mois-unique')?.value) || 1;
