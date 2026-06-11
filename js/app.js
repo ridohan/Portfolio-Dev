@@ -1,5 +1,38 @@
-// État global
-let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [], biens_immo: [], depenses_immo: [], residences: [], ui_prefs: [] };
+// État global — initialisé depuis localStorage au chargement
+let STATE = { portfolios: [], sub_portfolios: [], envelopes: [], positions: [], prices: [], crypto_prices: [], charges: [], history: [], fire_profile: [], vpw: null, expense_categories: [], expense_items: [], expense_entries: [], expense_aids: [], biens_immo: [], depenses_immo: [], residences: [], ui_prefs: {} };
+
+// ─── STORAGE (localStorage) ───────────────────────────────────────────────────
+const STORAGE_KEY = 'portfolio_state';
+const Storage = {
+  load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  },
+  save(data) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+  },
+};
+
+// ─── INIT STATE ───────────────────────────────────────────────────────────────
+function _initState() {
+  const stored = Storage.load();
+  if (stored) STATE = { ...STATE, ...stored };
+  // Migration : ui_prefs était un tableau dans l'ancien format
+  if (Array.isArray(STATE.ui_prefs)) STATE.ui_prefs = {};
+}
+
+// ─── ID GENERATION ────────────────────────────────────────────────────────────
+function newId(prefix = 'id') {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+// ─── SAVE & RENDER ────────────────────────────────────────────────────────────
+function saveAndRender() {
+  autoSaveToFile();
+  render();
+}
 
 // État du tri des positions (persisté pendant la session)
 let _posSort = { col: 'type', dir: 'asc' };
@@ -15,7 +48,66 @@ let _expYear = new Date().getFullYear();
 function navigate(hash) { location.hash = hash; }
 
 window.addEventListener('hashchange', render);
-window.addEventListener('load', () => { render(); restoreAutoSaveHandle(); });
+window.addEventListener('load', () => { _initState(); render(); restoreAutoSaveHandle(); _startBackgroundTasks(); });
+
+async function _startBackgroundTasks() {
+  // Attendre que STATE soit chargé (cache ou AppScript)
+  await new Promise(r => setTimeout(r, 500));
+
+  // Snapshot journalier silencieux
+  if (SnapshotService.shouldSnapshot()) {
+    SnapshotService.take();
+    autoSaveToFile();
+    _updateSyncIndicators();
+  }
+
+  // Refresh des prix si cache expiré
+  if (PriceService.shouldRefresh()) {
+    _updateSyncIndicators('loading');
+    await PriceService.refresh();
+    // Re-render silencieux pour afficher les nouveaux prix
+    const app = document.getElementById('app');
+    if (app) _renderView(app);
+    autoSaveToFile();
+    _updateSyncIndicators();
+  }
+}
+
+function _updateSyncIndicators(state) {
+  _updatePriceIndicator(state);
+  _updateSnapshotIndicator();
+}
+
+function _updatePriceIndicator(state) {
+  const el = document.getElementById('price-indicator');
+  if (!el) return;
+  if (state === 'loading') {
+    el.innerHTML = `<span class="text-slate-500 text-xs flex items-center gap-1">
+      <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse inline-block"></span>
+      <span class="hidden sm:inline">Prix…</span>
+    </span>`;
+    return;
+  }
+  const age = PriceService.ageSeconds();
+  if (age === Infinity) { el.innerHTML = ''; return; }
+  const label = age < 120 ? 'à l\'instant' : age < 3600 ? `${Math.floor(age / 60)}min` : `${Math.floor(age / 3600)}h`;
+  el.innerHTML = `<button onclick="openCacheSettings()" class="text-slate-500 hover:text-slate-300 text-xs flex items-center gap-1 transition" title="Dernière synchro des prix">
+    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+    <span class="hidden sm:inline">Prix : ${label}</span>
+  </button>`;
+}
+
+function _updateSnapshotIndicator() {
+  const el = document.getElementById('snapshot-indicator');
+  if (!el) return;
+  const age = SnapshotService.ageSeconds();
+  if (age === Infinity) { el.innerHTML = ''; return; }
+  const label = age < 120 ? 'à l\'instant' : age < 3600 ? `${Math.floor(age / 60)}min` : age < 86400 ? `${Math.floor(age / 3600)}h` : `${Math.floor(age / 86400)}j`;
+  el.innerHTML = `<span class="text-slate-500 text-xs flex items-center gap-1" title="Dernier snapshot historique">
+    <span class="w-1.5 h-1.5 rounded-full bg-violet-500 inline-block"></span>
+    <span class="hidden sm:inline">Snap : ${label}</span>
+  </span>`;
+}
 
 // ─── AUTO-SAVE FILE SYSTEM ACCESS API ────────────────────────────────────────
 
@@ -61,6 +153,8 @@ const _fsDB = (() => {
 })();
 
 async function autoSaveToFile() {
+  // Toujours persister dans localStorage
+  Storage.save(STATE);
   if (!_fsHandle) return;
   try {
     const perm = await _fsHandle.queryPermission({ mode: 'readwrite' });
@@ -176,70 +270,35 @@ function _renderAutoSaveBlock() {
     <p class="text-slate-500 text-xs">Choisissez un fichier .json (ex: dans Google Drive) — l'app y écrira automatiquement à chaque modification.</p>`;
 }
 
-// ─── PRÉFÉRENCES UI CROSS-DEVICE ─────────────────────────────────────────────
-// Les prefs sont stockées dans Google Sheets (ui_prefs) ET en localStorage.
-// Au chargement, les données serveur ont priorité et synchronisent localStorage.
+// ─── PRÉFÉRENCES UI ───────────────────────────────────────────────────────────
 
 function getUiPref(key, defaultVal = null) {
-  // Priorité 1 : localStorage — toujours à jour, même après render() qui recharge STATE
-  // depuis le cache (ce qui écraserait les prefs mises à jour par persistUiPref cette session).
-  // Le sync cross-device est garanti : render() copie STATE.ui_prefs → localStorage au chargement.
+  // Lire depuis STATE.ui_prefs en priorité
+  if (STATE.ui_prefs && key in STATE.ui_prefs) return STATE.ui_prefs[key];
+  // Fallback : migration depuis les anciennes clés localStorage standalone
   try {
     const raw = localStorage.getItem(key);
-    if (raw !== null) return JSON.parse(raw);
-  } catch {}
-  // Priorité 2 : STATE.ui_prefs (chargé depuis Google Sheets — utile au tout premier rendu
-  // avant que localStorage ne soit synchronisé depuis le serveur)
-  if (Array.isArray(STATE.ui_prefs) && STATE.ui_prefs.length) {
-    const pref = STATE.ui_prefs.find(p => p.key === key);
-    if (pref?.value !== undefined && pref.value !== '') {
-      try { return JSON.parse(pref.value); } catch { return pref.value; }
+    if (raw !== null) {
+      const val = JSON.parse(raw);
+      // Migrer dans STATE.ui_prefs et supprimer l'ancienne clé
+      if (!STATE.ui_prefs) STATE.ui_prefs = {};
+      STATE.ui_prefs[key] = val;
+      localStorage.removeItem(key);
+      autoSaveToFile();
+      return val;
     }
-  }
+  } catch {}
   return defaultVal;
 }
 
 function persistUiPref(key, value) {
-  const serialized = JSON.stringify(value);
-  // 1. localStorage immédiat (réactivité)
-  try { localStorage.setItem(key, serialized); } catch {}
-  // 2. Mise à jour de STATE pour cohérence session courante
-  if (!Array.isArray(STATE.ui_prefs)) STATE.ui_prefs = [];
-  const idx = STATE.ui_prefs.findIndex(p => p.key === key);
-  if (idx !== -1) STATE.ui_prefs[idx].value = serialized;
-  else STATE.ui_prefs.push({ key, value: serialized });
-  // 3. Sync serveur asynchrone (fire-and-forget, postSilent → pas d'invalidation cache)
-  API.saveUiPref(key, serialized).catch(e => console.warn('persistUiPref:', e));
+  if (!STATE.ui_prefs) STATE.ui_prefs = {};
+  STATE.ui_prefs[key] = value;
+  autoSaveToFile();
 }
 
-async function render() {
+function render() {
   const app = document.getElementById('app');
-  if (!API.isConfigured()) return renderSetup(app);
-
-  const cached = API._getCache();
-  if (cached) {
-    // Affichage immédiat depuis le cache, pas de spinner.
-    // On ne touche PAS localStorage ici : les prefs modifiées cette session
-    // (ex : ordre des blocs) sont déjà dans localStorage via persistUiPref
-    // et ne doivent pas être écrasées par un STATE potentiellement plus ancien.
-    STATE = cached;
-  } else {
-    app.innerHTML = `<div class="flex items-center justify-center h-64 text-slate-400">Chargement…</div>`;
-    try {
-      STATE = await API.getData();
-    } catch (e) {
-      app.innerHTML = errorBanner(e.message); return;
-    }
-    // Sync localStorage depuis les prefs serveur UNIQUEMENT lors d'un chargement
-    // serveur (pas cache) → garantit la synchronisation cross-device au premier chargement
-    if (Array.isArray(STATE.ui_prefs)) {
-      STATE.ui_prefs.forEach(p => {
-        if (p.key && p.value !== undefined && p.value !== '') {
-          try { localStorage.setItem(p.key, p.value); } catch {}
-        }
-      });
-    }
-  }
 
   const hash = location.hash || '#dashboard';
   const [route, id] = hash.slice(1).split('/');
@@ -260,6 +319,7 @@ async function render() {
   else renderDashboard(app);
 
   autoSaveToFile();
+  _updateSyncIndicators();
 
   // Réouvre le menu mobile si l'état était ouvert avant le re-render
   if (_navOpen) {
@@ -334,9 +394,30 @@ function openCacheSettings() {
       <div class="modal-box w-full max-w-sm space-y-5 overflow-y-auto scrollbar-dark" style="max-height:90vh" onclick="event.stopPropagation()">
         <h3 class="text-base font-bold text-white">⚙ Paramètres & Sauvegarde</h3>
 
+        <!-- Statut synchro -->
+        <div class="bg-slate-700/40 rounded-lg p-4 space-y-3">
+          <p class="text-slate-300 text-sm font-medium">📡 Synchronisation</p>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="bg-slate-800 rounded-lg p-2.5 space-y-1">
+              <p class="text-slate-400">Prix ETF / Crypto</p>
+              <p class="text-white font-medium">${(() => { const a = PriceService.ageSeconds(); return a === Infinity ? '—' : a < 120 ? 'À l\'instant' : a < 3600 ? `Il y a ${Math.floor(a/60)} min` : `Il y a ${Math.floor(a/3600)}h`; })()}</p>
+              <p class="text-slate-500">TTL : ${API.getCacheTTLMinutes()} min</p>
+            </div>
+            <div class="bg-slate-800 rounded-lg p-2.5 space-y-1">
+              <p class="text-slate-400">Snapshot historique</p>
+              <p class="text-white font-medium">${(() => { const a = SnapshotService.ageSeconds(); return a === Infinity ? '—' : a < 120 ? 'À l\'instant' : a < 3600 ? `Il y a ${Math.floor(a/60)} min` : a < 86400 ? `Il y a ${Math.floor(a/3600)}h` : `Il y a ${Math.floor(a/86400)}j`; })()}</p>
+              <p class="text-slate-500">Fréquence : 1/jour</p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="PriceService.refresh().then(()=>{const a=document.getElementById('app');if(a)_renderView(a);_updateSyncIndicators();autoSaveToFile();})" class="btn-secondary text-xs flex-1">↻ Forcer prix</button>
+            <button onclick="SnapshotService.take();_updateSyncIndicators();autoSaveToFile();alert('Snapshot pris.');" class="btn-secondary text-xs flex-1">↻ Forcer snapshot</button>
+          </div>
+        </div>
+
         <!-- Cache TTL -->
         <div class="bg-slate-700/40 rounded-lg p-4 space-y-2">
-          <p class="text-slate-300 text-sm font-medium">Durée du cache</p>
+          <p class="text-slate-300 text-sm font-medium">Durée du cache AppScript</p>
           <div class="flex gap-2 items-center">
             <input id="cache-ttl-input" type="number" min="1" max="120" step="1"
               onkeydown="if(event.key==='Enter')saveCacheSettings()"
@@ -468,7 +549,7 @@ function importDataJSON(input) {
       if (!valid) throw new Error('Format non reconnu — fichier invalide.');
       // Fusionner avec le STATE existant (les clés manquantes gardent les valeurs actuelles)
       STATE = { ...STATE, ...data };
-      API._setCache({ ...STATE });
+      autoSaveToFile();
       if (status) {
         status.textContent = `✅ Fichier chargé — ${file.name}`;
         status.className   = 'text-xs text-emerald-400';
@@ -1295,99 +1376,10 @@ function generatePdfHistory() {
 
 // ─── LOADER GLOBAL ───────────────────────────────────────────────────────────
 
-function setGlobalLoader(on, msg = 'Enregistrement…') {
-  let el = document.getElementById('global-loader');
-  if (!el) {
-    el = document.createElement('div');
-    el.id        = 'global-loader';
-    el.className = 'fixed bottom-5 right-5 z-[200] flex items-center gap-2.5 bg-slate-700 border border-slate-600 text-white text-sm px-4 py-2.5 rounded-full shadow-xl transition-opacity duration-200';
-    document.body.appendChild(el);
-  }
-  if (on) {
-    el.innerHTML = `<span class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0"></span><span>${msg}</span>`;
-    el.style.opacity = '1';
-    el.style.pointerEvents = 'none';
-  } else {
-    el.style.opacity = '0';
-  }
-}
+function setGlobalLoader() {} // no-op
+function forceRefresh() { render(); }
 
-async function forceRefresh() {
-  const app = document.getElementById('app');
-  app.innerHTML = `<div class="flex items-center justify-center h-64 text-slate-400">Actualisation…</div>`;
-  try {
-    STATE = await API.getData(true);
-  } catch (e) {
-    app.innerHTML = errorBanner(e.message); return;
-  }
-  render();
-}
-
-// ─── SETUP ───────────────────────────────────────────────────────────────────
-
-function renderSetup(app) {
-  app.innerHTML = `
-    <div class="min-h-screen flex items-center justify-center p-4">
-      <div class="bg-slate-800 rounded-2xl p-8 w-full max-w-md shadow-xl">
-        <h1 class="text-2xl font-bold text-white mb-2">Portfolio Manager</h1>
-        <p class="text-slate-400 mb-6 text-sm">Configure ta connexion à Google Sheets pour commencer.</p>
-        <form id="setup-form" class="space-y-4">
-          <div>
-            <label class="text-slate-300 text-sm font-medium block mb-1">URL AppScript Web App</label>
-            <input id="setup-url" type="url" required placeholder="https://script.google.com/macros/s/…/exec"
-              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label class="text-slate-300 text-sm font-medium block mb-1">Token secret</label>
-            <input id="setup-token" type="password" required placeholder="ton-token-secret"
-              class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <button type="submit" id="setup-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded-lg transition flex items-center justify-center gap-2">
-            <span id="setup-btn-text">Se connecter</span>
-          </button>
-          <p id="setup-error" class="text-red-400 text-sm hidden"></p>
-        </form>
-      </div>
-    </div>`;
-
-  document.getElementById('setup-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const url   = document.getElementById('setup-url').value;
-    const token = document.getElementById('setup-token').value;
-    const btn   = document.getElementById('setup-btn');
-    const btnText = document.getElementById('setup-btn-text');
-    const errEl = document.getElementById('setup-error');
-
-    // État chargement
-    btn.disabled = true;
-    btn.classList.add('opacity-75', 'cursor-not-allowed');
-    btn.classList.remove('hover:bg-blue-500');
-    btnText.innerHTML = `<svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
-    </svg> Connexion en cours…`;
-    errEl.classList.add('hidden');
-
-    API.save(url, token);
-    try {
-      STATE = await API.getData();
-      btnText.innerHTML = `✓ Connecté !`;
-      btn.classList.remove('bg-blue-600');
-      btn.classList.add('bg-emerald-600');
-      navigate('#dashboard');
-    } catch (err) {
-      // Réinitialiser le bouton en cas d'erreur
-      btn.disabled = false;
-      btn.classList.remove('opacity-75', 'cursor-not-allowed');
-      btn.classList.add('hover:bg-blue-500');
-      btnText.textContent = 'Se connecter';
-      errEl.textContent = 'Connexion échouée : ' + err.message;
-      errEl.classList.remove('hidden');
-    }
-  });
-}
-
-// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+// ─── DASHBOARD// ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
 function patrimoineGlobalBloc(pfStats) {
   const now = new Date();
@@ -2098,8 +2090,8 @@ function openModal(type, ...args) {
       setLoading(btn, true);
       const d = Object.fromEntries(new FormData(e.target));
       try {
-        await withErr('portfolio', () => API.createPortfolio(d));
-        closeModal('portfolio'); render();
+        STATE.portfolios.push({ id: newId('p'), nom: d.nom, cible_actions: Number(d.cible_actions)||0, cible_obligations: Number(d.cible_obligations)||0, cible_cash: Number(d.cible_cash)||0 });
+        closeModal('portfolio'); saveAndRender();
       } finally { setLoading(btn, false); }
     };
   }
@@ -2110,8 +2102,8 @@ function openModal(type, ...args) {
       setLoading(btn, true);
       const d = Object.fromEntries(new FormData(e.target));
       try {
-        await withErr('envelope', () => API.createEnvelope({ ...d, portfolio_id: args[0] }));
-        closeModal('envelope'); render();
+        STATE.envelopes.push({ id: newId('env'), nom: d.nom, type: d.type, portfolio_id: args[0], sub_portfolio_id: '' });
+        closeModal('envelope'); saveAndRender();
       } finally { setLoading(btn, false); }
     };
   }
@@ -2123,8 +2115,8 @@ function openModal(type, ...args) {
       setLoading(btn, true);
       const d = Object.fromEntries(new FormData(e.target));
       try {
-        await withErr('charge', () => API.createCharge({ ...d, portfolio_id: args[0] }));
-        closeModal('charge'); render();
+        STATE.charges.push({ id: newId('ch'), nom: d.nom, montant: Number(d.montant)||0, date_fin: d.date_fin||'', portfolio_id: args[0] });
+        closeModal('charge'); saveAndRender();
       } finally { setLoading(btn, false); }
     };
   }
@@ -2144,12 +2136,10 @@ function openModal(type, ...args) {
       } else {
         const d = Object.fromEntries(new FormData(e.target));
         payload = { envelope_id: args[0], identifiant: d.identifiant, prix_achat: d.prix_achat, quantite: d.quantite };
-        if (envelopeType === 'bourse') await API.addPrice({ isin: d.identifiant });
-        if (envelopeType === 'crypto') await API.addCryptoPrice({ symbole: d.identifiant });
       }
       try {
-        await withErr('position', () => API.addPosition(payload));
-        closeModal('position'); render();
+        STATE.positions.push({ id: newId('pos'), ...payload, prix_achat: Number(payload.prix_achat)||0, quantite: Number(payload.quantite)||0 });
+        closeModal('position'); saveAndRender();
       } finally { setLoading(btn, false); }
     };
   }
@@ -2188,8 +2178,8 @@ function openEditCharge(c) {
     setLoading(btn, true);
     const d = Object.fromEntries(new FormData(e.target));
     try {
-      await withErr('edit-charge', () => API.updateCharge({ id: c.id, ...d }));
-      closeModal('edit-charge'); render();
+      STATE.charges = STATE.charges.map(ch => ch.id === c.id ? { ...ch, ...d } : ch);
+      closeModal('edit-charge'); saveAndRender();
     } finally { setLoading(btn, false); }
   };
 }
@@ -2207,9 +2197,9 @@ function openEditPortfolio(p) {
     setLoading(btn, true);
     const d = Object.fromEntries(new FormData(e.target));
     try {
-      await withErr('edit-portfolio', () => API.updatePortfolio({ id: p.id, ...d }));
+      STATE.portfolios = STATE.portfolios.map(pf => pf.id === p.id ? { ...pf, ...d } : pf);
       closeModal('edit-portfolio');
-      render();
+      saveAndRender();
     } finally { setLoading(btn, false); }
   };
 }
@@ -2224,9 +2214,9 @@ function openEditEnvelope(e) {
     setLoading(btn, true);
     const d = Object.fromEntries(new FormData(ev.target));
     try {
-      await withErr('edit-envelope', () => API.updateEnvelope({ id: e.id, nom: d.nom, type: e.type }));
+      STATE.envelopes = STATE.envelopes.map(en => en.id === e.id ? { ...en, nom: d.nom } : en);
       closeModal('edit-envelope');
-      render();
+      saveAndRender();
     } finally { setLoading(btn, false); }
   };
 }
@@ -2242,18 +2232,33 @@ function openEditPosition(pos) {
     setLoading(btn, true);
     const d = Object.fromEntries(new FormData(e.target));
     try {
-      await withErr('edit-position', () => API.updatePosition({ id: pos.id, ...d }));
+      STATE.positions = STATE.positions.map(p => p.id === pos.id ? { ...p, prix_achat: Number(d.prix_achat)||0, quantite: Number(d.quantite)||0, date_achat: d.date_achat||'' } : p);
       closeModal('edit-position');
-      render();
+      saveAndRender();
     } finally { setLoading(btn, false); }
   };
 }
 
-async function confirmDelete(type, id) {
-  if (!confirm(`Supprimer définitivement ?`)) return;
-  const actions = { portfolio: () => API.deletePortfolio(id), envelope: () => API.deleteEnvelope(id), position: () => API.deletePosition(id), charge: () => API.deleteCharge(id) };
-  await actions[type]?.();
-  render();
+function confirmDelete(type, id) {
+  if (!confirm('Supprimer définitivement ?')) return;
+  if (type === 'portfolio') {
+    const envIds = STATE.envelopes.filter(e => e.portfolio_id === id).map(e => e.id);
+    STATE.positions    = STATE.positions.filter(p => !envIds.includes(p.envelope_id));
+    STATE.history      = STATE.history.filter(h => !envIds.includes(h.envelope_id));
+    STATE.envelopes    = STATE.envelopes.filter(e => e.portfolio_id !== id);
+    STATE.sub_portfolios = STATE.sub_portfolios.filter(s => s.portfolio_id !== id);
+    STATE.charges      = STATE.charges.filter(c => c.portfolio_id !== id);
+    STATE.portfolios   = STATE.portfolios.filter(p => p.id !== id);
+  } else if (type === 'envelope') {
+    STATE.positions = STATE.positions.filter(p => p.envelope_id !== id);
+    STATE.history   = STATE.history.filter(h => h.envelope_id !== id);
+    STATE.envelopes = STATE.envelopes.filter(e => e.id !== id);
+  } else if (type === 'position') {
+    STATE.positions = STATE.positions.filter(p => p.id !== id);
+  } else if (type === 'charge') {
+    STATE.charges = STATE.charges.filter(c => c.id !== id);
+  }
+  saveAndRender();
 }
 
 async function withErr(type, fn) {
@@ -2402,10 +2407,6 @@ function navbar(optsOrLeft = '') {
   const opts  = typeof optsOrLeft === 'object' ? optsOrLeft : {};
   const left  = typeof optsOrLeft === 'string'  ? optsOrLeft : (opts.left || '');
   const showReorder = !!opts.dashReorder;
-  const age      = API.cacheAge();
-  const ageLabel = age === null ? 'aucun cache'
-    : age < 60  ? `il y a ${age}s`
-    : `il y a ${Math.floor(age / 60)}min`;
 
   const links = [
     { href: '#dashboard',      label: '🏠 Dashboard',      cls: 'text-white font-bold' },
@@ -2441,10 +2442,12 @@ function navbar(optsOrLeft = '') {
 
         <!-- Droite : actions + hamburger -->
         <div class="flex items-center gap-2 flex-shrink-0">
-          <button onclick="openCacheSettings()" class="hidden lg:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le cache">Cache : ${ageLabel} · TTL ${API.getCacheTTLMinutes()}min</button>
+          <button onclick="openCacheSettings()" class="hidden lg:inline text-slate-500 hover:text-slate-300 text-xs whitespace-nowrap transition" title="Configurer le refresh des prix">Refresh prix · TTL ${API.getCacheTTLMinutes()}min</button>
           ${showReorder ? `<button onclick="openDashOrderModal()" class="hidden sm:inline text-slate-500 hover:text-slate-300 text-xs flex items-center gap-1 transition px-2 py-1 rounded hover:bg-slate-800" title="Réorganiser le dashboard">⊞</button>` : ''}
+          <span id="price-indicator"></span>
+          <span id="snapshot-indicator"></span>
           <span id="autosave-indicator"></span>
-          <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition" title="${ageLabel}">↻</button>
+          <button onclick="forceRefresh()" class="text-slate-400 hover:text-white text-xs transition" title="Rafraîchir">↻</button>
           <button onclick="togglePrivacyMode()" id="privacy-btn" class="text-slate-400 hover:text-white transition flex items-center justify-center w-7 h-7 rounded" title="${isPrivacyMode() ? 'Afficher les chiffres' : 'Masquer les chiffres'}">
             ${isPrivacyMode()
               ? `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -4011,20 +4014,11 @@ function _fpInit() {
 let _fpSaveTimer = null;
 
 function _scheduleSave() {
-  if (!API.isConfigured() || !_fp) return;
+  if (!_fp) return;
   if (_fpSaveTimer) clearTimeout(_fpSaveTimer);
-  _fpSaveTimer = setTimeout(async () => {
-    try {
-      await API.saveFireProfile({ ..._fp });
-      // Met à jour le cache pour que le rechargement de page retrouve le bon profil
-      const cached = API._getCache();
-      if (cached) {
-        cached.fire_profile = [{ ..._fp }];
-        API._setCache(cached);
-      }
-    } catch (e) {
-      console.warn('Erreur sauvegarde profil FIRE :', e);
-    }
+  _fpSaveTimer = setTimeout(() => {
+    STATE.fire_profile = [{ ..._fp }];
+    autoSaveToFile();
   }, 2000);
 }
 
@@ -4320,10 +4314,11 @@ async function _doVpwSim() {
   _vpwSimLoading = true;
   setEl('fire-vpw-sim', _vpwSimCard());
   try {
-    const result = await API.simulateVpw(capital);
-    _vpwSim        = result;
     _vpwSimLoading = false;
-    setEl('fire-vpw-sim', _vpwSimCard());
+    setEl('fire-vpw-sim', `
+      <div class="bg-slate-800/60 rounded-xl p-4 border border-slate-700/30">
+        <p class="text-slate-400 text-xs">Simulation VPW non disponible en mode local.</p>
+      </div>`);
   } catch (e) {
     _vpwSimLoading = false;
     console.warn('simulateVpw error:', e.message);
@@ -4907,7 +4902,7 @@ async function moveCat(catId, direction) {
 
   // Persistance silencieuse
   try {
-    await API.reorderCategories({ items: sorted.map(c => ({ id: c.id, ordre: c.ordre })) });
+    autoSaveToFile();
   } catch (err) { console.error('Erreur réordonnancement catégories:', err); }
 }
 
@@ -5262,12 +5257,9 @@ async function saveExpenseCell() {
   // Persistance
   try {
     if (val === 0 && !note) {
-      await API.deleteExpenseEntry({ item_id: itemId, annee: year, mois: month });
     } else {
-      await API.upsertExpenseEntry({ item_id: itemId, annee: year, mois: month, montant: val, note });
     }
-    const cached = API._getCache();
-    if (cached) { cached.expense_entries = STATE.expense_entries; API._setCache(cached); }
+    autoSaveToFile();
   } catch (err) { console.error('Erreur sauvegarde dépense:', err); }
 }
 
@@ -5280,11 +5272,7 @@ async function clearExpenseCell() {
   if (idx !== -1) STATE.expense_entries.splice(idx, 1);
   setEl('exp-stats', expenseStatsCards(year));
   setEl('exp-table', expenseTable(year));
-  try {
-    await API.deleteExpenseEntry({ item_id: itemId, annee: year, mois: month });
-    const cached = API._getCache();
-    if (cached) { cached.expense_entries = STATE.expense_entries; API._setCache(cached); }
-  } catch (err) { console.error('Erreur suppression dépense:', err); }
+  autoSaveToFile();
 }
 
 function modalExpenseCell() {
@@ -5449,14 +5437,11 @@ async function saveExpenseCategory() {
   if (!nom) return;
   try {
     if (id) {
-      await API.updateExpenseCategory({ id, nom, type, couleur });
       STATE.expense_categories = STATE.expense_categories.map(c => c.id === id ? { ...c, nom, type, couleur } : c);
     } else {
-      const result = await API.createExpenseCategory({ nom, type, couleur });
-      STATE.expense_categories.push(result);
+      STATE.expense_categories.push({ id: newId('cat'), nom, type, couleur });
     }
-    const cached = API._getCache();
-    if (cached) { cached.expense_categories = STATE.expense_categories; API._setCache(cached); }
+    autoSaveToFile();
     closeModal('expense-cat');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
@@ -5465,19 +5450,12 @@ async function saveExpenseCategory() {
 async function confirmDeleteExpenseCat(id) {
   if (!confirm('Supprimer cette catégorie et tous ses postes ?')) return;
   try {
-    await API.deleteExpenseCategory(id);
     // Cascade côté front
     const itemIds = STATE.expense_items.filter(i => i.category_id === id).map(i => i.id);
     STATE.expense_categories = STATE.expense_categories.filter(c => c.id !== id);
     STATE.expense_items      = STATE.expense_items.filter(i => i.category_id !== id);
     STATE.expense_entries    = STATE.expense_entries.filter(e => !itemIds.includes(e.item_id));
-    const cached = API._getCache();
-    if (cached) {
-      cached.expense_categories = STATE.expense_categories;
-      cached.expense_items      = STATE.expense_items;
-      cached.expense_entries    = STATE.expense_entries;
-      API._setCache(cached);
-    }
+    autoSaveToFile();
     closeModal('expense-cat');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
@@ -5556,14 +5534,11 @@ async function saveExpenseItem() {
   if (!nom || !category_id) return;
   try {
     if (id) {
-      await API.updateExpenseItem({ id, nom, category_id });
       STATE.expense_items = STATE.expense_items.map(i => i.id === id ? { ...i, nom, category_id } : i);
     } else {
-      const result = await API.createExpenseItem({ nom, category_id });
-      STATE.expense_items.push(result);
+      STATE.expense_items.push({ id: newId('item'), nom, category_id });
     }
-    const cached = API._getCache();
-    if (cached) { cached.expense_items = STATE.expense_items; API._setCache(cached); }
+    autoSaveToFile();
     closeModal('expense-item');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
@@ -5572,15 +5547,9 @@ async function saveExpenseItem() {
 async function confirmDeleteExpenseItem(id) {
   if (!confirm('Supprimer ce poste et toutes ses entrées ?')) return;
   try {
-    await API.deleteExpenseItem(id);
     STATE.expense_items   = STATE.expense_items.filter(i => i.id !== id);
     STATE.expense_entries = STATE.expense_entries.filter(e => e.item_id !== id);
-    const cached = API._getCache();
-    if (cached) {
-      cached.expense_items   = STATE.expense_items;
-      cached.expense_entries = STATE.expense_entries;
-      API._setCache(cached);
-    }
+    autoSaveToFile();
     closeModal('expense-item');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
@@ -5655,14 +5624,11 @@ async function saveExpenseAid() {
   if (!nom || !montant) return;
   try {
     if (id) {
-      await API.updateExpenseAid({ id, nom, montant });
       STATE.expense_aids = STATE.expense_aids.map(a => a.id === id ? { ...a, nom, montant } : a);
     } else {
-      const result = await API.createExpenseAid({ nom, montant });
-      STATE.expense_aids.push(result);
+      STATE.expense_aids.push({ id: newId('aid'), nom, montant: Number(montant)||0 });
     }
-    const cached = API._getCache();
-    if (cached) { cached.expense_aids = STATE.expense_aids; API._setCache(cached); }
+    autoSaveToFile();
     closeModal('expense-aid');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
@@ -5671,10 +5637,8 @@ async function saveExpenseAid() {
 async function confirmDeleteExpenseAid(id) {
   if (!confirm('Supprimer cette aide ?')) return;
   try {
-    await API.deleteExpenseAid(id);
     STATE.expense_aids = STATE.expense_aids.filter(a => a.id !== id);
-    const cached = API._getCache();
-    if (cached) { cached.expense_aids = STATE.expense_aids; API._setCache(cached); }
+    autoSaveToFile();
     closeModal('expense-aid');
     refreshExpenses(_expYear);
   } catch (err) { alert('Erreur : ' + err.message); }
@@ -6639,16 +6603,14 @@ async function saveResidence() {
   setGlobalLoader(true, editId ? 'Mise à jour…' : 'Enregistrement…');
   try {
     if (editId) {
-      await API.updateResidence({ id: editId, ...data });
       const idx = STATE.residences.findIndex(r => r.id === editId);
       if (idx !== -1) STATE.residences[idx] = { ...STATE.residences[idx], ...data };
     } else {
-      const result = await API.addResidence(data);
       if (!STATE.residences) STATE.residences = [];
-      STATE.residences.push({ ...data, ...result });
+      STATE.residences.push({ id: newId('res'), ...data });
       history.replaceState(null, '', '#residences');
     }
-    API._setCache({ ...STATE });
+    autoSaveToFile();
     render();
   } catch (err) { alert('Erreur : ' + (err.message || err)); }
   finally { setGlobalLoader(false); }
@@ -6672,10 +6634,9 @@ async function confirmDeleteResidence(id) {
 async function _deleteResidenceById(id) {
   setGlobalLoader(true, 'Suppression…');
   try {
-    await API.deleteResidence(id);
     STATE.residences = STATE.residences.filter(r => r.id !== id);
     history.replaceState(null, '', '#residences');
-    API._setCache({ ...STATE });
+    autoSaveToFile();
     render();
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
@@ -6708,10 +6669,9 @@ async function saveResidValeur() {
   setGlobalLoader(true, 'Mise à jour…');
   try {
     const updated = { ...res, valeur_estimee: montant, date_valeur_estimee: date };
-    await API.updateResidence(updated);
     const idx = STATE.residences.findIndex(r => r.id === id);
     if (idx !== -1) STATE.residences[idx] = updated;
-    API._setCache({ ...STATE });
+    autoSaveToFile();
     render();
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
@@ -7656,10 +7616,8 @@ async function saveTvaVersement() {
   setGlobalLoader(true, 'Enregistrement…');
   try {
     closeTvaModal();
-    const result = await API.addDepenseImmo(data);
-    if (result) STATE.depenses_immo.push({ ...data, ...result });
-    const cached = API._getCache();
-    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    STATE.depenses_immo.push({ id: newId('dep'), ...data });
+    autoSaveToFile();
     setEl('immo-tva-bloc', immoTvaBloc());
   } catch (err) {
     console.error('saveTvaVersement error:', err);
@@ -7671,10 +7629,8 @@ async function confirmDeleteTvaVersement(id) {
   if (!confirm('Supprimer ce versement TVA ?')) return;
   setGlobalLoader(true, 'Suppression…');
   try {
-    await API.deleteDepenseImmo(id);
     STATE.depenses_immo = STATE.depenses_immo.filter(d => d.id !== id);
-    const cached = API._getCache();
-    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    autoSaveToFile();
     setEl('immo-tva-bloc', immoTvaBloc());
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
@@ -8084,18 +8040,16 @@ async function saveBienImmo() {
   setGlobalLoader(true, _editingBienId ? 'Mise à jour…' : 'Enregistrement…');
   try {
     if (_editingBienId) {
-      await API.updateBienImmo({ id: _editingBienId, ...data });
       const idx = STATE.biens_immo.findIndex(b => b.id === _editingBienId);
       if (idx !== -1) STATE.biens_immo[idx] = { ...STATE.biens_immo[idx], ...data };
     } else {
-      const result = await API.addBienImmo(data);
-      STATE.biens_immo.push({ ...data, ...result });
+      STATE.biens_immo.push({ id: newId('bien'), ...data });
       // Changer l'URL silencieusement sans déclencher hashchange
       history.replaceState(null, '', '#immo');
     }
     // Reconstruire le cache depuis STATE puis forcer le re-render
     // (navigate() ne suffit pas si le hash n'a pas changé)
-    API._setCache({ ...STATE });
+    autoSaveToFile();
     render();
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
@@ -8106,11 +8060,10 @@ async function confirmDeleteBienImmo(id) {
   if (!confirm('Supprimer "' + (bien?.nom || '') + '" et toutes ses dépenses associées ?')) return;
   setGlobalLoader(true, 'Suppression…');
   try {
-    await API.deleteBienImmo(id);
     STATE.biens_immo    = STATE.biens_immo.filter(b => b.id !== id);
     STATE.depenses_immo = STATE.depenses_immo.filter(d => d.bien_id !== id);
     history.replaceState(null, '', '#immo');
-    API._setCache({ ...STATE });
+    autoSaveToFile();
     render();
   } catch (err) { alert('Erreur : ' + err.message); }
   finally { setGlobalLoader(false); }
@@ -8292,15 +8245,12 @@ async function saveDepenseImmo() {
   try {
     closeDepenseImmoModal();
     if (editId) {
-      await API.updateDepenseImmo({ id: editId, ...data });
       const idx = STATE.depenses_immo.findIndex(d => d.id === editId);
       if (idx !== -1) STATE.depenses_immo[idx] = { ...STATE.depenses_immo[idx], ...data };
     } else {
-      const result = await API.addDepenseImmo(data);
-      if (result) STATE.depenses_immo.push({ ...data, ...result });
+      STATE.depenses_immo.push({ id: newId('dep'), ...data });
     }
-    const cached = API._getCache();
-    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    autoSaveToFile();
     setEl('immo-dep-table', immoDepensesTable(bienId));
     setEl('immo-reel',      immoBloc3(bienId));
     const b = STATE.biens_immo.find(x => x.id === bienId);
@@ -8315,10 +8265,8 @@ async function confirmDeleteDepenseImmo(id, bienId) {
   if (!confirm('Supprimer cette entrée ?')) return;
   setGlobalLoader(true, 'Suppression…');
   try {
-    await API.deleteDepenseImmo(id);
     STATE.depenses_immo = STATE.depenses_immo.filter(d => d.id !== id);
-    const cached = API._getCache();
-    if (cached) { cached.depenses_immo = STATE.depenses_immo; API._setCache(cached); }
+    autoSaveToFile();
     setEl('immo-dep-table', immoDepensesTable(bienId));
     setEl('immo-reel',      immoBloc3(bienId));
     const b = STATE.biens_immo.find(x => x.id === bienId);

@@ -38,8 +38,6 @@ function fetchJustETFPrice(isin) {
 
   const currency = 'EUR';
   const locale = 'fr';
-  // ⚠️ Remplace cette URL par ton endpoint JustETF exact.
-  // Exemple de pattern connu : https://www.justetf.com/api/etfs?isin={ISIN}&locale=fr&valuation=EUR
   const url = `https://www.justetf.com/api/etfs/${isin}/quote?locale=${locale}&currency=${currency}`;
 
 
@@ -53,7 +51,6 @@ function fetchJustETFPrice(isin) {
   const json = JSON.parse(response.getContentText());
 
   // ⚠️ Adapte ce chemin selon la structure réelle du JSON retourné par JustETF.
-  // Exemple : json.etfs[0].latestPrice ou json.quote.last, etc.
   return json?.latestQuote?.raw ?? null;
 }
 
