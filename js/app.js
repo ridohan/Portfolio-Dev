@@ -4546,51 +4546,46 @@ function fireVpwParamsPanel() {
       <button onclick="_vpwDeleteIncome(${i})" class="text-slate-600 hover:text-red-400 text-xs ml-2 flex-shrink-0">✕</button>
     </div>`).join('');
 
-  return `
-    <div class="border-t border-slate-700 pt-4 space-y-4">
-      <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">VPW — Paramètres</p>
-
-      <div class="grid grid-cols-2 gap-2">
-        <div>
-          <label class="label">Âge actuel</label>
-          <input type="number" id="vpw-age" value="${vp.age}" min="20" max="100" step="1" class="input"
-            oninput="_vpwParams.age=+this.value;_vpwSave();refreshVpw()">
-        </div>
-        <div>
-          <label class="label">Âge cible</label>
-          <input type="number" id="vpw-target" value="${vp.targetAge}" min="50" max="120" step="1" class="input"
-            oninput="_vpwParams.targetAge=+this.value;_vpwSave();refreshVpw()">
-        </div>
-      </div>
-
+  const content = `
+    <div class="grid grid-cols-2 gap-2">
       <div>
-        <div class="flex justify-between items-center mb-1.5">
-          <label class="text-slate-400 text-xs font-medium">Rendement attendu</label>
-          <span id="vpw-r-lbl" class="text-purple-400 text-xs font-bold">${vp.rendement}%</span>
-        </div>
-        <input type="range" value="${vp.rendement}" min="0" max="15" step="0.5"
-          class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-purple-500"
-          oninput="_vpwParams.rendement=+this.value;document.getElementById('vpw-r-lbl').textContent=this.value+'%';_vpwSave();refreshVpw()">
-        <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>0%</span><span>15%</span></div>
+        <label class="label">Âge actuel</label>
+        <input type="number" id="vpw-age" value="${vp.age}" min="20" max="100" step="1" class="input"
+          oninput="_vpwParams.age=+this.value;_vpwSave();refreshVpw()">
       </div>
-
-      <!-- Revenus futurs -->
       <div>
-        <p class="text-slate-400 text-xs font-medium mb-2">Revenus futurs (retraite, loyers…)</p>
-        <div id="vpw-incomes-list" class="mb-2">${incomeRows || '<p class="text-slate-600 text-xs">Aucun revenu futur configuré.</p>'}</div>
-        <div class="space-y-2 bg-slate-700/30 rounded-lg p-3">
-          <input type="text" id="vpw-inc-label" placeholder="Retraite française, Loyers…" class="input text-xs" />
-          <div class="grid grid-cols-2 gap-2">
-            <input type="number" id="vpw-inc-amount" placeholder="Montant/mois (€)" min="0" step="50" class="input text-xs" />
-            <div class="grid grid-cols-2 gap-1">
-              <input type="number" id="vpw-inc-start" placeholder="Âge début" min="0" max="120" step="1" class="input text-xs" />
-              <input type="number" id="vpw-inc-end" placeholder="Âge fin" min="0" max="120" step="1" class="input text-xs" />
-            </div>
+        <label class="label">Âge cible</label>
+        <input type="number" id="vpw-target" value="${vp.targetAge}" min="50" max="120" step="1" class="input"
+          oninput="_vpwParams.targetAge=+this.value;_vpwSave();refreshVpw()">
+      </div>
+    </div>
+    <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">Rendement attendu</label>
+        <span id="vpw-r-lbl" class="text-purple-400 text-xs font-bold">${vp.rendement}%</span>
+      </div>
+      <input type="range" value="${vp.rendement}" min="0" max="15" step="0.5"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-purple-500"
+        oninput="_vpwParams.rendement=+this.value;document.getElementById('vpw-r-lbl').textContent=this.value+'%';_vpwSave();refreshVpw()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>0%</span><span>15%</span></div>
+    </div>
+    <div>
+      <p class="text-slate-400 text-xs font-medium mb-2">Revenus futurs (retraite, loyers…)</p>
+      <div id="vpw-incomes-list" class="mb-2">${incomeRows || '<p class="text-slate-600 text-xs">Aucun revenu futur configuré.</p>'}</div>
+      <div class="space-y-2 bg-slate-700/30 rounded-lg p-3">
+        <input type="text" id="vpw-inc-label" placeholder="Retraite française, Loyers…" class="input text-xs" />
+        <div class="grid grid-cols-2 gap-2">
+          <input type="number" id="vpw-inc-amount" placeholder="Montant/mois (€)" min="0" step="50" class="input text-xs" />
+          <div class="grid grid-cols-2 gap-1">
+            <input type="number" id="vpw-inc-start" placeholder="Âge début" min="0" max="120" step="1" class="input text-xs" />
+            <input type="number" id="vpw-inc-end" placeholder="Âge fin" min="0" max="120" step="1" class="input text-xs" />
           </div>
-          <button onclick="_vpwAddIncome()" class="btn-secondary w-full text-xs py-1.5">+ Ajouter revenu futur</button>
         </div>
+        <button onclick="_vpwAddIncome()" class="btn-secondary w-full text-xs py-1.5">+ Ajouter revenu futur</button>
       </div>
     </div>`;
+
+  return _fireSection('vpw', '📊 VPW', 'text-purple-400', false, content);
 }
 
 function _vpwAddIncome() {
@@ -4678,8 +4673,10 @@ function fireVpwCard() {
         </div>`}
       </div>
 
+      <div class="mb-4 overflow-x-auto">${fireVpwSvgChart(rows)}</div>
+
       <div class="rounded-lg overflow-hidden border border-slate-700/50">
-        <div class="max-h-56 overflow-y-auto">
+        <div class="max-h-56 overflow-y-auto scrollbar-dark">
           <table class="w-full text-xs">
             <thead class="bg-slate-700/50 sticky top-0">
               <tr>
@@ -4698,8 +4695,8 @@ function fireVpwCard() {
 }
 
 function refreshVpw() {
-  const panelEl = document.getElementById('vpw-params-panel');
-  if (panelEl) panelEl.innerHTML = fireVpwParamsPanel();
+  const leftEl = document.getElementById('fire-left-panel');
+  if (leftEl) leftEl.innerHTML = fireParamsPanel() + fireVpwParamsPanel();
   const resultEl = document.getElementById('fire-vpw-result');
   if (resultEl) resultEl.innerHTML = fireVpwCard();
 }
@@ -4720,11 +4717,9 @@ function renderFire(app) {
         </div>
       </div>
       <div class="flex gap-6 items-start flex-col lg:flex-row">
-        <div class="lg:w-72 w-full shrink-0 space-y-4">
+        <div id="fire-left-panel" class="lg:w-72 w-full shrink-0 space-y-2 lg:sticky lg:top-4">
           ${fireParamsPanel()}
-          <div id="vpw-params-panel" class="bg-slate-800 rounded-xl p-5">
-            ${fireVpwParamsPanel()}
-          </div>
+          ${fireVpwParamsPanel()}
         </div>
         <div class="flex-1 min-w-0 w-full space-y-4 overflow-x-hidden" id="fire-results">
           ${fireResults()}
@@ -4733,137 +4728,118 @@ function renderFire(app) {
     </div>`;
 }
 
-function fireParamsPanel() {
-  const dwz = _fp.dwzMode;
+// ── Helper section collapsable ────────────────────────────────────────────────
+function _fireSection(id, title, color, defaultOpen, content) {
+  const open = getUiPref('fire_section_' + id, defaultOpen);
   return `
-    <div class="bg-slate-800 rounded-xl p-5 space-y-5 lg:sticky lg:top-4">
-      <h2 class="text-white font-semibold text-xs uppercase tracking-wider">Paramètres</h2>
-
-      <div>
-        <label class="label">Capital initial (€)</label>
-        <input type="number" value="${_fp.capital}" min="0" step="1000" class="input"
-          oninput="_fp.capital=Math.max(0,+this.value);refreshFireResults()">
-        <p class="text-slate-600 text-xs mt-1">Valeur nette du portfolio</p>
+    <div class="bg-slate-800 rounded-xl overflow-hidden">
+      <button type="button"
+        onclick="(function(){const o=!getUiPref('fire_section_${id}',${defaultOpen});persistUiPref('fire_section_${id}',o);const b=document.getElementById('fire-sec-body-${id}');const arr=document.getElementById('fire-sec-arr-${id}');if(b)b.style.display=o?'':'none';if(arr)arr.style.transform=o?'':'rotate(-90deg)'})()"
+        class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-700/50 transition">
+        <span class="text-xs font-semibold uppercase tracking-wider ${color}">${title}</span>
+        <svg id="fire-sec-arr-${id}" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-500 transition-transform" style="${open ? '' : 'transform:rotate(-90deg)'}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </button>
+      <div id="fire-sec-body-${id}" style="${open ? '' : 'display:none'}" class="px-4 pb-4 space-y-4">
+        ${content}
       </div>
+    </div>`;
+}
 
-      <div>
-        <div class="flex justify-between items-center mb-1.5">
-          <label class="text-slate-400 text-xs font-medium">Rendement annuel net</label>
-          <span id="fp-r-lbl" class="text-blue-400 text-xs font-bold">${_fp.rendement}%</span>
-        </div>
-        <input type="range" value="${_fp.rendement}" min="0" max="20" step="0.5"
-          class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
-          oninput="_fp.rendement=+this.value;document.getElementById('fp-r-lbl').textContent=this.value+'%';refreshFireResults()">
-        <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>0%</span><span>20%</span></div>
+function fireParamsPanel() {
+  const generalContent = `
+    <div>
+      <label class="label">Capital initial (€)</label>
+      <input type="number" value="${_fp.capital}" min="0" step="1000" class="input"
+        oninput="_fp.capital=Math.max(0,+this.value);refreshFireResults()">
+      <p class="text-slate-600 text-xs mt-1">Valeur nette du portfolio</p>
+    </div>
+    <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">Rendement annuel net</label>
+        <span id="fp-r-lbl" class="text-blue-400 text-xs font-bold">${_fp.rendement}%</span>
       </div>
-
-      <div>
-        <div class="flex justify-between items-center mb-1.5">
-          <label class="text-slate-400 text-xs font-medium">Inflation</label>
-          <span id="fp-i-lbl" class="text-amber-400 text-xs font-bold">${_fp.inflation}%</span>
-        </div>
-        <input type="range" value="${_fp.inflation}" min="0" max="10" step="0.5"
-          class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-amber-500"
-          oninput="_fp.inflation=+this.value;document.getElementById('fp-i-lbl').textContent=this.value+'%';refreshFireResults()">
-        <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>0%</span><span>10%</span></div>
+      <input type="range" value="${_fp.rendement}" min="0" max="20" step="0.5"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-500"
+        oninput="_fp.rendement=+this.value;document.getElementById('fp-r-lbl').textContent=this.value+'%';refreshFireResults()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>0%</span><span>20%</span></div>
+    </div>
+    <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">Inflation</label>
+        <span id="fp-i-lbl" class="text-amber-400 text-xs font-bold">${_fp.inflation}%</span>
       </div>
-
-      <div>
-        <div class="flex justify-between items-center mb-1.5">
-          <label class="text-slate-400 text-xs font-medium">Durée de simulation</label>
-          <span id="fp-d-lbl" class="text-slate-300 text-xs font-bold">${_fp.duree} ans</span>
-        </div>
-        <input type="range" value="${_fp.duree}" min="5" max="50" step="1"
-          class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-slate-400"
-          oninput="_fp.duree=+this.value;document.getElementById('fp-d-lbl').textContent=this.value+' ans';refreshFireResults()">
-        <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>5 ans</span><span>50 ans</span></div>
+      <input type="range" value="${_fp.inflation}" min="0" max="10" step="0.5"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-amber-500"
+        oninput="_fp.inflation=+this.value;document.getElementById('fp-i-lbl').textContent=this.value+'%';refreshFireResults()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>0%</span><span>10%</span></div>
+    </div>
+    <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">Durée de simulation</label>
+        <span id="fp-d-lbl" class="text-slate-300 text-xs font-bold">${_fp.duree} ans</span>
       </div>
-
-      <div>
-        <label class="label">Versement mensuel (€)</label>
-        <input type="number" value="${_fp.versement}" min="0" step="50" class="input"
-          oninput="_fp.versement=Math.max(0,+this.value);refreshFireResults()">
+      <input type="range" value="${_fp.duree}" min="5" max="50" step="1"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-slate-400"
+        oninput="_fp.duree=+this.value;document.getElementById('fp-d-lbl').textContent=this.value+' ans';refreshFireResults()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>5 ans</span><span>50 ans</span></div>
+    </div>
+    <div>
+      <label class="label">Versement mensuel (€)</label>
+      <input type="number" value="${_fp.versement}" min="0" step="50" class="input"
+        oninput="_fp.versement=Math.max(0,+this.value);refreshFireResults()">
+    </div>
+    <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">Accumulation min. avant FIRE</label>
+        <span id="fp-dep-lbl" class="text-slate-300 text-xs font-bold">${_fp.depart === 0 ? 'auto' : _fp.depart + ' ans'}</span>
       </div>
-
-      <div>
-        <div class="flex justify-between items-center mb-1.5">
-          <label class="text-slate-400 text-xs font-medium">Accumulation min. avant FIRE</label>
-          <span id="fp-dep-lbl" class="text-slate-300 text-xs font-bold">${_fp.depart === 0 ? 'auto' : _fp.depart + ' ans'}</span>
-        </div>
-        <input type="range" value="${_fp.depart}" min="0" max="40" step="1"
-          class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-slate-400"
-          oninput="_fp.depart=+this.value;document.getElementById('fp-dep-lbl').textContent=this.value==0?'auto':this.value+' ans';refreshFireResults()">
-        <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>auto</span><span>40 ans</span></div>
-        <p class="text-slate-600 text-xs mt-1">Force les versements sur N ans avant de prendre ta retraite</p>
+      <input type="range" value="${_fp.depart}" min="0" max="40" step="1"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-slate-400"
+        oninput="_fp.depart=+this.value;document.getElementById('fp-dep-lbl').textContent=this.value==0?'auto':this.value+' ans';refreshFireResults()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>auto</span><span>40 ans</span></div>
+    </div>
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <label class="label !mb-0">Dépenses mensuelles en FIRE (€)</label>
+        <button onclick="importExpAvgToFire()" class="text-xs text-emerald-400 hover:text-emerald-300 transition" title="Importer la moyenne des dépenses">📥 moy.</button>
       </div>
-
-      <div class="border-t border-slate-700 pt-4 space-y-4">
-        <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Objectif FIRE</p>
-
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <label class="label !mb-0">Dépenses mensuelles en FIRE (€)</label>
-            <button onclick="importExpAvgToFire()" class="text-xs text-emerald-400 hover:text-emerald-300 transition" title="Importer la moyenne des dépenses">📥 Importer moy.</button>
-          </div>
-          <input id="fp-dep-input" type="number" value="${_fp.depenses}" min="0" step="100" class="input"
-            oninput="_fp.depenses=Math.max(0,+this.value);refreshFireResults()">
-        </div>
-
-        <!-- Section SWR — masquée en mode DWZ -->
-        <div id="fp-swr-section" style="${dwz ? 'display:none' : ''}">
-          <div class="flex justify-between items-center mb-1.5">
-            <label class="text-slate-400 text-xs font-medium">SWR (taux de retrait)</label>
-            <span id="fp-s-lbl" class="text-emerald-400 text-xs font-bold">${_fp.swr}%</span>
-          </div>
-          <input type="range" value="${_fp.swr}" min="1" max="8" step="0.5"
-            class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-            oninput="_fp.swr=+this.value;document.getElementById('fp-s-lbl').textContent=this.value+'%';refreshFireResults()">
-          <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>1%</span><span>8%</span></div>
-        </div>
+      <input id="fp-dep-input" type="number" value="${_fp.depenses}" min="0" step="100" class="input"
+        oninput="_fp.depenses=Math.max(0,+this.value);refreshFireResults()">
+    </div>
+    <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">SWR (taux de retrait)</label>
+        <span id="fp-s-lbl" class="text-emerald-400 text-xs font-bold">${_fp.swr}%</span>
       </div>
+      <input type="range" value="${_fp.swr}" min="1" max="8" step="0.5"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+        oninput="_fp.swr=+this.value;document.getElementById('fp-s-lbl').textContent=this.value+'%';refreshFireResults()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>1%</span><span>8%</span></div>
+    </div>`;
 
-      <!-- Toggle Die with Zero -->
-      <div class="border-t border-slate-700 pt-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-slate-200 text-sm font-semibold">Die with Zero</p>
-            <p class="text-slate-500 text-xs mt-0.5">Épuiser le capital sur N ans</p>
-          </div>
-          <button type="button" id="fp-dwz-btn"
-            onclick="_fp.dwzMode=!_fp.dwzMode;const on=_fp.dwzMode;document.getElementById('fp-dwz-btn').className=on?'${_toggleOnCls()}':'${_toggleOffCls()}';document.getElementById('fp-dwz-thumb').className=on?'${_thumbOnCls()}':'${_thumbOffCls()}';document.getElementById('fp-swr-section').style.display=on?'none':'';document.getElementById('fp-dwz-section').style.display=on?'':'none';refreshFireResults()"
-            class="${dwz ? _toggleOnCls() : _toggleOffCls()}">
-            <div id="fp-dwz-thumb" class="${dwz ? _thumbOnCls() : _thumbOffCls()}"></div>
-          </button>
-        </div>
-
-        <!-- Paramètres DWZ — masqués en mode classique -->
-        <div id="fp-dwz-section" style="${dwz ? '' : 'display:none'}" class="mt-4 space-y-4">
-
-          <div>
-            <div class="flex justify-between items-center mb-1.5">
-              <label class="text-slate-400 text-xs font-medium">Durée de vie en FIRE</label>
-              <span id="fp-df-lbl" class="text-orange-400 text-xs font-bold">${_fp.dureeFire} ans</span>
-            </div>
-            <input type="range" value="${_fp.dureeFire}" min="5" max="50" step="1"
-              class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-orange-500"
-              oninput="_fp.dureeFire=+this.value;document.getElementById('fp-df-lbl').textContent=this.value+' ans';refreshFireResults()">
-            <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>5 ans</span><span>50 ans</span></div>
-          </div>
-
-          <div>
-            <label class="label">Réserve finale (€)</label>
-            <input type="number" value="${_fp.reserveFinale}" min="0" step="1000" class="input"
-              oninput="_fp.reserveFinale=Math.max(0,+this.value);refreshFireResults()">
-            <p class="text-slate-600 text-xs mt-1">Capital à laisser en héritage</p>
-          </div>
-
-          <div class="bg-orange-500/8 border border-orange-500/20 rounded-lg p-3 text-xs text-slate-400 space-y-1">
-            <p class="text-orange-300 font-semibold">💀 Die with Zero</p>
-            <p>Le capital est progressivement épuisé sur ${_fp.dureeFire} ans plutôt que préservé indéfiniment. Les retraits sont plus élevés.</p>
-          </div>
-        </div>
+  const dwzContent = `
+    <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">Durée de vie en FIRE</label>
+        <span id="fp-df-lbl" class="text-orange-400 text-xs font-bold">${_fp.dureeFire} ans</span>
       </div>
+      <input type="range" value="${_fp.dureeFire}" min="5" max="50" step="1"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-orange-500"
+        oninput="_fp.dureeFire=+this.value;document.getElementById('fp-df-lbl').textContent=this.value+' ans';refreshFireResults()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>5 ans</span><span>50 ans</span></div>
+    </div>
+    <div>
+      <label class="label">Réserve finale (€)</label>
+      <input type="number" value="${_fp.reserveFinale}" min="0" step="1000" class="input"
+        oninput="_fp.reserveFinale=Math.max(0,+this.value);refreshFireResults()">
+      <p class="text-slate-600 text-xs mt-1">Capital à laisser en héritage</p>
+    </div>
+    <p class="text-slate-600 text-xs">Le capital est épuisé sur la durée définie. Les retraits sont plus élevés qu'avec le SWR classique.</p>`;
 
+  return `
+    <div class="space-y-2 lg:sticky lg:top-4">
+      ${_fireSection('general', '🔥 FIRE Classique', 'text-amber-400', true, generalContent)}
+      ${_fireSection('dwz', '💀 Die with Zero', 'text-orange-400', false, dwzContent)}
     </div>`;
 }
 
@@ -5081,23 +5057,195 @@ function runFireSimulation() {
   return { data, fireYear };
 }
 
-function fireResults() {
-  const { data, fireYear } = runFireSimulation();
-  if (!data.length) return `<p class="text-slate-500 text-center py-12">Aucune donnée.</p>`;
+function fireDwzResults(data, fireYear) {
+  if (data.length < 2) return '';
+  const last = data[data.length - 1];
+  const fireData = fireYear ? data.find(d => d.year === fireYear) : null;
+  const retMens = fireData ? Math.round(fireData.withdrawal / 12) : 0;
+  const curYear = new Date().getFullYear();
+
+  const rows = data.map(d => {
+    const rowCls = d.isFireYear
+      ? 'bg-orange-500/10 border-t border-orange-500/30'
+      : d.inFire ? 'bg-slate-800/20 border-t border-slate-700' : 'border-t border-slate-700';
+    return `
+      <tr class="${rowCls} hover:bg-slate-750 transition-colors">
+        <td class="py-2.5 px-3 text-sm ${d.isFireYear ? 'text-orange-400 font-bold' : 'text-slate-300'}">
+          An ${d.year}${d.isFireYear ? ' 💀' : ''}
+        </td>
+        <td class="py-2.5 px-3 text-right text-sm text-slate-400 hidden sm:table-cell">${fmt(d.yearStart)}</td>
+        <td class="py-2.5 px-3 text-right text-sm text-emerald-400 hidden sm:table-cell">+${fmt(d.gain)}</td>
+        <td class="py-2.5 px-3 text-right text-sm ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'} hidden md:table-cell">
+          ${d.contribution > 0 ? '+' + fmt(d.contribution) : '—'}
+        </td>
+        <td class="py-2.5 px-3 text-right text-sm ${d.withdrawal > 0 ? 'text-orange-400 font-semibold' : 'text-slate-700'} hidden md:table-cell">
+          ${d.withdrawal > 0 ? fmt(d.withdrawal / 12) + '/m' : '—'}
+        </td>
+        <td class="py-2.5 px-3 text-right text-sm font-semibold ${d.ruined ? 'text-red-400' : 'text-white'}">
+          ${d.ruined ? '⚠ 0 €' : fmt(d.portfolio)}
+        </td>
+      </tr>`;
+  }).join('');
 
   return `
-    ${fireStatsCards(data, fireYear)}
-    <div id="fire-vpw-result">${fireVpwCard()}</div>
     <div class="bg-slate-800 rounded-xl p-4">
-      <p class="text-slate-400 text-xs mb-1">Projection du portfolio</p>
-      <p class="text-slate-600 text-xs mb-3">bleu = valeur · pointillés = capital investi${fireYear ? ' · orange = année FIRE' : ''}</p>
-      <div class="overflow-x-auto">${fireSvgChart(data, fireYear)}</div>
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-xl leading-none">💀</span>
+        <p class="text-white font-semibold text-sm">Die with Zero</p>
+        <span class="text-slate-500 text-xs ml-auto">${_fp.dureeFire} ans · ${fireYear ? 'An ' + fireYear + ' (' + (curYear + fireYear) + ')' : 'Non atteint'}</span>
+      </div>
+      ${fireYear ? `<p class="text-orange-400 text-sm mb-3">Retrait à l'année FIRE : <strong>${fmt(retMens)}/mois</strong> — Portfolio final : <strong>${fmt(last.portfolio)}</strong></p>` : ''}
+      <p class="text-slate-600 text-xs mb-3">orange = valeur · pointillés = capital investi · barre orange = année FIRE</p>
+      <div class="overflow-x-auto">${fireDwzSvgChart(data, fireYear)}</div>
     </div>
     <div class="rounded-xl overflow-hidden border border-slate-700">
-      <div class="max-h-96 overflow-y-auto overflow-x-auto">
-        ${fireTable(data, fireYear)}
+      <div class="bg-slate-800 px-4 py-2.5 border-b border-slate-700">
+        <p class="text-orange-400 text-xs font-semibold uppercase tracking-wider">💀 Tableau Die with Zero</p>
+      </div>
+      <div class="max-h-80 overflow-y-auto overflow-x-auto scrollbar-dark">
+        <div class="bg-slate-800">
+          <table class="w-full text-sm" style="min-width:480px">
+            <thead class="sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10">
+              <tr class="text-slate-400 text-left">
+                <th class="py-3 px-3 font-medium">Année</th>
+                <th class="py-3 px-3 text-right font-medium hidden sm:table-cell">Début</th>
+                <th class="py-3 px-3 text-right font-medium hidden sm:table-cell">Rendement</th>
+                <th class="py-3 px-3 text-right font-medium hidden md:table-cell">Versements</th>
+                <th class="py-3 px-3 text-right font-medium hidden md:table-cell">Retrait/mois</th>
+                <th class="py-3 px-3 text-right font-medium">Fin</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>
     </div>`;
+}
+
+function fireVpwSvgChart(rows) {
+  if (!rows || rows.length < 2) return '';
+  const width = 900, height = 200, padL = 82, padR = 20, padT = 18, padB = 36;
+  const cw = width - padL - padR, ch = height - padT - padB;
+  const maxV = Math.max(...rows.map(r => r.portfolio));
+  const tickStep = niceNumber((maxV || 1) / 5, false);
+  const tickMax  = Math.ceil((maxV || 1) / tickStep) * tickStep;
+  const yTicks = []; for (let t = 0; t <= tickMax + tickStep * 0.01; t += tickStep) yTicks.push(t);
+  const toX = i => padL + (i / Math.max(rows.length - 1, 1)) * cw;
+  const toY = v => padT + ch - (v / tickMax) * ch;
+  const gridLines = yTicks.map(t => {
+    const y = toY(t).toFixed(1);
+    return `<line x1="${padL}" y1="${y}" x2="${(padL+cw).toFixed(1)}" y2="${y}" stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="${(padL-8).toFixed(1)}" y="${y}" text-anchor="end" dominant-baseline="middle" fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif">${fmtAxis(t)}</text>`;
+  }).join('');
+  const maxXLabels = Math.min(9, rows.length);
+  const xStep = rows.length <= maxXLabels ? 1 : Math.ceil((rows.length - 1) / (maxXLabels - 1));
+  const xSet = new Set([0, rows.length - 1]); for (let i = xStep; i < rows.length - 1; i += xStep) xSet.add(i);
+  const xLabels = [...xSet].sort((a,b)=>a-b).map(i =>
+    `<text x="${toX(i).toFixed(1)}" y="${(padT+ch+24).toFixed(1)}" text-anchor="middle" fill="#64748b" font-size="10" font-family="system-ui,sans-serif">${rows[i].age} ans</text>`
+  ).join('');
+  const portPts = rows.map((r,i) => `${toX(i).toFixed(1)},${toY(r.portfolio).toFixed(1)}`).join(' ');
+  const baseY   = toY(0).toFixed(1);
+  const fillPts = `${toX(0).toFixed(1)},${baseY} ${portPts} ${toX(rows.length-1).toFixed(1)},${baseY}`;
+  const wdPts   = rows.map((r,i) => `${toX(i).toFixed(1)},${toY(Math.min(r.withdrawal * 10, maxV)).toFixed(1)}`).join(' ');
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="w-full" preserveAspectRatio="xMidYMid meet">
+      <defs><linearGradient id="fg-vpw" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#a855f7" stop-opacity="0.28"/>
+        <stop offset="100%" stop-color="#a855f7" stop-opacity="0.02"/>
+      </linearGradient></defs>
+      ${gridLines}
+      <polygon points="${fillPts}" fill="url(#fg-vpw)"/>
+      <polyline points="${portPts}" fill="none" stroke="#a855f7" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      ${xLabels}
+    </svg>`;
+}
+
+function fireDwzSvgChart(data, fireYear) {
+  if (data.length < 2) return '';
+  const width = 900, height = 220, padL = 82, padR = 20, padT = 18, padB = 36;
+  const cw = width - padL - padR, ch = height - padT - padB;
+  const maxV = Math.max(...data.flatMap(d => [d.portfolio, d.invested]));
+  const tickStep = niceNumber((maxV || 1) / 5, false);
+  const tickMax  = Math.ceil((maxV || 1) / tickStep) * tickStep;
+  const yTicks = []; for (let t = 0; t <= tickMax + tickStep * 0.01; t += tickStep) yTicks.push(t);
+  const toX = i => padL + (i / Math.max(data.length - 1, 1)) * cw;
+  const toY = v => padT + ch - (v / tickMax) * ch;
+  const gridLines = yTicks.map(t => {
+    const y = toY(t).toFixed(1);
+    return `<line x1="${padL}" y1="${y}" x2="${(padL+cw).toFixed(1)}" y2="${y}" stroke="#334155" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="${(padL-8).toFixed(1)}" y="${y}" text-anchor="end" dominant-baseline="middle" fill="#94a3b8" font-size="11" font-family="system-ui,sans-serif">${fmtAxis(t)}</text>`;
+  }).join('');
+  const maxXLabels = Math.min(9, data.length);
+  const xStep = data.length <= maxXLabels ? 1 : Math.ceil((data.length - 1) / (maxXLabels - 1));
+  const xSet = new Set([0, data.length - 1]); for (let i = xStep; i < data.length - 1; i += xStep) xSet.add(i);
+  const xLabels = [...xSet].sort((a,b)=>a-b).map(i =>
+    `<text x="${toX(i).toFixed(1)}" y="${(padT+ch+24).toFixed(1)}" text-anchor="middle" fill="#64748b" font-size="10" font-family="system-ui,sans-serif">An ${data[i].year}</text>`
+  ).join('');
+  let fireMarker = '';
+  if (fireYear) {
+    const fi = data.findIndex(d => d.year === fireYear);
+    if (fi >= 0) {
+      const fx = toX(fi).toFixed(1);
+      fireMarker = `<line x1="${fx}" y1="${padT}" x2="${fx}" y2="${(padT+ch).toFixed(1)}" stroke="#f97316" stroke-width="1.5" stroke-dasharray="5,4" opacity="0.85"/>
+        <rect x="${(+fx+4).toFixed(1)}" y="${(padT+2).toFixed(1)}" width="52" height="16" rx="3" fill="#f97316" opacity="0.18"/>
+        <text x="${(+fx+30).toFixed(1)}" y="${(padT+13).toFixed(1)}" text-anchor="middle" fill="#fb923c" font-size="10" font-weight="bold" font-family="system-ui,sans-serif">💀 DWZ</text>`;
+    }
+  }
+  const portPts = data.map((d,i) => `${toX(i).toFixed(1)},${toY(d.portfolio).toFixed(1)}`).join(' ');
+  const baseY   = toY(0).toFixed(1);
+  const fillPts = `${toX(0).toFixed(1)},${baseY} ${portPts} ${toX(data.length-1).toFixed(1)},${baseY}`;
+  const invPts  = data.map((d,i) => `${toX(i).toFixed(1)},${toY(d.invested).toFixed(1)}`).join(' ');
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="w-full" preserveAspectRatio="xMidYMid meet">
+      <defs><linearGradient id="fg-dwz" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f97316" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="#f97316" stop-opacity="0.02"/>
+      </linearGradient></defs>
+      ${gridLines}${fireMarker}
+      <polygon points="${fillPts}" fill="url(#fg-dwz)"/>
+      <polyline points="${portPts}" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <polyline points="${invPts}" fill="none" stroke="#475569" stroke-width="1.5" stroke-dasharray="6,4" stroke-linejoin="round" stroke-linecap="round"/>
+      ${xLabels}
+    </svg>`;
+}
+
+function fireResults() {
+  const savedDwz = _fp.dwzMode;
+
+  // Simulation FIRE classique
+  _fp.dwzMode = false;
+  const { data: cData, fireYear: cFireYear } = runFireSimulation();
+
+  // Simulation Die with Zero
+  _fp.dwzMode = true;
+  const { data: dData, fireYear: dFireYear } = runFireSimulation();
+
+  _fp.dwzMode = savedDwz;
+
+  if (!cData.length) return `<p class="text-slate-500 text-center py-12">Aucune donnée.</p>`;
+
+  return `
+    ${fireStatsCards(cData, cFireYear)}
+    <div id="fire-vpw-result">${fireVpwCard()}</div>
+
+    <div class="bg-slate-800 rounded-xl p-4">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="text-base leading-none">🔥</span>
+        <p class="text-white font-semibold text-sm">FIRE Classique — Projection du portfolio</p>
+      </div>
+      <p class="text-slate-600 text-xs mb-3">bleu = valeur · pointillés = capital investi${cFireYear ? ' · orange = année FIRE' : ''}</p>
+      <div class="overflow-x-auto">${fireSvgChart(cData, cFireYear)}</div>
+    </div>
+    <div class="rounded-xl overflow-hidden border border-slate-700">
+      <div class="bg-slate-800 px-4 py-2.5 border-b border-slate-700">
+        <p class="text-amber-400 text-xs font-semibold uppercase tracking-wider">🔥 Tableau FIRE Classique</p>
+      </div>
+      <div class="max-h-80 overflow-y-auto overflow-x-auto scrollbar-dark">
+        ${fireTable(cData, cFireYear)}
+      </div>
+    </div>
+
+    ${fireDwzResults(dData, dFireYear)}`;
 }
 
 function fireStatsCards(data, fireYear) {
