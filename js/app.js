@@ -4310,6 +4310,7 @@ function _fpInit() {
         swr:           Number(saved.swr)           || 4,
         dwzMode:       saved.dwzMode === true || saved.dwzMode === 'TRUE',
         dureeFire:     Number(saved.dureeFire)     || 30,
+        dwzTargetAge:  Number(saved.dwzTargetAge)  || 90,
         reserveFinale: Number(saved.reserveFinale) || 0,
         depart:        Number(saved.depart)        || 0,
         age:           Number(saved.age)           || 39,
@@ -4317,8 +4318,8 @@ function _fpInit() {
     } else {
       // Aucun profil sauvegardé — valeurs par défaut
       _fp = { capital, rendement: defaultRendement, inflation: 2, duree: 30, versement: 500,
-              depenses: 2000, swr: 4, dwzMode: false, dureeFire: 30, reserveFinale: 0,
-              depart: 0, age: 39 };
+              depenses: 2000, swr: 4, dwzMode: false, dureeFire: 30, dwzTargetAge: 90,
+              reserveFinale: 0, depart: 0, age: 39 };
     }
   } else {
     _fp.capital = capital; // Synchronise valeur nette depuis le portfolio
@@ -4383,7 +4384,7 @@ function fireDashboardCards() {
              ${fmt(cRetAnnuel)}<span class="text-slate-500">/an</span>
            </p>
            <p class="text-slate-600 text-xs mt-3">
-             🔥 An ${cFireYear} <span class="text-slate-700">(${curYear + cFireYear})</span>
+             🔥 ${cFire ? cFire.age + ' ans' : 'An ' + cFireYear} <span class="text-slate-700">(${curYear + cFireYear})</span>
              · Objectif : ${fmt(_fp.depenses)}/mois
            </p>`
         : `<p class="text-slate-400 font-semibold">Non atteint sur ${_fp.duree} ans</p>
@@ -4405,31 +4406,35 @@ function fireDashboardCards() {
              ${fmt(dRetMensuel * 12)}<span class="text-slate-500">/an</span>
            </p>
            <p class="text-slate-600 text-xs mt-3">
-             💀 An ${dFireYear} <span class="text-slate-700">(${curYear + dFireYear})</span>
+             💀 ${dFire ? dFire.age + ' ans' : 'An ' + dFireYear} <span class="text-slate-700">(${curYear + dFireYear})</span>
              · Objectif : ${fmt(_fp.depenses)}/mois
            </p>`
         : `<p class="text-slate-400 font-semibold">Non atteint sur ${_fp.duree} ans</p>
            <p class="text-slate-600 text-xs mt-1">↑ versements ou durée de simulation</p>`}
     </a>`;
 
-  // Carte VPW — affichée seulement si les données sont disponibles dans Google Sheets
-  const vpw    = STATE.vpw;
-  const vpwCard = vpw && vpw.monthlyWithdrawal != null ? `
+  // Carte VPW — calcul local
+  _vpwInit();
+  const vpwResult  = vpwCurrentResult();
+  const vpwActive  = vpwResult && vpwResult.monthlyWithdrawal > 0;
+  const vpwPctDisp = vpwActive ? (vpwResult.vpwFactor * 100).toFixed(2) : null;
+  const vpwCard = vpwActive ? `
     <a href="#fire" onclick="navigate('#fire');return false;"
       class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer block">
       <div class="flex items-center gap-2 mb-3">
         <span class="text-xl leading-none">📊</span>
-        <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">VPW${vpw.vpwPct != null ? ' · ' + vpw.vpwPct + '%' : ''}</p>
+        <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">VPW · ${vpwPctDisp}%</p>
       </div>
-      <p class="text-blue-400 text-xl sm:text-2xl font-bold leading-tight break-all">
-        ${fmt(vpw.monthlyWithdrawal)}<span class="text-slate-500 text-sm font-normal">/mois</span>
+      <p class="text-purple-400 text-xl sm:text-2xl font-bold leading-tight break-all">
+        ${fmt(Math.round(vpwResult.monthlyWithdrawal))}<span class="text-slate-500 text-sm font-normal">/mois</span>
       </p>
       <p class="text-slate-400 text-sm mt-1">
-        ${fmt(vpw.annualWithdrawal ?? vpw.monthlyWithdrawal * 12)}<span class="text-slate-500">/an</span>
+        ${fmt(Math.round(vpwResult.annualWithdrawal))}<span class="text-slate-500">/an</span>
       </p>
-      ${vpw.monthlyAfterLoss != null
-        ? `<p class="text-slate-600 text-xs mt-3">Après correction : <span class="text-amber-500">${fmt(vpw.monthlyAfterLoss)}/mois</span></p>`
-        : ''}
+      <p class="text-slate-600 text-xs mt-3">
+        Épuisement à ${_vpwParams.targetAge} ans · rendement ${_vpwParams.rendement}%
+        ${vpwResult.totalFutureIncomesPV > 0 ? `· PV revenus : ${fmt(Math.round(vpwResult.totalFutureIncomesPV))}` : ''}
+      </p>
     </a>` : '';
 
   const hasVpw   = !!(vpwCard);
@@ -4479,7 +4484,8 @@ function calculateVPW(portfolioValue, age, targetAge, r, futureIncomes = []) {
 function projectVPW() {
   _vpwInit();
   if (!_fp) return [];
-  const { age, targetAge, rendement, futureIncomes } = _vpwParams;
+  const age = _fp.age || 30;
+  const { targetAge, rendement, futureIncomes } = _vpwParams;
   const r = rendement / 100;
   let portfolio = _fp.capital;
   const rows = [];
@@ -4528,8 +4534,8 @@ function projectVPW() {
 function vpwCurrentResult() {
   _vpwInit();
   if (!_fp) return null;
-  const { age, targetAge, rendement, futureIncomes } = _vpwParams;
-  return calculateVPW(_fp.capital, age, targetAge, rendement / 100, futureIncomes);
+  const { targetAge, rendement, futureIncomes } = _vpwParams;
+  return calculateVPW(_fp.capital, _fp.age || 30, targetAge, rendement / 100, futureIncomes);
 }
 
 // ── Panneau paramètres VPW ─────────────────────────────────────────────────────
@@ -4547,17 +4553,11 @@ function fireVpwParamsPanel() {
     </div>`).join('');
 
   const content = `
-    <div class="grid grid-cols-2 gap-2">
-      <div>
-        <label class="label">Âge actuel</label>
-        <input type="number" id="vpw-age" value="${vp.age}" min="20" max="100" step="1" class="input"
-          oninput="_vpwParams.age=+this.value;_vpwSave();refreshVpw()">
-      </div>
-      <div>
-        <label class="label">Âge cible</label>
-        <input type="number" id="vpw-target" value="${vp.targetAge}" min="50" max="120" step="1" class="input"
-          oninput="_vpwParams.targetAge=+this.value;_vpwSave();refreshVpw()">
-      </div>
+    <div>
+      <label class="label">Âge cible</label>
+      <input type="number" id="vpw-target" value="${vp.targetAge}" min="50" max="120" step="1" class="input"
+        oninput="_vpwParams.targetAge=+this.value;_vpwSave();refreshVpw()">
+      <p class="text-slate-600 text-xs mt-1">Âge actuel défini dans FIRE Classique (${_fp.age} ans)</p>
     </div>
     <div>
       <div class="flex justify-between items-center mb-1.5">
@@ -4637,7 +4637,7 @@ function fireVpwCard() {
         <span class="text-xl leading-none">📊</span>
         <div>
           <p class="text-white text-sm font-semibold">VPW — Variable Percentage Withdrawal</p>
-          <p class="text-slate-500 text-xs">Épuisement du capital à ${_vpwParams.targetAge} ans · rendement ${_vpwParams.rendement}%</p>
+          <p class="text-slate-500 text-xs">De ${_fp.age || 30} à ${_vpwParams.targetAge} ans · rendement ${_vpwParams.rendement}%</p>
         </div>
       </div>
 
@@ -4650,7 +4650,7 @@ function fireVpwCard() {
         <div>
           <p class="text-slate-500 text-xs mb-1">Facteur VPW</p>
           <p class="text-slate-300 text-xl font-bold">${(v.vpwFactor * 100).toFixed(2)}%</p>
-          <p class="text-slate-600 text-xs mt-0.5">${_vpwParams.targetAge - _vpwParams.age} ans restants</p>
+          <p class="text-slate-600 text-xs mt-0.5">${_vpwParams.targetAge - (_fp.age || 30)} ans restants</p>
         </div>
         ${v.totalFutureIncomesPV > 0 ? `
         <div>
@@ -4748,6 +4748,16 @@ function _fireSection(id, title, color, defaultOpen, content) {
 function fireParamsPanel() {
   const generalContent = `
     <div>
+      <div class="flex justify-between items-center mb-1.5">
+        <label class="text-slate-400 text-xs font-medium">Âge actuel</label>
+        <span id="fp-age-lbl" class="text-slate-300 text-xs font-bold">${_fp.age} ans</span>
+      </div>
+      <input type="range" value="${_fp.age}" min="18" max="70" step="1"
+        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-slate-400"
+        oninput="_fp.age=+this.value;document.getElementById('fp-age-lbl').textContent=this.value+' ans';refreshFireResults();refreshVpw()">
+      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>18 ans</span><span>70 ans</span></div>
+    </div>
+    <div>
       <label class="label">Capital initial (€)</label>
       <input type="number" value="${_fp.capital}" min="0" step="1000" class="input"
         oninput="_fp.capital=Math.max(0,+this.value);refreshFireResults()">
@@ -4819,14 +4829,10 @@ function fireParamsPanel() {
 
   const dwzContent = `
     <div>
-      <div class="flex justify-between items-center mb-1.5">
-        <label class="text-slate-400 text-xs font-medium">Durée de vie en FIRE</label>
-        <span id="fp-df-lbl" class="text-orange-400 text-xs font-bold">${_fp.dureeFire} ans</span>
-      </div>
-      <input type="range" value="${_fp.dureeFire}" min="5" max="50" step="1"
-        class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-orange-500"
-        oninput="_fp.dureeFire=+this.value;document.getElementById('fp-df-lbl').textContent=this.value+' ans';refreshFireResults()">
-      <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>5 ans</span><span>50 ans</span></div>
+      <label class="label">Âge cible</label>
+      <input type="number" value="${_fp.dwzTargetAge}" min="50" max="120" step="1" class="input"
+        oninput="_fp.dwzTargetAge=Math.max((_fp.age||30)+1,+this.value);_fp.dureeFire=Math.max(1,_fp.dwzTargetAge-(_fp.age||30));refreshFireResults()">
+      <p class="text-slate-600 text-xs mt-1">Âge actuel : ${_fp.age || 30} ans · durée : ${Math.max(1, (_fp.dwzTargetAge || 90) - (_fp.age || 30))} ans</p>
     </div>
     <div>
       <label class="label">Réserve finale (€)</label>
@@ -4968,7 +4974,10 @@ function _vpwSimCard() {
 
 function runFireSimulation() {
   const { capital, rendement, inflation, duree, versement, depenses, swr,
-          dwzMode, dureeFire, reserveFinale, depart } = _fp;
+          dwzMode, reserveFinale, depart } = _fp;
+  const dureeFire = dwzMode
+    ? Math.max(1, (_fp.dwzTargetAge || 90) - (_fp.age || 30))
+    : _fp.dureeFire;
   const r              = rendement / 100;
   const inf            = inflation / 100;
   const annualExpenses = depenses * 12;
@@ -5039,6 +5048,7 @@ function runFireSimulation() {
 
     data.push({
       year,
+      age:          (_fp.age || 30) + year - 1,
       yearStart:    Math.round(yearStart),
       gain:         Math.round(gain),
       contribution: Math.round(contribution),
@@ -5076,15 +5086,15 @@ function fireClassiqueCard(data, fireYear) {
         <span class="text-xl leading-none">🔥</span>
         <div>
           <p class="text-white text-sm font-semibold">FIRE Classique</p>
-          <p class="text-slate-500 text-xs">SWR ${_fp.swr}% · ${_fp.dureeFire} ans · ${fireYear ? 'FIRE An ' + fireYear + ' (' + (curYear + fireYear) + ')' : 'FIRE non atteint'}</p>
+          <p class="text-slate-500 text-xs">SWR ${_fp.swr}% · ${_fp.duree} ans · ${fireData ? 'FIRE à ' + fireData.age + ' ans (' + (curYear + fireYear) + ')' : 'FIRE non atteint'}</p>
         </div>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <div>
-          <p class="text-slate-500 text-xs mb-1">Année FIRE</p>
-          ${fireYear
-            ? `<p class="text-amber-400 text-xl font-bold">An ${fireYear}</p><p class="text-slate-600 text-xs mt-0.5">en ${curYear + fireYear}</p>`
+          <p class="text-slate-500 text-xs mb-1">Âge FIRE</p>
+          ${fireData
+            ? `<p class="text-amber-400 text-xl font-bold">${fireData.age} ans</p><p class="text-slate-600 text-xs mt-0.5">en ${curYear + fireYear}</p>`
             : `<p class="text-slate-400 text-sm font-semibold mt-1">Non atteint</p>`}
         </div>
         <div>
@@ -5095,7 +5105,7 @@ function fireClassiqueCard(data, fireYear) {
         <div>
           <p class="text-slate-500 text-xs mb-1">Portfolio final</p>
           <p class="${last.ruined ? 'text-red-400' : 'text-white'} text-xl font-bold">${last.ruined ? '⚠ Ruiné' : fmt(last.portfolio)}</p>
-          <p class="text-slate-600 text-xs mt-0.5">An ${last.year}</p>
+          <p class="text-slate-600 text-xs mt-0.5">${last.age} ans</p>
         </div>
         <div>
           <p class="text-slate-500 text-xs mb-1">Gains totaux</p>
@@ -5129,7 +5139,7 @@ function fireClassiqueCard(data, fireYear) {
                 const retClose = !retOkRow && _fp.depenses > 0 && d.retMensuel >= _fp.depenses * 0.8;
                 const retCls   = retOkRow ? 'text-emerald-400 font-semibold' : retClose ? 'text-amber-400' : 'text-slate-400';
                 return `<tr class="${rowCls} hover:bg-slate-700/30 transition-colors">
-                  <td class="py-2 px-3 ${d.isFireYear ? 'text-amber-400 font-bold' : 'text-slate-300'}">An ${d.year}${d.isFireYear ? ' 🔥' : ''}</td>
+                  <td class="py-2 px-3 ${d.isFireYear ? 'text-amber-400 font-bold' : 'text-slate-300'}">${d.age} ans${d.isFireYear ? ' 🔥' : ''}</td>
                   <td class="py-2 px-3 text-right text-slate-400">${fmt(d.yearStart)}</td>
                   <td class="py-2 px-3 text-right text-emerald-400">+${fmt(d.gain)}</td>
                   <td class="py-2 px-3 text-right ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'}">${d.contribution > 0 ? '+' + fmt(d.contribution) : '—'}</td>
@@ -5161,15 +5171,15 @@ function fireDwzResults(data, fireYear) {
         <span class="text-xl leading-none">💀</span>
         <div>
           <p class="text-white text-sm font-semibold">Die with Zero</p>
-          <p class="text-slate-500 text-xs">${_fp.dureeFire} ans · ${fireYear ? 'DWZ An ' + fireYear + ' (' + (curYear + fireYear) + ')' : 'Non atteint'}</p>
+          <p class="text-slate-500 text-xs">Objectif épuisement à ${_fp.dwzTargetAge || 90} ans · ${fireData ? 'DWZ à ' + fireData.age + ' ans (' + (curYear + fireYear) + ')' : 'Non atteint'}</p>
         </div>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <div>
-          <p class="text-slate-500 text-xs mb-1">Année DWZ</p>
-          ${fireYear
-            ? `<p class="text-orange-400 text-xl font-bold">An ${fireYear}</p><p class="text-slate-600 text-xs mt-0.5">en ${curYear + fireYear}</p>`
+          <p class="text-slate-500 text-xs mb-1">Âge DWZ</p>
+          ${fireData
+            ? `<p class="text-orange-400 text-xl font-bold">${fireData.age} ans</p><p class="text-slate-600 text-xs mt-0.5">en ${curYear + fireYear}</p>`
             : `<p class="text-slate-400 text-sm font-semibold mt-1">Non atteint</p>`}
         </div>
         <div>
@@ -5180,7 +5190,7 @@ function fireDwzResults(data, fireYear) {
         <div>
           <p class="text-slate-500 text-xs mb-1">Portfolio final</p>
           <p class="${last.ruined ? 'text-red-400' : 'text-white'} text-xl font-bold">${last.ruined ? '⚠ Ruiné' : fmt(last.portfolio)}</p>
-          <p class="text-slate-600 text-xs mt-0.5">An ${last.year}</p>
+          <p class="text-slate-600 text-xs mt-0.5">${last.age} ans</p>
         </div>
         <div>
           <p class="text-slate-500 text-xs mb-1">Gains totaux</p>
@@ -5212,7 +5222,7 @@ function fireDwzResults(data, fireYear) {
                   : d.inFire ? 'bg-slate-800/20 border-t border-slate-700' : 'border-t border-slate-700/50';
                 const retMensRow = d.withdrawal > 0 ? Math.round(d.withdrawal / 12) : 0;
                 return `<tr class="${rowCls} hover:bg-slate-700/30 transition-colors">
-                  <td class="py-2 px-3 ${d.isFireYear ? 'text-orange-400 font-bold' : 'text-slate-300'}">An ${d.year}${d.isFireYear ? ' 💀' : ''}</td>
+                  <td class="py-2 px-3 ${d.isFireYear ? 'text-orange-400 font-bold' : 'text-slate-300'}">${d.age} ans${d.isFireYear ? ' 💀' : ''}</td>
                   <td class="py-2 px-3 text-right text-slate-400">${fmt(d.yearStart)}</td>
                   <td class="py-2 px-3 text-right text-emerald-400">+${fmt(d.gain)}</td>
                   <td class="py-2 px-3 text-right ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'}">${d.contribution > 0 ? '+' + fmt(d.contribution) : '—'}</td>
@@ -5285,7 +5295,7 @@ function fireDwzSvgChart(data, fireYear) {
   const xStep = data.length <= maxXLabels ? 1 : Math.ceil((data.length - 1) / (maxXLabels - 1));
   const xSet = new Set([0, data.length - 1]); for (let i = xStep; i < data.length - 1; i += xStep) xSet.add(i);
   const xLabels = [...xSet].sort((a,b)=>a-b).map(i =>
-    `<text x="${toX(i).toFixed(1)}" y="${(padT+ch+24).toFixed(1)}" text-anchor="middle" fill="#64748b" font-size="10" font-family="system-ui,sans-serif">An ${data[i].year}</text>`
+    `<text x="${toX(i).toFixed(1)}" y="${(padT+ch+24).toFixed(1)}" text-anchor="middle" fill="#64748b" font-size="10" font-family="system-ui,sans-serif">${data[i].age ?? data[i].year} ans</text>`
   ).join('');
   let fireMarker = '';
   if (fireYear) {
@@ -5441,7 +5451,7 @@ function fireSvgChart(data, fireYear) {
   const xLabels = [...xSet].sort((a, b) => a - b).map(i =>
     `<text x="${toX(i).toFixed(1)}" y="${(padT + ch + 24).toFixed(1)}"
       text-anchor="middle" fill="#64748b" font-size="10"
-      font-family="system-ui,sans-serif">An ${data[i].year}</text>`
+      font-family="system-ui,sans-serif">${data[i].age ?? data[i].year} ans</text>`
   ).join('');
 
   // Marqueur vertical "Année FIRE"
