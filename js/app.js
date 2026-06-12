@@ -4622,7 +4622,7 @@ function fireVpwCard() {
   const rows  = projectVPW();
   const last  = rows[rows.length - 1];
 
-  const tableRows = rows.filter((_, i) => i % 5 === 0 || i === rows.length - 1).map(r => `
+  const tableRows = rows.map(r => `
     <tr class="border-b border-slate-700/40 text-xs">
       <td class="py-1.5 px-3 text-slate-400">${r.age} ans (${r.year})</td>
       <td class="py-1.5 px-3 text-right text-slate-300">${fmt(r.portfolio)}</td>
