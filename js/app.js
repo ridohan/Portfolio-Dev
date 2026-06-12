@@ -4696,7 +4696,7 @@ function fireVpwCard() {
 
 function refreshVpw() {
   const leftEl = document.getElementById('fire-left-panel');
-  if (leftEl) leftEl.innerHTML = fireParamsPanel() + fireVpwParamsPanel();
+  if (leftEl) leftEl.innerHTML = fireParamsPanel();
   const resultEl = document.getElementById('fire-vpw-result');
   if (resultEl) resultEl.innerHTML = fireVpwCard();
 }
@@ -4717,9 +4717,8 @@ function renderFire(app) {
         </div>
       </div>
       <div class="flex gap-6 items-start flex-col lg:flex-row">
-        <div id="fire-left-panel" class="lg:w-72 w-full shrink-0 space-y-2 lg:sticky lg:top-4">
+        <div id="fire-left-panel" class="lg:w-72 w-full shrink-0 space-y-2">
           ${fireParamsPanel()}
-          ${fireVpwParamsPanel()}
         </div>
         <div class="flex-1 min-w-0 w-full space-y-4 overflow-x-hidden" id="fire-results">
           ${fireResults()}
@@ -4846,6 +4845,7 @@ function fireParamsPanel() {
     <div class="space-y-2 lg:sticky lg:top-4">
       ${_fireSection('general', '🔥 FIRE Classique', 'text-amber-400', true, generalContent)}
       ${_fireSection('dwz', '💀 Die with Zero', 'text-orange-400', false, dwzContent)}
+      ${fireVpwParamsPanel()}
     </div>`;
 }
 
