@@ -65,6 +65,8 @@ async function _startBackgroundTasks() {
   if (PriceService.shouldRefresh()) {
     _updateSyncIndicators('loading');
     await PriceService.refresh();
+    // Snapshot post-prix : met à jour les valeurs du jour avec les prix frais
+    SnapshotService.take();
     // Re-render silencieux pour afficher les nouveaux prix
     const app = document.getElementById('app');
     render();
@@ -3235,13 +3237,14 @@ function globalHistory() {
 
   return Object.values(byDate)
     .map(e => {
-      const va = Math.max(0, e.valeur_actuelle - totalCharges); // valeur nette
+      const va = Math.max(0, e.valeur_actuelle - totalCharges); // valeur nette (courbe lissée)
+      const pv = e.valeur_actuelle - e.valeur_investie;         // PV brute hors charges
       return {
         ...e,
         valeur_actuelle: va,
-        pv_euros: va - e.valeur_investie,
+        pv_euros: pv,
         pv_pct: e.valeur_investie > 0
-          ? ((va / e.valeur_investie - 1) * 100).toFixed(2)
+          ? ((pv / e.valeur_investie) * 100).toFixed(2)
           : 0,
       };
     })
@@ -3268,13 +3271,14 @@ function portfolioHistory(portfolioId) {
 
   return Object.values(byDate)
     .map(e => {
-      const va = Math.max(0, e.valeur_actuelle - totalCharges); // valeur nette
+      const va = Math.max(0, e.valeur_actuelle - totalCharges); // valeur nette (courbe lissée)
+      const pv = e.valeur_actuelle - e.valeur_investie;         // PV brute hors charges
       return {
         ...e,
         valeur_actuelle: va,
-        pv_euros: va - e.valeur_investie,
+        pv_euros: pv,
         pv_pct: e.valeur_investie > 0
-          ? ((va / e.valeur_investie - 1) * 100).toFixed(2)
+          ? ((pv / e.valeur_investie) * 100).toFixed(2)
           : 0,
       };
     })
@@ -3286,6 +3290,7 @@ function filterByPeriod(entries, period) {
   if (!period || period === 'all') return entries;
   const now    = new Date();
   const cutoff = new Date(now);
+  if (period === '1w')  cutoff.setDate(now.getDate() - 7);
   if (period === '1m')  cutoff.setMonth(now.getMonth() - 1);
   if (period === '3m')  cutoff.setMonth(now.getMonth() - 3);
   if (period === '6m')  cutoff.setMonth(now.getMonth() - 6);
@@ -3543,6 +3548,7 @@ function setHistPeriod(period) {
 
 function periodFilter(active) {
   const periods = [
+    { key: '1w',  label: '1S'  },
     { key: '1m',  label: '1M'  },
     { key: '3m',  label: '3M'  },
     { key: '6m',  label: '6M'  },
@@ -3564,32 +3570,49 @@ function periodFilter(active) {
 
 function historyStatsCards(entries) {
   if (!entries.length) return '';
-  const first      = entries[0];
-  const last       = entries[entries.length - 1];
-  const change     = last.valeur_actuelle - first.valeur_actuelle;
-  const changePct  = first.valeur_actuelle > 0
-    ? ((change / first.valeur_actuelle) * 100).toFixed(2) : 0;
-  const maxVal     = Math.max(...entries.map(e => Number(e.valeur_actuelle)));
-  const minVal     = Math.min(...entries.map(e => Number(e.valeur_actuelle)));
+  const first     = entries[0];
+  const last      = entries[entries.length - 1];
+  const change    = last.valeur_actuelle - first.valeur_actuelle;
+  const changePct = first.valeur_actuelle > 0
+    ? (change / first.valeur_actuelle) * 100 : 0;
+  const maxVal    = Math.max(...entries.map(e => Number(e.valeur_actuelle)));
+  const minVal    = Math.min(...entries.map(e => Number(e.valeur_actuelle)));
+
+  // Rendement annualisé (affiché seulement si période ≥ 30 jours)
+  const days = first.date && last.date
+    ? (new Date(last.date) - new Date(first.date)) / 86400000 : 0;
+  const annualizedPct = days >= 30 && first.valeur_actuelle > 0
+    ? (Math.pow(1 + change / first.valeur_actuelle, 365 / days) - 1) * 100 : null;
+
+  const posCls = change >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const subCls = change >= 0 ? 'text-emerald-600' : 'text-red-600';
 
   return `
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">Valeur actuelle</p>
-        <p class="text-white text-2xl font-bold">${fmt(last.valeur_actuelle)}</p>
+        <p class="text-white text-xl font-bold">${fmt(last.valeur_actuelle)}</p>
+        <p class="text-slate-600 text-xs mt-1">${last.date ?? ''}</p>
       </div>
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">Variation période</p>
-        <p class="text-2xl font-bold ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}">${change >= 0 ? '+' : ''}${fmt(change)}</p>
-        <p class="text-xs ${change >= 0 ? 'text-emerald-500' : 'text-red-500'}">${change >= 0 ? '+' : ''}${changePct}%</p>
+        <p class="text-xl font-bold ${posCls}">${change >= 0 ? '+' : ''}${fmt(Math.round(change))}</p>
+        <p class="text-xs ${subCls} mt-0.5">sur ${days > 0 ? Math.round(days) + ' jours' : 'la période'}</p>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4">
+        <p class="text-slate-400 text-xs mb-1">Rendement période</p>
+        <p class="text-xl font-bold ${posCls}">${change >= 0 ? '+' : ''}${changePct.toFixed(2)}%</p>
+        ${annualizedPct !== null
+          ? `<p class="text-xs ${subCls} mt-0.5">${annualizedPct >= 0 ? '+' : ''}${annualizedPct.toFixed(1)}% annualisé</p>`
+          : `<p class="text-xs text-slate-600 mt-0.5">non annualisé</p>`}
       </div>
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">Plus haut</p>
-        <p class="text-white text-2xl font-bold">${fmt(maxVal)}</p>
+        <p class="text-white text-xl font-bold">${fmt(maxVal)}</p>
       </div>
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">Plus bas</p>
-        <p class="text-white text-2xl font-bold">${fmt(minVal)}</p>
+        <p class="text-white text-xl font-bold">${fmt(minVal)}</p>
       </div>
     </div>`;
 }
