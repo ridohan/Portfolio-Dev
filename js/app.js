@@ -775,7 +775,7 @@ function _pdfPortfolioExpenses(now) {
   const grandAvg    = trackedMonths > 0 ? grandTotal / trackedMonths : 0;
   const vitalTotal  = totalByType['vital'] || 0;
   const vitalAvg    = trackedMonths > 0 ? vitalTotal / trackedMonths : 0;
-  const aidsTotal   = STATE.expense_aids.reduce((s, a) => s + Number(a.montant || 0), 0);
+  const aidsTotal   = STATE.expense_aids.reduce((s, a) => s + aidMontant(a), 0);
   const resteGlobal = grandAvg - aidsTotal;
   const resteVital  = vitalAvg - aidsTotal;
 
@@ -822,6 +822,25 @@ function _pdfPortfolioExpenses(now) {
         <td>Total</td><td class="r">${_n(grandTotal)}</td><td class="r">${_n(grandAvg)}/mois</td>
       </tr></tfoot>
     </table>
+    ${STATE.expense_aids.length ? `
+    <h3 style="margin-top:12pt">Aides &amp; revenus mensuels</h3>
+    <table>
+      <thead><tr><th>Aide</th><th>Type</th><th class="r">Montant</th></tr></thead>
+      <tbody>
+        ${STATE.expense_aids.map(a => {
+          const montant = aidMontant(a);
+          const typeLabel = a.type === 'immo' ? 'CF immo (dynamique)' : 'Fixe';
+          return `<tr>
+            <td>${a.nom || '—'}</td>
+            <td class="muted" style="font-size:8.5pt">${typeLabel}</td>
+            <td class="r green">${montant >= 0 ? '+' : ''}${_n(montant)}/mois</td>
+          </tr>`;
+        }).join('')}
+        <tr style="font-weight:700;border-top:1.5px solid #a0aec0">
+          <td>Total aides</td><td></td><td class="r green">${_n(aidsTotal)}/mois</td>
+        </tr>
+      </tbody>
+    </table>` : ''}
   </div>`;
 }
 
@@ -1397,7 +1416,7 @@ function generatePdfExpenses() {
   });
 
   // Aides et reste
-  const aidsTotal = STATE.expense_aids.reduce((s,a)=>s+Number(a.montant||0),0);
+  const aidsTotal = STATE.expense_aids.reduce((s,a)=>s+aidMontant(a),0);
   const totalByType = {};
   TYPES.forEach(t => {
     const ids = STATE.expense_categories.filter(c=>c.type===t).map(c=>c.id);
@@ -1439,7 +1458,7 @@ function generatePdfExpenses() {
       <table>
         <thead><tr><th>Aide</th><th class="r">Montant</th></tr></thead>
         <tbody>
-          ${STATE.expense_aids.map(a=>`<tr><td>${a.nom||a.label||'—'}</td><td class="r green">${_n(a.montant)}/mois</td></tr>`).join('')}
+          ${STATE.expense_aids.map(a=>`<tr><td>${a.nom||a.label||'—'}${a.type==='immo'?' ⟳':''}</td><td class="r green">${_n(aidMontant(a))}/mois</td></tr>`).join('')}
           <tr style="font-weight:700;border-top:1.5px solid #a0aec0">
             <td>Total aides</td><td class="r green">${_n(aidsTotal)}/mois</td>
           </tr>
@@ -4418,8 +4437,276 @@ function fireDashboardCards() {
   return `<div class="grid grid-cols-1 ${gridCols} gap-4">${classicCard}${dwzCard}${vpwCard}</div>`;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// VPW — Variable Percentage Withdrawal (calcul local)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const VPW_KEY = 'fire_vpw_params';
+let _vpwParams = null; // { age, targetAge, rendement, futureIncomes[] }
+
+function _vpwInit() {
+  if (_vpwParams) return;
+  const saved = getUiPref(VPW_KEY, null);
+  _vpwParams = saved || { age: 39, targetAge: 85, rendement: 5, futureIncomes: [] };
+}
+
+function _vpwSave() {
+  persistUiPref(VPW_KEY, _vpwParams);
+  autoSaveToFile();
+}
+
+function calculateVPW(portfolioValue, age, targetAge, r, futureIncomes = []) {
+  const n = targetAge - age;
+  if (n <= 0) return { vpwFactor: 1, annualWithdrawal: portfolioValue, monthlyWithdrawal: portfolioValue / 12, adjustedPortfolio: portfolioValue, totalFutureIncomesPV: 0 };
+
+  // PV des revenus futurs
+  const totalPV = futureIncomes.reduce((sum, inc) => {
+    const nDebut   = inc.startAge - age;
+    const nFin     = (inc.endAge || targetAge) - age;
+    const duration = nFin - nDebut;
+    if (duration <= 0 || nDebut < 0) return sum;
+    const pvAtStart = r === 0 ? inc.annualAmount * duration : inc.annualAmount * (1 - Math.pow(1 + r, -duration)) / r;
+    return sum + pvAtStart * Math.pow(1 + r, -nDebut);
+  }, 0);
+
+  const adjustedPortfolio = Math.max(0, portfolioValue - totalPV);
+  const vpwFactor = r === 0 ? 1 / n : r / (1 - Math.pow(1 + r, -n));
+  const annualWithdrawal  = adjustedPortfolio * vpwFactor;
+
+  return { vpwFactor, annualWithdrawal, monthlyWithdrawal: annualWithdrawal / 12, adjustedPortfolio, totalFutureIncomesPV: totalPV };
+}
+
+function projectVPW() {
+  _vpwInit();
+  if (!_fp) return [];
+  const { age, targetAge, rendement, futureIncomes } = _vpwParams;
+  const r = rendement / 100;
+  let portfolio = _fp.capital;
+  const rows = [];
+
+  for (let a = age; a < targetAge; a++) {
+    const n = targetAge - a;
+    const totalPV = futureIncomes.reduce((sum, inc) => {
+      if (inc.startAge <= a) return sum;
+      const nDebut   = inc.startAge - a;
+      const nFin     = (inc.endAge || targetAge) - a;
+      const duration = nFin - nDebut;
+      if (duration <= 0) return sum;
+      const pvAtStart = r === 0 ? inc.annualAmount * duration : inc.annualAmount * (1 - Math.pow(1 + r, -duration)) / r;
+      return sum + pvAtStart * Math.pow(1 + r, -nDebut);
+    }, 0);
+
+    const adjustedPortfolio = Math.max(0, portfolio - totalPV);
+    const vpwFactor = r === 0 ? 1 / n : r / (1 - Math.pow(1 + r, -n));
+    let withdrawal  = adjustedPortfolio * vpwFactor;
+    withdrawal = Math.min(withdrawal, portfolio);
+
+    const incomeThisYear = futureIncomes.reduce((sum, inc) => {
+      if (a >= inc.startAge && a < (inc.endAge || targetAge)) return sum + inc.annualAmount;
+      return sum;
+    }, 0);
+
+    rows.push({
+      age: a,
+      year: new Date().getFullYear() + (a - age),
+      portfolio:         Math.round(portfolio),
+      totalFutureIncomesPV: Math.round(totalPV),
+      adjustedPortfolio: Math.round(adjustedPortfolio),
+      vpwPct:            +(vpwFactor * 100).toFixed(2),
+      withdrawal:        Math.round(withdrawal),
+      monthlyWithdrawal: Math.round(withdrawal / 12),
+      incomeThisYear:    Math.round(incomeThisYear),
+      totalIncome:       Math.round(withdrawal + incomeThisYear),
+    });
+
+    portfolio = Math.max(0, (portfolio - withdrawal) * (1 + r));
+    if (portfolio <= 0) break;
+  }
+  return rows;
+}
+
+function vpwCurrentResult() {
+  _vpwInit();
+  if (!_fp) return null;
+  const { age, targetAge, rendement, futureIncomes } = _vpwParams;
+  return calculateVPW(_fp.capital, age, targetAge, rendement / 100, futureIncomes);
+}
+
+// ── Panneau paramètres VPW ─────────────────────────────────────────────────────
+
+function fireVpwParamsPanel() {
+  _vpwInit();
+  const vp = _vpwParams;
+  const incomeRows = (vp.futureIncomes || []).map((inc, i) => `
+    <div class="flex items-center justify-between py-1 border-b border-slate-700/50 last:border-0">
+      <div class="min-w-0">
+        <p class="text-slate-300 text-xs font-medium truncate">${esc(inc.label || '—')}</p>
+        <p class="text-slate-500 text-xs">${fmt(inc.annualAmount / 12)}/mois · ${inc.startAge}→${inc.endAge || vp.targetAge} ans</p>
+      </div>
+      <button onclick="_vpwDeleteIncome(${i})" class="text-slate-600 hover:text-red-400 text-xs ml-2 flex-shrink-0">✕</button>
+    </div>`).join('');
+
+  return `
+    <div class="border-t border-slate-700 pt-4 space-y-4">
+      <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">VPW — Paramètres</p>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="label">Âge actuel</label>
+          <input type="number" id="vpw-age" value="${vp.age}" min="20" max="100" step="1" class="input"
+            oninput="_vpwParams.age=+this.value;_vpwSave();refreshVpw()">
+        </div>
+        <div>
+          <label class="label">Âge cible</label>
+          <input type="number" id="vpw-target" value="${vp.targetAge}" min="50" max="120" step="1" class="input"
+            oninput="_vpwParams.targetAge=+this.value;_vpwSave();refreshVpw()">
+        </div>
+      </div>
+
+      <div>
+        <div class="flex justify-between items-center mb-1.5">
+          <label class="text-slate-400 text-xs font-medium">Rendement attendu</label>
+          <span id="vpw-r-lbl" class="text-purple-400 text-xs font-bold">${vp.rendement}%</span>
+        </div>
+        <input type="range" value="${vp.rendement}" min="0" max="15" step="0.5"
+          class="w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-purple-500"
+          oninput="_vpwParams.rendement=+this.value;document.getElementById('vpw-r-lbl').textContent=this.value+'%';_vpwSave();refreshVpw()">
+        <div class="flex justify-between text-slate-700 text-xs mt-0.5"><span>0%</span><span>15%</span></div>
+      </div>
+
+      <!-- Revenus futurs -->
+      <div>
+        <p class="text-slate-400 text-xs font-medium mb-2">Revenus futurs (retraite, loyers…)</p>
+        <div id="vpw-incomes-list" class="mb-2">${incomeRows || '<p class="text-slate-600 text-xs">Aucun revenu futur configuré.</p>'}</div>
+        <div class="space-y-2 bg-slate-700/30 rounded-lg p-3">
+          <input type="text" id="vpw-inc-label" placeholder="Retraite française, Loyers…" class="input text-xs" />
+          <div class="grid grid-cols-2 gap-2">
+            <input type="number" id="vpw-inc-amount" placeholder="Montant/mois (€)" min="0" step="50" class="input text-xs" />
+            <div class="grid grid-cols-2 gap-1">
+              <input type="number" id="vpw-inc-start" placeholder="Âge début" min="0" max="120" step="1" class="input text-xs" />
+              <input type="number" id="vpw-inc-end" placeholder="Âge fin" min="0" max="120" step="1" class="input text-xs" />
+            </div>
+          </div>
+          <button onclick="_vpwAddIncome()" class="btn-secondary w-full text-xs py-1.5">+ Ajouter revenu futur</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _vpwAddIncome() {
+  _vpwInit();
+  const label  = document.getElementById('vpw-inc-label')?.value.trim();
+  const amount = parseFloat(document.getElementById('vpw-inc-amount')?.value) || 0;
+  const start  = parseInt(document.getElementById('vpw-inc-start')?.value) || 0;
+  const end    = parseInt(document.getElementById('vpw-inc-end')?.value) || 0;
+  if (!label || !amount || !start) { alert('Remplis au minimum le nom, le montant et l\'âge de début.'); return; }
+  _vpwParams.futureIncomes = _vpwParams.futureIncomes || [];
+  _vpwParams.futureIncomes.push({ label, annualAmount: amount * 12, startAge: start, endAge: end || _vpwParams.targetAge });
+  _vpwSave();
+  refreshVpw();
+  // Reset champs
+  ['vpw-inc-label','vpw-inc-amount','vpw-inc-start','vpw-inc-end'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+}
+
+function _vpwDeleteIncome(idx) {
+  _vpwInit();
+  _vpwParams.futureIncomes.splice(idx, 1);
+  _vpwSave();
+  refreshVpw();
+}
+
+// ── Carte et tableau résultats VPW ─────────────────────────────────────────────
+
+function fireVpwCard() {
+  _vpwInit();
+  if (!_fp) return '';
+  const v     = vpwCurrentResult();
+  if (!v)     return '';
+  const cible = _fp.depenses || 0;
+  const retOk = cible > 0 && v.monthlyWithdrawal >= cible;
+  const rows  = projectVPW();
+  const last  = rows[rows.length - 1];
+
+  const tableRows = rows.filter((_, i) => i % 5 === 0 || i === rows.length - 1).map(r => `
+    <tr class="border-b border-slate-700/40 text-xs">
+      <td class="py-1.5 px-3 text-slate-400">${r.age} ans (${r.year})</td>
+      <td class="py-1.5 px-3 text-right text-slate-300">${fmt(r.portfolio)}</td>
+      <td class="py-1.5 px-3 text-right text-purple-400">${fmt(r.monthlyWithdrawal)}/mois</td>
+      <td class="py-1.5 px-3 text-right text-slate-500">${r.vpwPct}%</td>
+      ${_vpwParams.futureIncomes.length ? `<td class="py-1.5 px-3 text-right text-emerald-400">${r.incomeThisYear > 0 ? fmt(r.incomeThisYear / 12) + '/mois' : '—'}</td>` : ''}
+    </tr>`).join('');
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 border border-purple-500/20">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-xl leading-none">📊</span>
+        <div>
+          <p class="text-white text-sm font-semibold">VPW — Variable Percentage Withdrawal</p>
+          <p class="text-slate-500 text-xs">Épuisement du capital à ${_vpwParams.targetAge} ans · rendement ${_vpwParams.rendement}%</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait mensuel actuel</p>
+          <p class="${retOk ? 'text-emerald-400' : 'text-purple-400'} text-xl font-bold">${fmt(Math.round(v.monthlyWithdrawal))}<span class="text-slate-500 text-xs font-normal">/mois</span></p>
+          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5">${retOk ? '✓ Objectif atteint' : fmt(Math.round(cible - v.monthlyWithdrawal)) + ' sous objectif'}</p>` : ''}
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Facteur VPW</p>
+          <p class="text-slate-300 text-xl font-bold">${(v.vpwFactor * 100).toFixed(2)}%</p>
+          <p class="text-slate-600 text-xs mt-0.5">${_vpwParams.targetAge - _vpwParams.age} ans restants</p>
+        </div>
+        ${v.totalFutureIncomesPV > 0 ? `
+        <div>
+          <p class="text-slate-500 text-xs mb-1">PV revenus futurs</p>
+          <p class="text-emerald-400 text-xl font-bold">${fmt(Math.round(v.totalFutureIncomesPV))}</p>
+          <p class="text-slate-600 text-xs mt-0.5">Soustrait du portfolio</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Portfolio ajusté</p>
+          <p class="text-slate-300 text-xl font-bold">${fmt(Math.round(v.adjustedPortfolio))}</p>
+        </div>` : `
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait annuel</p>
+          <p class="text-slate-300 text-xl font-bold">${fmt(Math.round(v.annualWithdrawal))}</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Portfolio final estimé</p>
+          <p class="text-slate-300 text-xl font-bold">${last ? fmt(last.portfolio) : '—'}</p>
+          <p class="text-slate-600 text-xs mt-0.5">à ${_vpwParams.targetAge} ans</p>
+        </div>`}
+      </div>
+
+      <div class="rounded-lg overflow-hidden border border-slate-700/50">
+        <div class="max-h-56 overflow-y-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-slate-700/50 sticky top-0">
+              <tr>
+                <th class="py-2 px-3 text-left text-slate-400 font-medium">Âge / Année</th>
+                <th class="py-2 px-3 text-right text-slate-400 font-medium">Portfolio</th>
+                <th class="py-2 px-3 text-right text-slate-400 font-medium">Retrait VPW</th>
+                <th class="py-2 px-3 text-right text-slate-400 font-medium">Facteur</th>
+                ${_vpwParams.futureIncomes.length ? '<th class="py-2 px-3 text-right text-slate-400 font-medium">Revenus</th>' : ''}
+              </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function refreshVpw() {
+  const panelEl = document.getElementById('vpw-params-panel');
+  if (panelEl) panelEl.innerHTML = fireVpwParamsPanel();
+  const resultEl = document.getElementById('fire-vpw-result');
+  if (resultEl) resultEl.innerHTML = fireVpwCard();
+}
+
 function renderFire(app) {
   _fpInit();
+  _vpwInit();
   _vpwSim = null; _vpwSimCapital = null; // Reset pour forcer un nouveau calcul
   _scheduleVpwSim();
   app.innerHTML = `
@@ -4433,8 +4720,11 @@ function renderFire(app) {
         </div>
       </div>
       <div class="flex gap-6 items-start flex-col lg:flex-row">
-        <div class="lg:w-72 w-full shrink-0">
+        <div class="lg:w-72 w-full shrink-0 space-y-4">
           ${fireParamsPanel()}
+          <div id="vpw-params-panel" class="bg-slate-800 rounded-xl p-5">
+            ${fireVpwParamsPanel()}
+          </div>
         </div>
         <div class="flex-1 min-w-0 w-full space-y-4 overflow-x-hidden" id="fire-results">
           ${fireResults()}
@@ -4699,71 +4989,6 @@ function _vpwSimCard() {
     </div>`;
 }
 
-// ─── CARTE VPW (résultats pré-calculés depuis Google Sheets) ──────────────────
-// Affiche les résultats de l'onglet "VPW Retirement" sans recalculer côté JS.
-// Retourne '' si les données ne sont pas disponibles.
-
-function fireVpwCard() {
-  const v = STATE.vpw;
-  if (!v || v.monthlyWithdrawal == null) return '';
-
-  const cible    = _fp ? _fp.depenses : 0;
-  const retOk    = cible > 0 && v.monthlyWithdrawal >= cible;
-  const hasStress = v.monthlyAfterLoss != null && v.monthlyAfterLoss > 0;
-
-  return `
-    <div class="bg-slate-800 rounded-xl p-5 border border-blue-500/20">
-
-      <div class="flex items-start justify-between gap-2 mb-4">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="text-xl leading-none flex-shrink-0">📊</span>
-          <div class="min-w-0">
-            <p class="text-white text-sm font-semibold">Variable Percentage Withdrawal</p>
-            <p class="text-slate-500 text-xs">Calculé dans Google Sheets · Taux ajusté chaque année</p>
-          </div>
-        </div>
-        ${v.vpwPct != null
-          ? `<span class="bg-blue-500/15 text-blue-400 text-xs font-bold px-2 py-1 rounded-full flex-shrink-0">${v.vpwPct}%</span>`
-          : ''}
-      </div>
-
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-
-        <div class="min-w-0 overflow-hidden">
-          <p class="text-slate-500 text-xs mb-1">Retrait mensuel</p>
-          <p class="${retOk ? 'text-emerald-400' : 'text-blue-400'} text-lg sm:text-xl font-bold truncate">
-            ${fmt(v.monthlyWithdrawal)}<span class="text-slate-500 text-xs font-normal">/mois</span>
-          </p>
-          ${cible > 0 ? `<p class="text-slate-600 text-xs mt-0.5 truncate">${retOk ? '✓ Objectif atteint' : `sous objectif`}</p>` : ''}
-        </div>
-
-        <div class="min-w-0 overflow-hidden">
-          <p class="text-slate-500 text-xs mb-1">Retrait annuel</p>
-          <p class="text-slate-300 text-lg sm:text-xl font-bold truncate">${fmt(v.annualWithdrawal ?? v.monthlyWithdrawal * 12)}</p>
-        </div>
-
-        ${hasStress ? `
-        <div>
-          <p class="text-slate-500 text-xs mb-1">Après correction marché</p>
-          <p class="text-amber-400 text-xl font-bold">
-            ${fmt(v.monthlyAfterLoss)}<span class="text-slate-500 text-sm font-normal">/mois</span>
-          </p>
-          ${v.monthlyReduction != null
-            ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.monthlyReduction)}/mois</p>`
-            : ''}
-        </div>
-
-        <div>
-          <p class="text-slate-500 text-xs mb-1">Portfolio après perte</p>
-          <p class="text-slate-300 font-semibold">${fmt(v.balanceAfterLoss)}</p>
-          ${v.portfolioLoss != null
-            ? `<p class="text-red-400 text-xs mt-0.5">${fmt(v.portfolioLoss)} simulé</p>`
-            : ''}
-        </div>` : '<div></div><div></div>'}
-
-      </div>
-    </div>`;
-}
 
 function runFireSimulation() {
   const { capital, rendement, inflation, duree, versement, depenses, swr,
@@ -4862,8 +5087,7 @@ function fireResults() {
 
   return `
     ${fireStatsCards(data, fireYear)}
-    ${fireVpwCard()}
-    <div id="fire-vpw-sim">${_vpwSimCard()}</div>
+    <div id="fire-vpw-result">${fireVpwCard()}</div>
     <div class="bg-slate-800 rounded-xl p-4">
       <p class="text-slate-400 text-xs mb-1">Projection du portfolio</p>
       <p class="text-slate-600 text-xs mb-3">bleu = valeur · pointillés = capital investi${fireYear ? ' · orange = année FIRE' : ''}</p>
@@ -5176,8 +5400,16 @@ function expTypeAvg(year, type) {
   return trackedMonths > 0 ? total / trackedMonths : 0;
 }
 
+function aidMontant(a) {
+  if (a.type === 'immo' && a.bien_id) {
+    const rr = immoRentabiliteReelle(a.bien_id, new Date().getFullYear());
+    return rr ? Math.round(rr.cfProjete / 12) : 0;
+  }
+  return Number(a.montant) || 0;
+}
+
 function expTotalAids() {
-  return STATE.expense_aids.reduce((s, a) => s + Number(a.montant), 0);
+  return STATE.expense_aids.reduce((s, a) => s + aidMontant(a), 0);
 }
 
 async function moveCat(catId, direction) {
@@ -5873,6 +6105,7 @@ function modalExpenseAid() {
           </div>
           <input type="hidden" id="exp-aid-id" value="" />
         </div>
+        <div id="exp-aid-immo-section"></div>
         <div class="flex gap-2 mt-5">
           <button onclick="saveExpenseAid()" class="btn-primary flex-1">Enregistrer</button>
           <button onclick="closeModal('expense-aid')" class="btn-secondary flex-1">Annuler</button>
@@ -5899,21 +6132,74 @@ function openExpenseAidModal(editId) {
     const total = expTotalAids();
     listEl.innerHTML = STATE.expense_aids.length ? `
       <h4 class="text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">Aides enregistrées</h4>
-      ${STATE.expense_aids.map(a => `
-        <div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-700 transition cursor-pointer"
-          onclick="openExpenseAidModal('${a.id}')">
-          <span class="text-sm text-slate-300">${esc(a.nom)}</span>
+      ${STATE.expense_aids.map(a => {
+        const montantDyn = aidMontant(a);
+        const isImmo = a.type === 'immo';
+        return `
+        <div class="flex items-center justify-between py-1.5 px-2 rounded ${isImmo ? '' : 'hover:bg-slate-700 cursor-pointer'} transition"
+          ${isImmo ? '' : `onclick="openExpenseAidModal('${a.id}')"`}>
+          <span class="text-sm text-slate-300 flex items-center gap-1.5">
+            ${isImmo ? '<span class="text-xs text-amber-400/70" title="Valeur calculée dynamiquement depuis le CF immo projeté">⟳</span>' : ''}
+            ${esc(a.nom)}
+          </span>
           <span class="flex items-center gap-3">
-            <span class="text-blue-400 text-sm font-medium">${fmt(Number(a.montant))}/mois</span>
+            <span class="text-blue-400 text-sm font-medium">${montantDyn >= 0 ? '+' : ''}${fmt(montantDyn)}/mois</span>
             <button onclick="event.stopPropagation();confirmDeleteExpenseAid('${a.id}')" class="text-slate-500 hover:text-red-400 text-xs">✕</button>
           </span>
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
       <div class="mt-2 pt-2 border-t border-slate-700 flex justify-between text-xs">
         <span class="text-slate-500">Total aides</span>
         <span class="text-blue-400 font-semibold">${fmt(total)}/mois</span>
       </div>` : '<p class="text-slate-600 text-xs">Aucune aide enregistrée.</p>';
   }
+  // Section import CF immo
+  const immoEl = document.getElementById('exp-aid-immo-section');
+  if (immoEl && STATE.biens_immo.length) {
+    const year = new Date().getFullYear();
+    const biens = STATE.biens_immo.map(b => {
+      const rr = immoRentabiliteReelle(b.id, year);
+      return { b, cfMois: rr ? Math.round(rr.cfProjete / 12) : 0 };
+    }).filter(x => x.cfMois !== 0);
+
+    if (biens.length) {
+      immoEl.innerHTML = `
+        <div class="mt-4 pt-4 border-t border-slate-700">
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Importer depuis l'immobilier</p>
+          <div class="space-y-1">
+            ${biens.map(({ b, cfMois }) => {
+              const alreadyLinked = STATE.expense_aids.some(a => a.type === 'immo' && a.bien_id === b.id);
+              return `
+              <button type="button"
+                onclick="prefillAidFromImmo('${b.id}', '${esc(b.nom)}')"
+                ${alreadyLinked ? 'disabled' : ''}
+                class="w-full flex items-center justify-between px-3 py-2 rounded-lg transition text-sm ${alreadyLinked ? 'bg-slate-800/30 opacity-50 cursor-not-allowed' : 'bg-slate-700/50 hover:bg-slate-700 cursor-pointer'}">
+                <span class="text-slate-300">${esc(b.nom)}</span>
+                <span class="font-medium ${cfMois >= 0 ? 'text-emerald-400' : 'text-red-400'}">
+                  ${alreadyLinked ? '✓ lié · ' : ''}${cfMois >= 0 ? '+' : ''}${fmt(cfMois)}/mois
+                </span>
+              </button>`;
+            }).join('')}
+          </div>
+        </div>`;
+    } else {
+      immoEl.innerHTML = '';
+    }
+  } else if (immoEl) {
+    immoEl.innerHTML = '';
+  }
+
   document.getElementById('modal-expense-aid').classList.remove('hidden');
+}
+
+function prefillAidFromImmo(bienId, nom) {
+  const existing = STATE.expense_aids.find(a => a.type === 'immo' && a.bien_id === bienId);
+  if (existing) { alert(`"${nom}" est déjà lié aux aides.`); return; }
+  const rr = immoRentabiliteReelle(bienId, new Date().getFullYear());
+  const cfMois = rr ? Math.round(rr.cfProjete / 12) : 0;
+  STATE.expense_aids.push({ id: newId('aid'), type: 'immo', bien_id: bienId, nom: `CF immo — ${nom}`, montant: cfMois });
+  autoSaveToFile();
+  openExpenseAidModal(); // raffraîchit la liste
 }
 
 async function saveExpenseAid() {
