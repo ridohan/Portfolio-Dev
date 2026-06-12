@@ -4678,7 +4678,7 @@ function fireVpwCard() {
       <div class="rounded-lg overflow-hidden border border-slate-700/50">
         <div class="max-h-56 overflow-y-auto scrollbar-dark">
           <table class="w-full text-xs">
-            <thead class="bg-slate-700/50 sticky top-0">
+            <thead class="bg-slate-900 sticky top-0 z-10">
               <tr>
                 <th class="py-2 px-3 text-left text-slate-400 font-medium">Âge / Année</th>
                 <th class="py-2 px-3 text-right text-slate-400 font-medium">Portfolio</th>
@@ -5057,65 +5057,171 @@ function runFireSimulation() {
   return { data, fireYear };
 }
 
-function fireDwzResults(data, fireYear) {
-  if (data.length < 2) return '';
-  const last = data[data.length - 1];
-  const fireData = fireYear ? data.find(d => d.year === fireYear) : null;
-  const retMens = fireData ? Math.round(fireData.withdrawal / 12) : 0;
-  const curYear = new Date().getFullYear();
-
-  const rows = data.map(d => {
-    const rowCls = d.isFireYear
-      ? 'bg-orange-500/10 border-t border-orange-500/30'
-      : d.inFire ? 'bg-slate-800/20 border-t border-slate-700' : 'border-t border-slate-700';
-    return `
-      <tr class="${rowCls} hover:bg-slate-750 transition-colors">
-        <td class="py-2.5 px-3 text-sm ${d.isFireYear ? 'text-orange-400 font-bold' : 'text-slate-300'}">
-          An ${d.year}${d.isFireYear ? ' 💀' : ''}
-        </td>
-        <td class="py-2.5 px-3 text-right text-sm text-slate-400 hidden sm:table-cell">${fmt(d.yearStart)}</td>
-        <td class="py-2.5 px-3 text-right text-sm text-emerald-400 hidden sm:table-cell">+${fmt(d.gain)}</td>
-        <td class="py-2.5 px-3 text-right text-sm ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'} hidden md:table-cell">
-          ${d.contribution > 0 ? '+' + fmt(d.contribution) : '—'}
-        </td>
-        <td class="py-2.5 px-3 text-right text-sm ${d.withdrawal > 0 ? 'text-orange-400 font-semibold' : 'text-slate-700'} hidden md:table-cell">
-          ${d.withdrawal > 0 ? fmt(d.withdrawal / 12) + '/m' : '—'}
-        </td>
-        <td class="py-2.5 px-3 text-right text-sm font-semibold ${d.ruined ? 'text-red-400' : 'text-white'}">
-          ${d.ruined ? '⚠ 0 €' : fmt(d.portfolio)}
-        </td>
-      </tr>`;
-  }).join('');
+function fireClassiqueCard(data, fireYear) {
+  if (!data.length) return '';
+  const last      = data[data.length - 1];
+  const curYear   = new Date().getFullYear();
+  const fireData  = fireYear ? data.find(d => d.year === fireYear) : null;
+  const pfAtFire  = fireData ? fireData.yearStart : _fp.capital;
+  const retAnnuel = Math.round(pfAtFire * _fp.swr / 100);
+  const retMens   = Math.round(retAnnuel / 12);
+  const retOk     = retMens >= _fp.depenses;
+  const totalWithdrawn = data.reduce((s, d) => s + d.withdrawal, 0);
+  const totalContrib   = data.reduce((s, d) => s + d.contribution, 0);
+  const totalGains     = last.portfolio + totalWithdrawn - _fp.capital - totalContrib;
 
   return `
-    <div class="bg-slate-800 rounded-xl p-4">
-      <div class="flex items-center gap-2 mb-1">
-        <span class="text-xl leading-none">💀</span>
-        <p class="text-white font-semibold text-sm">Die with Zero</p>
-        <span class="text-slate-500 text-xs ml-auto">${_fp.dureeFire} ans · ${fireYear ? 'An ' + fireYear + ' (' + (curYear + fireYear) + ')' : 'Non atteint'}</span>
+    <div class="bg-slate-800 rounded-xl p-5 border border-amber-500/20">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-xl leading-none">🔥</span>
+        <div>
+          <p class="text-white text-sm font-semibold">FIRE Classique</p>
+          <p class="text-slate-500 text-xs">SWR ${_fp.swr}% · ${_fp.dureeFire} ans · ${fireYear ? 'FIRE An ' + fireYear + ' (' + (curYear + fireYear) + ')' : 'FIRE non atteint'}</p>
+        </div>
       </div>
-      ${fireYear ? `<p class="text-orange-400 text-sm mb-3">Retrait à l'année FIRE : <strong>${fmt(retMens)}/mois</strong> — Portfolio final : <strong>${fmt(last.portfolio)}</strong></p>` : ''}
-      <p class="text-slate-600 text-xs mb-3">orange = valeur · pointillés = capital investi · barre orange = année FIRE</p>
-      <div class="overflow-x-auto">${fireDwzSvgChart(data, fireYear)}</div>
-    </div>
-    <div class="rounded-xl overflow-hidden border border-slate-700">
-      <div class="bg-slate-800 px-4 py-2.5 border-b border-slate-700">
-        <p class="text-orange-400 text-xs font-semibold uppercase tracking-wider">💀 Tableau Die with Zero</p>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Année FIRE</p>
+          ${fireYear
+            ? `<p class="text-amber-400 text-xl font-bold">An ${fireYear}</p><p class="text-slate-600 text-xs mt-0.5">en ${curYear + fireYear}</p>`
+            : `<p class="text-slate-400 text-sm font-semibold mt-1">Non atteint</p>`}
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait FIRE</p>
+          <p class="${retOk ? 'text-emerald-400' : 'text-white'} text-xl font-bold">${fmt(retMens)}<span class="text-slate-500 text-xs font-normal">/mois</span></p>
+          <p class="text-slate-600 text-xs mt-0.5">${fmt(retAnnuel)}/an</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Portfolio final</p>
+          <p class="${last.ruined ? 'text-red-400' : 'text-white'} text-xl font-bold">${last.ruined ? '⚠ Ruiné' : fmt(last.portfolio)}</p>
+          <p class="text-slate-600 text-xs mt-0.5">An ${last.year}</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Gains totaux</p>
+          <p class="${totalGains >= 0 ? 'text-emerald-400' : 'text-red-400'} text-xl font-bold">${totalGains >= 0 ? '+' : ''}${fmt(totalGains)}</p>
+          <p class="text-slate-600 text-xs mt-0.5">Intérêts composés</p>
+        </div>
       </div>
-      <div class="max-h-80 overflow-y-auto overflow-x-auto scrollbar-dark">
-        <div class="bg-slate-800">
-          <table class="w-full text-sm" style="min-width:480px">
-            <thead class="sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10">
+
+      <div class="mb-4 overflow-x-auto">${fireSvgChart(data, fireYear)}</div>
+
+      <div class="rounded-lg overflow-hidden border border-slate-700/50">
+        <div class="max-h-80 overflow-y-auto overflow-x-auto scrollbar-dark">
+          <table class="w-full text-xs" style="min-width:520px">
+            <thead class="bg-slate-900 sticky top-0 z-10">
               <tr class="text-slate-400 text-left">
-                <th class="py-3 px-3 font-medium">Année</th>
-                <th class="py-3 px-3 text-right font-medium hidden sm:table-cell">Début</th>
-                <th class="py-3 px-3 text-right font-medium hidden sm:table-cell">Rendement</th>
-                <th class="py-3 px-3 text-right font-medium hidden md:table-cell">Versements</th>
-                <th class="py-3 px-3 text-right font-medium hidden md:table-cell">Retrait/mois</th>
-                <th class="py-3 px-3 text-right font-medium">Fin</th>
+                <th class="py-2 px-3 font-medium">Année</th>
+                <th class="py-2 px-3 text-right font-medium">Début</th>
+                <th class="py-2 px-3 text-right font-medium">Gains rendement</th>
+                <th class="py-2 px-3 text-right font-medium">Versements</th>
+                <th class="py-2 px-3 text-right font-medium">Retraits</th>
+                <th class="py-2 px-3 text-right font-medium">Retrait/mois</th>
+                <th class="py-2 px-3 text-right font-medium">Fin</th>
               </tr>
             </thead>
-            <tbody>${rows}</tbody>
+            <tbody>
+              ${data.map(d => {
+                const rowCls = d.isFireYear
+                  ? 'bg-amber-500/10 border-t border-amber-500/30'
+                  : d.inFire ? 'bg-slate-800/20 border-t border-slate-700' : 'border-t border-slate-700/50';
+                const retOkRow = d.retMensuel >= _fp.depenses;
+                const retClose = !retOkRow && _fp.depenses > 0 && d.retMensuel >= _fp.depenses * 0.8;
+                const retCls   = retOkRow ? 'text-emerald-400 font-semibold' : retClose ? 'text-amber-400' : 'text-slate-400';
+                return `<tr class="${rowCls} hover:bg-slate-700/30 transition-colors">
+                  <td class="py-2 px-3 ${d.isFireYear ? 'text-amber-400 font-bold' : 'text-slate-300'}">An ${d.year}${d.isFireYear ? ' 🔥' : ''}</td>
+                  <td class="py-2 px-3 text-right text-slate-400">${fmt(d.yearStart)}</td>
+                  <td class="py-2 px-3 text-right text-emerald-400">+${fmt(d.gain)}</td>
+                  <td class="py-2 px-3 text-right ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'}">${d.contribution > 0 ? '+' + fmt(d.contribution) : '—'}</td>
+                  <td class="py-2 px-3 text-right ${d.withdrawal > 0 ? 'text-red-400' : 'text-slate-700'}">${d.withdrawal > 0 ? '−' + fmt(d.withdrawal) : '—'}</td>
+                  <td class="py-2 px-3 text-right ${retCls}">${fmt(d.retMensuel)}/m</td>
+                  <td class="py-2 px-3 text-right font-semibold ${d.ruined ? 'text-red-400' : 'text-white'}">${d.ruined ? '⚠ 0 €' : fmt(d.portfolio)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+}
+
+function fireDwzResults(data, fireYear) {
+  if (data.length < 2) return '';
+  const last     = data[data.length - 1];
+  const curYear  = new Date().getFullYear();
+  const fireData = fireYear ? data.find(d => d.year === fireYear) : null;
+  const retMens  = fireData ? Math.round(fireData.withdrawal / 12) : 0;
+  const totalWithdrawn = data.reduce((s, d) => s + d.withdrawal, 0);
+  const totalContrib   = data.reduce((s, d) => s + d.contribution, 0);
+  const totalGains     = last.portfolio + totalWithdrawn - _fp.capital - totalContrib;
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-5 border border-orange-500/20">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-xl leading-none">💀</span>
+        <div>
+          <p class="text-white text-sm font-semibold">Die with Zero</p>
+          <p class="text-slate-500 text-xs">${_fp.dureeFire} ans · ${fireYear ? 'DWZ An ' + fireYear + ' (' + (curYear + fireYear) + ')' : 'Non atteint'}</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Année DWZ</p>
+          ${fireYear
+            ? `<p class="text-orange-400 text-xl font-bold">An ${fireYear}</p><p class="text-slate-600 text-xs mt-0.5">en ${curYear + fireYear}</p>`
+            : `<p class="text-slate-400 text-sm font-semibold mt-1">Non atteint</p>`}
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Retrait DWZ</p>
+          <p class="text-orange-400 text-xl font-bold">${fmt(retMens)}<span class="text-slate-500 text-xs font-normal">/mois</span></p>
+          <p class="text-slate-600 text-xs mt-0.5">${fmt(retMens * 12)}/an</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Portfolio final</p>
+          <p class="${last.ruined ? 'text-red-400' : 'text-white'} text-xl font-bold">${last.ruined ? '⚠ Ruiné' : fmt(last.portfolio)}</p>
+          <p class="text-slate-600 text-xs mt-0.5">An ${last.year}</p>
+        </div>
+        <div>
+          <p class="text-slate-500 text-xs mb-1">Gains totaux</p>
+          <p class="${totalGains >= 0 ? 'text-emerald-400' : 'text-red-400'} text-xl font-bold">${totalGains >= 0 ? '+' : ''}${fmt(totalGains)}</p>
+          <p class="text-slate-600 text-xs mt-0.5">Intérêts composés</p>
+        </div>
+      </div>
+
+      <div class="mb-4 overflow-x-auto">${fireDwzSvgChart(data, fireYear)}</div>
+
+      <div class="rounded-lg overflow-hidden border border-slate-700/50">
+        <div class="max-h-80 overflow-y-auto overflow-x-auto scrollbar-dark">
+          <table class="w-full text-xs" style="min-width:520px">
+            <thead class="bg-slate-900 sticky top-0 z-10">
+              <tr class="text-slate-400 text-left">
+                <th class="py-2 px-3 font-medium">Année</th>
+                <th class="py-2 px-3 text-right font-medium">Début</th>
+                <th class="py-2 px-3 text-right font-medium">Gains rendement</th>
+                <th class="py-2 px-3 text-right font-medium">Versements</th>
+                <th class="py-2 px-3 text-right font-medium">Retraits</th>
+                <th class="py-2 px-3 text-right font-medium">Retrait/mois</th>
+                <th class="py-2 px-3 text-right font-medium">Fin</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(d => {
+                const rowCls = d.isFireYear
+                  ? 'bg-orange-500/10 border-t border-orange-500/30'
+                  : d.inFire ? 'bg-slate-800/20 border-t border-slate-700' : 'border-t border-slate-700/50';
+                const retMensRow = d.withdrawal > 0 ? Math.round(d.withdrawal / 12) : 0;
+                return `<tr class="${rowCls} hover:bg-slate-700/30 transition-colors">
+                  <td class="py-2 px-3 ${d.isFireYear ? 'text-orange-400 font-bold' : 'text-slate-300'}">An ${d.year}${d.isFireYear ? ' 💀' : ''}</td>
+                  <td class="py-2 px-3 text-right text-slate-400">${fmt(d.yearStart)}</td>
+                  <td class="py-2 px-3 text-right text-emerald-400">+${fmt(d.gain)}</td>
+                  <td class="py-2 px-3 text-right ${d.contribution > 0 ? 'text-blue-400' : 'text-slate-700'}">${d.contribution > 0 ? '+' + fmt(d.contribution) : '—'}</td>
+                  <td class="py-2 px-3 text-right ${d.withdrawal > 0 ? 'text-orange-400 font-semibold' : 'text-slate-700'}">${d.withdrawal > 0 ? '−' + fmt(d.withdrawal) : '—'}</td>
+                  <td class="py-2 px-3 text-right ${d.withdrawal > 0 ? 'text-orange-300' : 'text-slate-700'}">${retMensRow > 0 ? fmt(retMensRow) + '/m' : '—'}</td>
+                  <td class="py-2 px-3 text-right font-semibold ${d.ruined ? 'text-red-400' : 'text-white'}">${d.ruined ? '⚠ 0 €' : fmt(d.portfolio)}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
           </table>
         </div>
       </div>
@@ -5225,26 +5331,8 @@ function fireResults() {
   if (!cData.length) return `<p class="text-slate-500 text-center py-12">Aucune donnée.</p>`;
 
   return `
-    ${fireStatsCards(cData, cFireYear)}
     <div id="fire-vpw-result">${fireVpwCard()}</div>
-
-    <div class="bg-slate-800 rounded-xl p-4">
-      <div class="flex items-center gap-2 mb-1">
-        <span class="text-base leading-none">🔥</span>
-        <p class="text-white font-semibold text-sm">FIRE Classique — Projection du portfolio</p>
-      </div>
-      <p class="text-slate-600 text-xs mb-3">bleu = valeur · pointillés = capital investi${cFireYear ? ' · orange = année FIRE' : ''}</p>
-      <div class="overflow-x-auto">${fireSvgChart(cData, cFireYear)}</div>
-    </div>
-    <div class="rounded-xl overflow-hidden border border-slate-700">
-      <div class="bg-slate-800 px-4 py-2.5 border-b border-slate-700">
-        <p class="text-amber-400 text-xs font-semibold uppercase tracking-wider">🔥 Tableau FIRE Classique</p>
-      </div>
-      <div class="max-h-80 overflow-y-auto overflow-x-auto scrollbar-dark">
-        ${fireTable(cData, cFireYear)}
-      </div>
-    </div>
-
+    ${fireClassiqueCard(cData, cFireYear)}
     ${fireDwzResults(dData, dFireYear)}`;
 }
 
