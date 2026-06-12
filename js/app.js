@@ -845,46 +845,192 @@ function _pdfPortfolioExpenses(now) {
 }
 
 function _pdfPortfolioFire(now) {
-  const sims = loadProjections();
-  if (!sims.length) return '';
+  _fpInit();
+  _vpwInit();
+  const curYear = now.getFullYear();
 
-  const { total, totalCharges } = globalStats();
-  const pv = Math.max(0, total - totalCharges);
+  // ── Simulations FIRE ────────────────────────────────────────────────────────
+  const savedDwz = _fp.dwzMode;
+  _fp.dwzMode = false;
+  const { data: cData, fireYear: cFireYear } = runFireSimulation();
+  _fp.dwzMode = true;
+  const { data: dData, fireYear: dFireYear } = runFireSimulation();
+  _fp.dwzMode = savedDwz;
 
-  const rows = sims.map(sim => {
-    const { fv, gain, t } = projCalc(sim);
-    const gainPct  = pv > 0 ? ((gain / pv) * 100).toFixed(1) : '0.0';
-    const pmtLine  = sim.pmt > 0 ? `+${_n(sim.pmt)}/mois` : '—';
-    const yearsLeft = Number(sim.annee) - now.getFullYear();
-    const yLabel    = yearsLeft > 0 ? `dans ${yearsLeft} an${yearsLeft > 1 ? 's' : ''}` : 'cette annee';
-    return `<tr>
-      <td><strong>${esc(sim.nom)}</strong></td>
-      <td class="r">${sim.annee} (${yLabel})</td>
-      <td class="r">${sim.rate}%/an</td>
-      <td class="r">${pmtLine}</td>
-      <td class="r"><strong>${_n(fv)}</strong></td>
-      <td class="r ${gain >= 0 ? 'green' : 'red'}">${gain >= 0 ? '+' : ''}${_n(gain)} (${gain >= 0 ? '+' : ''}${gainPct}%)</td>
+  const cFireData = cFireYear ? cData.find(d => d.year === cFireYear) : null;
+  const dFireData = dFireYear ? dData.find(d => d.year === dFireYear) : null;
+  const cLast = cData[cData.length - 1];
+  const dLast = dData[dData.length - 1];
+
+  const cRetAnnuel  = cFireData ? Math.round(cFireData.yearStart * _fp.swr / 100) : 0;
+  const cRetMensuel = Math.round(cRetAnnuel / 12);
+  const dRetMensuel = dFireData ? Math.round(dFireData.withdrawal / 12) : 0;
+
+  const fireRows = cData.map(d => {
+    const bg = d.isFireYear ? 'background:#fef3c7' : d.inFire ? 'background:#f8fafc' : '';
+    return `<tr style="${bg}">
+      <td>${d.age} ans${d.isFireYear ? ' 🔥' : ''}</td>
+      <td class="r">${_n(d.yearStart)}</td>
+      <td class="r green">+${_n(d.gain)}</td>
+      <td class="r">${d.contribution > 0 ? '+' + _n(d.contribution) : '—'}</td>
+      <td class="r">${d.withdrawal > 0 ? '−' + _n(d.withdrawal) : '—'}</td>
+      <td class="r">${_n(d.retMensuel)}/m</td>
+      <td class="r"><strong>${d.ruined ? '⚠ 0' : _n(d.portfolio)}</strong></td>
     </tr>`;
   }).join('');
 
-  return `<div class="section pb">
-    <h2>Simulations de projection</h2>
-    <div class="card" style="margin-bottom:10pt;display:inline-block;padding:6pt 12pt">
-      <div class="lbl">Capital de depart</div>
-      <div class="val">${_n(Math.round(pv))}</div>
+  const dwzRows = dData.map(d => {
+    const bg = d.isFireYear ? 'background:#ffedd5' : d.inFire ? 'background:#f8fafc' : '';
+    const retM = d.withdrawal > 0 ? Math.round(d.withdrawal / 12) : 0;
+    return `<tr style="${bg}">
+      <td>${d.age} ans${d.isFireYear ? ' 💀' : ''}</td>
+      <td class="r">${_n(d.yearStart)}</td>
+      <td class="r green">+${_n(d.gain)}</td>
+      <td class="r">${d.contribution > 0 ? '+' + _n(d.contribution) : '—'}</td>
+      <td class="r">${d.withdrawal > 0 ? '−' + _n(d.withdrawal) : '—'}</td>
+      <td class="r">${retM > 0 ? _n(retM) + '/m' : '—'}</td>
+      <td class="r"><strong>${d.ruined ? '⚠ 0' : _n(d.portfolio)}</strong></td>
+    </tr>`;
+  }).join('');
+
+  // ── VPW ─────────────────────────────────────────────────────────────────────
+  const vpwResult = vpwCurrentResult();
+  const vpwRows   = projectVPW();
+  const vpwSection = vpwResult && vpwResult.monthlyWithdrawal > 0 ? `
+    <div class="section pb">
+      <h2>Simulation VPW (Variable Percentage Withdrawal)</h2>
+      <div class="grid3" style="margin-bottom:10pt">
+        <div class="card">
+          <div class="lbl">Age actuel → cible</div>
+          <div class="val">${_fp.age} → ${_vpwParams.targetAge} ans</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Retrait mensuel actuel</div>
+          <div class="val">${_n(Math.round(vpwResult.monthlyWithdrawal))}/mois</div>
+          <div class="sub">${_n(Math.round(vpwResult.annualWithdrawal))}/an · facteur ${(vpwResult.vpwFactor * 100).toFixed(2)}%</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Rendement attendu</div>
+          <div class="val">${_vpwParams.rendement}%</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Age / Annee</th>
+          <th class="r">Portfolio</th>
+          <th class="r">Retrait VPW</th>
+          <th class="r">Facteur</th>
+        </tr></thead>
+        <tbody>${vpwRows.map(r => `<tr>
+          <td>${r.age} ans (${r.year})</td>
+          <td class="r">${_n(r.portfolio)}</td>
+          <td class="r">${_n(Math.round(r.monthlyWithdrawal))}/mois</td>
+          <td class="r">${r.vpwPct.toFixed(2)}%</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>` : '';
+
+  // ── Simulations de projection ────────────────────────────────────────────────
+  const sims = loadProjections();
+  const { total, totalCharges } = globalStats();
+  const pv = Math.max(0, total - totalCharges);
+  const projSection = sims.length ? `
+    <div class="section pb">
+      <h2>Simulations de projection</h2>
+      <div class="card" style="margin-bottom:10pt;display:inline-block;padding:6pt 12pt">
+        <div class="lbl">Capital de depart</div>
+        <div class="val">${_n(Math.round(pv))}</div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Simulation</th>
+          <th class="r">Horizon</th>
+          <th class="r">Rendement</th>
+          <th class="r">Versements</th>
+          <th class="r">Valeur projetee</th>
+          <th class="r">Gain vs. aujourd'hui</th>
+        </tr></thead>
+        <tbody>${sims.map(sim => {
+          const { fv, gain } = projCalc(sim);
+          const gainPct  = pv > 0 ? ((gain / pv) * 100).toFixed(1) : '0.0';
+          const pmtLine  = sim.pmt > 0 ? `+${_n(sim.pmt)}/mois` : '—';
+          const yearsLeft = Number(sim.annee) - curYear;
+          const yLabel    = yearsLeft > 0 ? `dans ${yearsLeft} an${yearsLeft > 1 ? 's' : ''}` : 'cette annee';
+          return `<tr>
+            <td><strong>${esc(sim.nom)}</strong></td>
+            <td class="r">${sim.annee} (${yLabel})</td>
+            <td class="r">${sim.rate}%/an</td>
+            <td class="r">${pmtLine}</td>
+            <td class="r"><strong>${_n(fv)}</strong></td>
+            <td class="r ${gain >= 0 ? 'green' : 'red'}">${gain >= 0 ? '+' : ''}${_n(gain)} (${gain >= 0 ? '+' : ''}${gainPct}%)</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>` : '';
+
+  if (!cData.length && !sims.length) return '';
+
+  return `
+    <div class="section pb">
+      <h2>Simulation FIRE Classique</h2>
+      <div class="grid3" style="margin-bottom:10pt">
+        <div class="card">
+          <div class="lbl">Age FIRE</div>
+          <div class="val ${cFireData ? 'amber' : ''}">${cFireData ? cFireData.age + ' ans (' + (curYear + cFireYear) + ')' : 'Non atteint'}</div>
+          <div class="sub">SWR ${_fp.swr}% · age actuel ${_fp.age} ans</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Retrait FIRE</div>
+          <div class="val">${_n(cRetMensuel)}/mois</div>
+          <div class="sub">${_n(cRetAnnuel)}/an</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Portfolio final</div>
+          <div class="val">${cLast ? _n(cLast.portfolio) : '—'}</div>
+          <div class="sub">${cLast ? cLast.age + ' ans' : ''}</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Age</th><th class="r">Debut</th><th class="r">Rendement</th>
+          <th class="r">Versements</th><th class="r">Retraits</th>
+          <th class="r">Retrait/mois</th><th class="r">Fin</th>
+        </tr></thead>
+        <tbody>${fireRows}</tbody>
+      </table>
     </div>
-    <table>
-      <thead><tr>
-        <th>Simulation</th>
-        <th class="r">Horizon</th>
-        <th class="r">Rendement</th>
-        <th class="r">Versements</th>
-        <th class="r">Valeur projetee</th>
-        <th class="r">Gain vs. aujourd'hui</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>`;
+
+    <div class="section pb">
+      <h2>Simulation Die with Zero</h2>
+      <div class="grid3" style="margin-bottom:10pt">
+        <div class="card">
+          <div class="lbl">Age DWZ</div>
+          <div class="val ${dFireData ? 'amber' : ''}">${dFireData ? dFireData.age + ' ans (' + (curYear + dFireYear) + ')' : 'Non atteint'}</div>
+          <div class="sub">Epuisement a ${_fp.dwzTargetAge || 90} ans</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Retrait DWZ</div>
+          <div class="val">${_n(dRetMensuel)}/mois</div>
+          <div class="sub">${_n(dRetMensuel * 12)}/an</div>
+        </div>
+        <div class="card">
+          <div class="lbl">Portfolio final</div>
+          <div class="val">${dLast ? _n(dLast.portfolio) : '—'}</div>
+          <div class="sub">${dLast ? dLast.age + ' ans' : ''}</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Age</th><th class="r">Debut</th><th class="r">Rendement</th>
+          <th class="r">Versements</th><th class="r">Retraits</th>
+          <th class="r">Retrait/mois</th><th class="r">Fin</th>
+        </tr></thead>
+        <tbody>${dwzRows}</tbody>
+      </table>
+    </div>
+
+    ${vpwSection}
+    ${projSection}`;
 }
 
 // ── Rapport Portfolio ─────────────────────────────────────────────────────────
