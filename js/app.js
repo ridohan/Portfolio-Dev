@@ -745,6 +745,129 @@ function _n(v) { return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:0,m
 function _pct(v,sign=true) { const p=Number(v||0); return (sign&&p>=0?'+':'')+p.toFixed(2)+'%'; }
 function _sgn(v) { return v>=0?'green':'red'; }
 
+// ── Helpers sections PDF Portfolio ───────────────────────────────────────────
+
+function _pdfPortfolioExpenses(now) {
+  const year = now.getFullYear();
+  if (!STATE.expense_categories.length) return '';
+
+  const trackedMonths = expTrackedMonthsCount(year);
+  if (!trackedMonths) return '';
+
+  const allCatTypes = [...new Set(STATE.expense_categories.map(c => c.type).filter(Boolean))];
+  const TYPES = ['vital', 'superflu', ...allCatTypes.filter(t => t !== 'vital' && t !== 'superflu')];
+  const TYPE_LABELS = { vital: 'Vital', superflu: 'Superflux', confort: 'Confort', loisir: 'Loisirs', 'épargne': 'Épargne', immo: 'Immo', autre: 'Autre' };
+
+  const { entryMap } = expLookup();
+  const sortedCats = [...STATE.expense_categories].sort((a, b) => {
+    const oa = a.ordre !== undefined && a.ordre !== '' ? Number(a.ordre) : Infinity;
+    const ob = b.ordre !== undefined && b.ordre !== '' ? Number(b.ordre) : Infinity;
+    return oa - ob;
+  });
+
+  const totalByType = {};
+  TYPES.forEach(t => {
+    const ids = STATE.expense_categories.filter(c => c.type === t).map(c => c.id);
+    const itemIds = STATE.expense_items.filter(i => ids.includes(i.category_id)).map(i => i.id);
+    totalByType[t] = STATE.expense_entries.filter(e => Number(e.annee) === year && itemIds.includes(e.item_id)).reduce((s, e) => s + Number(e.montant || 0), 0);
+  });
+  const grandTotal  = TYPES.reduce((s, t) => s + (totalByType[t] || 0), 0);
+  const grandAvg    = trackedMonths > 0 ? grandTotal / trackedMonths : 0;
+  const vitalTotal  = totalByType['vital'] || 0;
+  const vitalAvg    = trackedMonths > 0 ? vitalTotal / trackedMonths : 0;
+  const aidsTotal   = STATE.expense_aids.reduce((s, a) => s + Number(a.montant || 0), 0);
+  const resteGlobal = grandAvg - aidsTotal;
+  const resteVital  = vitalAvg - aidsTotal;
+
+  let typeRows = '';
+  TYPES.forEach(type => {
+    const cats = sortedCats.filter(c => c.type === type);
+    if (!cats.length) return;
+    let catRows = '';
+    cats.forEach(cat => {
+      const items = STATE.expense_items.filter(i => i.category_id === cat.id);
+      let catTotal = 0;
+      items.forEach(item => { for (let m = 1; m <= 12; m++) catTotal += Number(entryMap[`${item.id}_${year}_${m}`] || 0); });
+      if (!catTotal) return;
+      const avg = trackedMonths > 0 ? catTotal / trackedMonths : 0;
+      catRows += `<tr><td style="padding-left:14pt">${cat.nom}</td><td class="r muted">${_n(catTotal)}</td><td class="r">${_n(avg)}/mois</td></tr>`;
+    });
+    if (!catRows) return;
+    const typeTotal2 = totalByType[type] || 0;
+    const typeAvg    = trackedMonths > 0 ? typeTotal2 / trackedMonths : 0;
+    typeRows += `
+      <tr style="font-weight:700;background:#f7fafc">
+        <td>${TYPE_LABELS[type] || type}</td>
+        <td class="r">${_n(typeTotal2)}</td>
+        <td class="r">${_n(typeAvg)}/mois</td>
+      </tr>
+      ${catRows}`;
+  });
+
+  if (!typeRows) return '';
+
+  return `<div class="section pb">
+    <h2>Depenses mensuelles ${year}</h2>
+    <div class="grid3" style="margin-bottom:10pt">
+      <div class="card"><div class="lbl">Total brut ${year}</div><div class="val red">${_n(grandTotal)}</div><div class="sub">${_n(grandAvg)}/mois · ${trackedMonths} mois</div></div>
+      <div class="card"><div class="lbl">Sous-total Vital</div><div class="val red">${_n(vitalTotal)}</div><div class="sub">${_n(vitalAvg)}/mois</div></div>
+      <div class="card"><div class="lbl">Aides mensuelles</div><div class="val green">${_n(aidsTotal)}/mois</div></div>
+      <div class="card"><div class="lbl">Reste a financer (global)</div><div class="val ${resteGlobal > 0 ? 'red' : 'green'}">${_n(resteGlobal)}/mois</div></div>
+      <div class="card"><div class="lbl">Reste a financer (vital)</div><div class="val ${resteVital > 0 ? 'red' : 'green'}">${_n(resteVital)}/mois</div></div>
+    </div>
+    <table>
+      <thead><tr><th>Type / Categorie</th><th class="r">Total ${year}</th><th class="r">Moy./mois</th></tr></thead>
+      <tbody>${typeRows}</tbody>
+      <tfoot><tr style="font-weight:700;border-top:2px solid #a0aec0">
+        <td>Total</td><td class="r">${_n(grandTotal)}</td><td class="r">${_n(grandAvg)}/mois</td>
+      </tr></tfoot>
+    </table>
+  </div>`;
+}
+
+function _pdfPortfolioFire(now) {
+  const sims = loadProjections();
+  if (!sims.length) return '';
+
+  const { total, totalCharges } = globalStats();
+  const pv = Math.max(0, total - totalCharges);
+
+  const rows = sims.map(sim => {
+    const { fv, gain, t } = projCalc(sim);
+    const gainPct  = pv > 0 ? ((gain / pv) * 100).toFixed(1) : '0.0';
+    const pmtLine  = sim.pmt > 0 ? `+${_n(sim.pmt)}/mois` : '—';
+    const yearsLeft = Number(sim.annee) - now.getFullYear();
+    const yLabel    = yearsLeft > 0 ? `dans ${yearsLeft} an${yearsLeft > 1 ? 's' : ''}` : 'cette annee';
+    return `<tr>
+      <td><strong>${esc(sim.nom)}</strong></td>
+      <td class="r">${sim.annee} (${yLabel})</td>
+      <td class="r">${sim.rate}%/an</td>
+      <td class="r">${pmtLine}</td>
+      <td class="r"><strong>${_n(fv)}</strong></td>
+      <td class="r ${gain >= 0 ? 'green' : 'red'}">${gain >= 0 ? '+' : ''}${_n(gain)} (${gain >= 0 ? '+' : ''}${gainPct}%)</td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="section pb">
+    <h2>Simulations de projection</h2>
+    <div class="card" style="margin-bottom:10pt;display:inline-block;padding:6pt 12pt">
+      <div class="lbl">Capital de depart</div>
+      <div class="val">${_n(Math.round(pv))}</div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Simulation</th>
+        <th class="r">Horizon</th>
+        <th class="r">Rendement</th>
+        <th class="r">Versements</th>
+        <th class="r">Valeur projetee</th>
+        <th class="r">Gain vs. aujourd'hui</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
 // ── Rapport Portfolio ─────────────────────────────────────────────────────────
 
 function generatePdfPortfolio() {
@@ -955,6 +1078,8 @@ function generatePdfPortfolio() {
     ${immoSection}
     ${residSection}
     ${chargesSection}
+    ${_pdfPortfolioExpenses(now)}
+    ${_pdfPortfolioFire(now)}
     ${_pdfFooter(dateStr)}
   </body></html>`;
   _pdfOpen(html);
@@ -1878,7 +2003,7 @@ function positionsTable(positions, type) {
     const etfNom     = type === 'bourse'
       ? STATE.prices.find(p => p.isin === pos.identifiant)?.nom || ''
       : type === 'crypto'
-        ? STATE.crypto_prices.find(p => p.id === pos.identifiant)?.nom || pos.identifiant
+        ? pos.symbole || STATE.crypto_prices.find(p => p.id === pos.identifiant)?.nom || pos.identifiant
         : '';
     const isCash     = pos.identifiant === 'LIQUIDITES';
     const etfType    = type === 'bourse' && !isCash
@@ -2053,9 +2178,22 @@ function modalPosition(envelopeId, type) {
           <!-- Champs ETF/Action (mode normal) -->
           <div id="pos-fields-etf">
             <div>
-              <label class="label">${isEpargne ? 'Nom du compte' : isCrypto ? 'ID CoinGecko' : 'ISIN'}</label>
-              <input name="identifiant" id="pos-identifiant" placeholder="${isEpargne ? 'Livret A BNP' : isCrypto ? 'bitcoin, ethereum…' : 'LU0274208692'}" required class="input" />
-              ${isCrypto ? `<p class="text-slate-500 text-xs mt-1">Trouvez l'ID sur <a href="https://www.coingecko.com" target="_blank" class="text-blue-400 hover:underline">coingecko.com</a> — URL de la page : /en/coins/<span class="text-slate-300">bitcoin</span></p>` : ''}
+              ${isCrypto ? `
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="label">Symbole</label>
+                  <input name="symbole" id="pos-symbole" placeholder="BTC, ETH…" required class="input" style="text-transform:uppercase" />
+                </div>
+                <div>
+                  <label class="label">ID CoinGecko</label>
+                  <input name="identifiant" id="pos-identifiant" placeholder="bitcoin, ethereum…" required class="input" />
+                </div>
+              </div>
+              <p class="text-slate-500 text-xs mt-1">ID = URL coingecko.com/en/coins/<span class="text-slate-300">bitcoin</span></p>
+              ` : `
+              <label class="label">${isEpargne ? 'Nom du compte' : 'ISIN'}</label>
+              <input name="identifiant" id="pos-identifiant" placeholder="${isEpargne ? 'Livret A BNP' : 'LU0274208692'}" required class="input" />
+              `}
             </div>
             ${isEpargne
               ? `<div class="mt-3"><label class="label">Montant actuel (€)</label><input name="prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
@@ -2183,11 +2321,18 @@ function modalEditPosition(type) {
         <h2 class="text-white font-semibold mb-4">Modifier la position</h2>
         <form id="form-edit-position" class="space-y-3">
           ${isCrypto ? `
-          <div>
-            <label class="label">ID CoinGecko</label>
-            <input name="identifiant" id="edit-identifiant" placeholder="bitcoin, ethereum…" required class="input" />
-            <p class="text-slate-500 text-xs mt-1">URL coingecko.com/en/coins/<span class="text-slate-300">bitcoin</span></p>
-          </div>` : ''}
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="label">Symbole</label>
+              <input name="symbole" id="edit-symbole" placeholder="BTC, ETH…" required class="input" style="text-transform:uppercase" />
+            </div>
+            <div>
+              <label class="label">ID CoinGecko</label>
+              <input name="identifiant" id="edit-identifiant" placeholder="bitcoin, ethereum…" required class="input" />
+            </div>
+          </div>
+          <p class="text-slate-500 text-xs mt-1">ID = URL coingecko.com/en/coins/<span class="text-slate-300">bitcoin</span></p>
+          ` : ''}
           ${isEpargne
             ? `<div><label class="label">Montant actuel (€)</label><input name="prix_achat" id="edit-prix_achat" type="number" step="0.01" min="0" required class="input" /></div>
                <div><label class="label">Taux annuel (%)</label><input name="quantite" id="edit-quantite" type="number" step="0.01" min="0" required class="input" /></div>`
@@ -2265,7 +2410,7 @@ function openModal(type, ...args) {
         payload = { envelope_id: args[0], identifiant: 'LIQUIDITES', prix_achat: 1, quantite: montant };
       } else {
         const d = Object.fromEntries(new FormData(e.target));
-        payload = { envelope_id: args[0], identifiant: d.identifiant, prix_achat: d.prix_achat, quantite: d.quantite };
+        payload = { envelope_id: args[0], identifiant: d.identifiant, ...(d.symbole ? { symbole: d.symbole.trim().toUpperCase() } : {}), prix_achat: d.prix_achat, quantite: d.quantite };
       }
       try {
         STATE.positions.push({ id: newId('pos'), ...payload, prix_achat: Number(payload.prix_achat)||0, quantite: Number(payload.quantite)||0 });
@@ -2353,8 +2498,10 @@ function openEditEnvelope(e) {
 
 function openEditPosition(pos) {
   document.getElementById('modal-edit-position')?.classList.remove('hidden');
-  const idField = document.getElementById('edit-identifiant');
-  if (idField) idField.value = pos.identifiant || '';
+  const idField  = document.getElementById('edit-identifiant');
+  const symField = document.getElementById('edit-symbole');
+  if (idField)  idField.value  = pos.identifiant || '';
+  if (symField) symField.value = pos.symbole || '';
   document.getElementById('edit-prix_achat').value = pos.prix_achat || '';
   document.getElementById('edit-quantite').value   = pos.quantite || '';
 
@@ -2367,6 +2514,7 @@ function openEditPosition(pos) {
       STATE.positions = STATE.positions.map(p => p.id === pos.id ? {
         ...p,
         ...(d.identifiant ? { identifiant: d.identifiant.trim() } : {}),
+        ...(d.symbole !== undefined ? { symbole: d.symbole.trim().toUpperCase() } : {}),
         prix_achat: Number(d.prix_achat)||0,
         quantite:   Number(d.quantite)||0,
         date_achat: d.date_achat||'',
