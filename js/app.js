@@ -113,6 +113,113 @@ function _updateSnapshotIndicator() {
   </span>`;
 }
 
+function _diagSnapshot() {
+  const el = document.getElementById('diag-snapshot-result');
+  if (!el) return;
+
+  const lastSnap = {};
+  STATE.history.forEach(h => {
+    const d = String(h.date).slice(0, 10);
+    if (!lastSnap[h.envelope_id] || d > lastSnap[h.envelope_id].date) lastSnap[h.envelope_id] = h;
+  });
+
+  // Reconstruit le priceIndex exactement comme SnapshotService
+  const priceIndex = {};
+  STATE.prices.forEach(p => { priceIndex[p.isin] = Number(p.prix_actuel) || 0; });
+  STATE.crypto_prices.forEach(p => {
+    if (p.id) priceIndex[p.id] = Number(p.prix_actuel) || 0;
+    if (p.symbole) priceIndex[p.symbole.toUpperCase()] = Number(p.prix_actuel) || 0;
+  });
+
+  const n = v => Math.round(v).toLocaleString('fr-FR') + ' €';
+  const d = v => (v >= 0 ? '+' : '') + Math.round(v).toLocaleString('fr-FR') + ' €';
+  const dcls = v => v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : 'text-slate-500';
+
+  let totalLive = 0, totalSnap = 0;
+  let html = '';
+
+  STATE.envelopes.forEach(env => {
+    const positions = STATE.positions.filter(p => p.envelope_id === env.id);
+    if (!positions.length) return;
+
+    const isEpargne = env.type === 'épargne';
+    const snapH = lastSnap[env.id];
+    const snapVal = snapH ? Number(snapH.valeur_actuelle) : null;
+
+    // Calcul live position par position (miroir envelopeStats)
+    let liveTotal = 0;
+    const posRows = positions.map(pos => {
+      const qty = Number(pos.quantite) || 0;
+      const pa  = Number(pos.prix_achat) || 0;
+      const id  = pos.identifiant || '';
+
+      // Live (currentPrice)
+      let prixLive;
+      if (id === 'LIQUIDITES') prixLive = 1;
+      else if (env.type === 'bourse') prixLive = Number(STATE.prices.find(p => p.isin === id)?.prix_actuel) || 0;
+      else if (env.type === 'crypto') prixLive = Number(STATE.crypto_prices.find(p => p.id === id || (p.symbole||'').toUpperCase() === id.toUpperCase())?.prix_actuel) || 0;
+      else prixLive = Number(id) || 0;
+      const valLive = isEpargne ? pa : prixLive * qty;
+
+      // Snap (SnapshotService)
+      let pxSnap;
+      if (id === 'LIQUIDITES') pxSnap = qty;
+      else pxSnap = isEpargne ? pa : (priceIndex[id] || Number(id) || 0);
+      const valSnap = isEpargne ? pa : pxSnap * qty;
+
+      liveTotal += valLive;
+      const diff = valLive - valSnap;
+      return { id, qty, pa, prixLive, pxSnap, valLive, valSnap, diff };
+    });
+
+    totalLive += liveTotal;
+    if (snapVal !== null) totalSnap += snapVal;
+    const envDiff = snapVal !== null ? liveTotal - snapVal : null;
+
+    if (envDiff === null || Math.abs(envDiff) <= 1) return;
+
+    const posHtml = posRows.filter(p => Math.abs(p.diff) > 0.5).map(p => `
+      <tr class="border-t border-slate-800 bg-slate-900/50">
+        <td class="py-0.5 pl-4 pr-2 text-slate-500 font-mono text-xs">${p.id}</td>
+        <td class="py-0.5 pr-2 text-slate-600 text-right">×${p.qty}</td>
+        <td class="py-0.5 pr-2 text-slate-400 text-right">${p.prixLive.toLocaleString('fr-FR', {maximumFractionDigits:4})} € <span class="text-slate-600">live</span></td>
+        <td class="py-0.5 pr-2 text-slate-400 text-right">${p.pxSnap.toLocaleString('fr-FR', {maximumFractionDigits:4})} € <span class="text-slate-600">snap</span></td>
+        <td class="py-0.5 pr-2 text-right">${n(p.valLive)}</td>
+        <td class="py-0.5 pr-2 text-right">${n(p.valSnap)}</td>
+        <td class="py-0.5 text-right font-bold ${dcls(p.diff)}">${d(p.diff)}</td>
+      </tr>`).join('');
+
+    html += `
+      <tr class="border-t border-slate-700">
+        <td class="py-1 pr-2 text-slate-200 font-medium" colspan="2">${env.nom} <span class="text-slate-500 font-normal">(${env.type})</span></td>
+        <td class="py-1 pr-2 text-slate-500 text-right">${snapH?.date ?? '—'}</td>
+        <td class="py-1 pr-2 text-right text-slate-300">${n(liveTotal)}</td>
+        <td class="py-1 pr-2 text-right text-slate-300">${snapVal != null ? n(snapVal) : '—'}</td>
+        <td class="py-1 text-right font-bold ${dcls(envDiff)}">${d(envDiff)}</td>
+      </tr>
+      ${posHtml}`;
+  });
+
+  const totalDiff = totalLive - totalSnap;
+  el.className = 'text-xs mt-3 overflow-x-auto';
+  el.innerHTML = `
+    <p class="text-slate-300 font-medium mb-2">
+      Écart total : <span class="${dcls(totalDiff)} font-bold">${d(totalDiff)}</span>
+      <span class="text-slate-500 ml-2">live ${n(totalLive)} · snap ${n(totalSnap)}</span>
+    </p>
+    ${!html ? '<p class="text-emerald-400">✓ Aucun écart significatif par position</p>' : `
+    <table class="w-full min-w-[700px]">
+      <thead><tr class="text-slate-500 text-left">
+        <th class="py-1 pr-2" colspan="2">Enveloppe / Position</th>
+        <th class="py-1 pr-2 text-right">Date snap</th>
+        <th class="py-1 pr-2 text-right">Live</th>
+        <th class="py-1 pr-2 text-right">Snapshot</th>
+        <th class="py-1 text-right">Écart</th>
+      </tr></thead>
+      <tbody>${html}</tbody>
+    </table>`}`;
+}
+
 // ─── AUTO-SAVE FILE SYSTEM ACCESS API ────────────────────────────────────────
 
 let _fsHandle = null;
@@ -469,7 +576,7 @@ function openCacheSettings() {
     div.id        = 'modal-cache-settings';
     div.className = 'fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4';
     div.innerHTML = `
-      <div class="modal-box w-full max-w-sm space-y-5 overflow-y-auto scrollbar-dark" style="max-height:90vh" onclick="event.stopPropagation()">
+      <div class="modal-box w-full max-w-2xl space-y-5 overflow-y-auto scrollbar-dark" style="max-height:90vh" onclick="event.stopPropagation()">
         <h3 class="text-base font-bold text-white">⚙ Paramètres & Sauvegarde</h3>
 
         <!-- Statut synchro -->
@@ -511,7 +618,7 @@ function openCacheSettings() {
               const btn = document.getElementById('btn-force-prix');
               btn.disabled = true; btn.textContent = '⏳ Chargement…';
               PriceService.refresh().then(r => {
-                render(); _updateSyncIndicators(); autoSaveToFile();
+                SnapshotService.take(); render(); _updateSyncIndicators(); autoSaveToFile();
                 btn.textContent = '✓ ' + r.etfOk + ' ETF · ' + r.cryptoOk + ' crypto';
                 btn.classList.add('text-emerald-400');
                 setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Forcer prix'; btn.classList.remove('text-emerald-400'); }, 3000);
@@ -521,7 +628,9 @@ function openCacheSettings() {
                 setTimeout(() => { btn.textContent = '↻ Forcer prix'; btn.classList.remove('text-red-400'); }, 2000);
               });" class="btn-secondary text-xs flex-1">↻ Forcer prix</button>
             <button onclick="SnapshotService.take();_updateSyncIndicators();autoSaveToFile();this.textContent='✓ Snapshot pris';this.classList.add('text-emerald-400');setTimeout(()=>{this.textContent='↻ Forcer snapshot';this.classList.remove('text-emerald-400');},2000);" class="btn-secondary text-xs flex-1">↻ Forcer snapshot</button>
+            <button onclick="_diagSnapshot()" class="btn-secondary text-xs flex-1">🔍 Diagnostic</button>
           </div>
+          <div id="diag-snapshot-result" class="text-xs text-slate-400 mt-2 hidden"></div>
         </div>
 
         <!-- Auto-save fichier -->
@@ -3568,10 +3677,11 @@ function periodFilter(active) {
     </div>`;
 }
 
-function historyStatsCards(entries) {
+function historyStatsCards(entries, liveTotal = null) {
   if (!entries.length) return '';
   const first     = entries[0];
   const last      = entries[entries.length - 1];
+  const displayVal = liveTotal !== null ? liveTotal : last.valeur_actuelle;
   const change    = last.valeur_actuelle - first.valeur_actuelle;
   const changePct = first.valeur_actuelle > 0
     ? (change / first.valeur_actuelle) * 100 : 0;
@@ -3591,7 +3701,7 @@ function historyStatsCards(entries) {
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
       <div class="bg-slate-800 rounded-xl p-4">
         <p class="text-slate-400 text-xs mb-1">Valeur actuelle</p>
-        <p class="text-white text-xl font-bold">${fmt(last.valeur_actuelle)}</p>
+        <p class="text-white text-xl font-bold">${fmt(displayVal)}</p>
         <p class="text-slate-600 text-xs mt-1">${last.date ?? ''}</p>
       </div>
       <div class="bg-slate-800 rounded-xl p-4">
@@ -3649,7 +3759,7 @@ function historyTable(entries) {
 }
 
 // Contenu partagé entre les deux pages d'historique
-function historyContent(allEntries, filtered) {
+function historyContent(allEntries, filtered, liveTotal = null) {
   if (!allEntries.length) return `
     <div class="bg-slate-800 rounded-xl p-10 text-center space-y-2">
       <p class="text-slate-300 font-medium">Aucune donnée historique disponible.</p>
@@ -3661,7 +3771,7 @@ function historyContent(allEntries, filtered) {
       ${periodFilter(_histPeriod)}
       <p class="text-slate-500 text-xs">${filtered.length} point${filtered.length > 1 ? 's' : ''}</p>
     </div>
-    ${historyStatsCards(filtered)}
+    ${historyStatsCards(filtered, liveTotal)}
     <div class="bg-slate-800 rounded-xl p-4">
       ${svgLineChart(filtered, { width: 900, height: 240 })}
     </div>
@@ -3675,6 +3785,7 @@ function renderHistoryEnv(app, envelopeId) {
 
   const all      = envelopeHistory(envelopeId);
   const filtered = filterByPeriod(all, _histPeriod);
+  const liveEnv  = envelopeStats(envelopeId).total;
 
   app.innerHTML = `
     ${navbar(`<a href="#envelope/${e.id}" class="text-slate-400 hover:text-white text-sm">← ${esc(e.nom)}</a>`)}
@@ -3683,7 +3794,7 @@ function renderHistoryEnv(app, envelopeId) {
         <h1 class="text-2xl font-bold text-white">${esc(e.nom)}</h1>
         <p class="text-slate-400 text-sm mt-1">Historique · <span class="capitalize">${e.type}</span> · ${esc(portfolio?.nom || '')}</p>
       </div>
-      ${historyContent(all, filtered)}
+      ${historyContent(all, filtered, liveEnv)}
     </div>`;
 }
 
@@ -3693,6 +3804,11 @@ function renderHistoryPf(app, portfolioId) {
 
   const all      = portfolioHistory(portfolioId);
   const filtered = filterByPeriod(all, _histPeriod);
+  const { total: livePfTotal, totalCharges: livePfCharges } = (() => {
+    const s = portfolioStats(portfolioId);
+    const charges = STATE.charges.filter(c => c.portfolio_id === portfolioId).reduce((a, c) => a + (Number(c.montant) || 0), 0);
+    return { total: s.total - charges, totalCharges: charges };
+  })();
 
   app.innerHTML = `
     ${navbar(`<a href="#portfolio/${p.id}" class="text-slate-400 hover:text-white text-sm">← ${esc(p.nom)}</a>`)}
@@ -3701,13 +3817,15 @@ function renderHistoryPf(app, portfolioId) {
         <h1 class="text-2xl font-bold text-white">${esc(p.nom)}</h1>
         <p class="text-slate-400 text-sm mt-1">Historique de valeur du portfolio</p>
       </div>
-      ${historyContent(all, filtered)}
+      ${historyContent(all, filtered, livePfTotal)}
     </div>`;
 }
 
 function renderHistoryGlobal(app) {
   const all      = globalHistory();
   const filtered = filterByPeriod(all, _histPeriod);
+  const gs       = globalStats();
+  const liveNette = gs.total - gs.totalCharges;
 
   app.innerHTML = `
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Dashboard</a>`)}
@@ -3716,7 +3834,7 @@ function renderHistoryGlobal(app) {
         <h1 class="text-lg sm:text-2xl font-bold text-white">Historique global</h1>
         <p class="text-slate-400 text-sm mt-1">Tous les portfolios confondus</p>
       </div>
-      ${historyContent(all, filtered)}
+      ${historyContent(all, filtered, liveNette)}
     </div>`;
 }
 

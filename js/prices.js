@@ -140,11 +140,15 @@ const SnapshotService = {
   take() {
     const today = new Date().toISOString().slice(0, 10);
 
+    // Premier match seulement — miroir de currentPrice() qui utilise .find()
+    // Évite que des doublons ISIN fassent écraser le prix récent par un prix ancien
     const priceIndex = {};
-    STATE.prices.forEach(p => { priceIndex[p.isin] = Number(p.prix_actuel) || 0; });
+    STATE.prices.forEach(p => {
+      if (!(p.isin in priceIndex)) priceIndex[p.isin] = Number(p.prix_actuel) || 0;
+    });
     STATE.crypto_prices.forEach(p => {
-      if (p.id) priceIndex[p.id] = Number(p.prix_actuel) || 0;
-      if (p.symbole) priceIndex[(p.symbole).toUpperCase()] = Number(p.prix_actuel) || 0;
+      if (p.id && !(p.id in priceIndex)) priceIndex[p.id] = Number(p.prix_actuel) || 0;
+      if (p.symbole) { const k = p.symbole.toUpperCase(); if (!(k in priceIndex)) priceIndex[k] = Number(p.prix_actuel) || 0; }
     });
 
     const existingIdx = {};
@@ -171,7 +175,9 @@ const SnapshotService = {
         }
 
         const lookupKey = pos.identifiant; // ID CoinGecko pour crypto, ISIN pour bourse
-        const pxActuel = isEpargne ? pxAchat : (priceIndex[lookupKey] || 0);
+        // Fallback Number(identifiant) pour les types non reconnus (livret, PEL…)
+        // où l'identifiant contient directement la valeur en € — miroir de currentPrice()
+        const pxActuel = isEpargne ? pxAchat : (priceIndex[lookupKey] || Number(lookupKey) || 0);
 
         valeurInvestie += isEpargne ? pxAchat : pxAchat * qte;
         valeurActuelle += isEpargne ? pxAchat : pxActuel * qte;
