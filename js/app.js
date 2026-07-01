@@ -746,6 +746,10 @@ function importDataJSON(input) {
       if (!valid) throw new Error('Format non reconnu — fichier invalide.');
       // Fusionner avec le STATE existant (les clés manquantes gardent les valeurs actuelles)
       STATE = { ...STATE, ...data };
+      // Déduplication : garder le premier ISIN/id rencontré (le plus récent si trié)
+      const _dedup = (arr, key) => arr ? arr.filter((item, i, a) => a.findIndex(x => x[key] === item[key]) === i) : arr;
+      STATE.prices       = _dedup(STATE.prices, 'isin');
+      STATE.crypto_prices = _dedup(STATE.crypto_prices, 'id');
       autoSaveToFile();
       if (status) {
         status.textContent = `✅ Fichier chargé — ${file.name}`;
