@@ -157,7 +157,7 @@ const SnapshotService = {
       existingIdx[`${d}|${h.envelope_id}`] = i;
     });
 
-    STATE.envelopes.forEach(envelope => {
+    STATE.envelopes.filter(e => e.actif !== false).forEach(envelope => {
       const positions = STATE.positions.filter(p => p.envelope_id === envelope.id);
       if (!positions.length) return;
 

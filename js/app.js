@@ -2033,7 +2033,7 @@ function _dashBlock(id, stats) {
           </a>
         </div>
       </div>
-      ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()))}
+      ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()), '#investissements')}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}`;
     case 'patrimoine_global': return patrimoineGlobalBloc(stats);
@@ -2174,21 +2174,25 @@ function renderPortfolio(app, portfolioId) {
 }
 
 function envelopeCard(e) {
+  const isActive = e.actif !== false;
   const { total, invested } = envelopeStats(e.id);
   const pv    = total - invested;
   const pvPct = invested > 0 ? ((pv / invested) * 100).toFixed(1) : 0;
   const badge = { bourse: 'bg-blue-500/20 text-blue-300', crypto: 'bg-purple-500/20 text-purple-300', épargne: 'bg-emerald-500/20 text-emerald-300' };
 
   return `
-    <div class="bg-slate-800 rounded-xl p-5 cursor-pointer hover:bg-slate-750 transition" onclick="navigate('#envelope/${e.id}')">
+    <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition ${isActive ? '' : 'opacity-50'}">
       <div class="flex items-start justify-between mb-2">
-        <div>
+        <div class="cursor-pointer flex-1 min-w-0" onclick="navigate('#envelope/${e.id}')">
           <h3 class="text-white font-semibold">${esc(e.nom)}</h3>
           <span class="text-xs px-2 py-0.5 rounded-full ${badge[e.type] || 'bg-slate-600 text-slate-300'}">${e.type}</span>
         </div>
-        <span class="${pv >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)</span>
+        <div class="flex flex-col items-end gap-1.5 flex-shrink-0 ml-2">
+          <span class="${pv >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)</span>
+          <button onclick="event.stopPropagation();toggleEnvelope('${e.id}')" class="text-xs transition px-1.5 py-0.5 rounded ${isActive ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400' : 'bg-slate-600 text-slate-400 hover:bg-emerald-500/20 hover:text-emerald-400'}" title="${isActive ? 'Désactiver' : 'Activer'}">${isActive ? 'Actif' : 'Inactif'}</button>
+        </div>
       </div>
-      <p class="text-white text-xl font-bold mt-3">${fmt(total)}</p>
+      <p class="text-white text-xl font-bold mt-3 cursor-pointer" onclick="navigate('#envelope/${e.id}')">${fmt(total)}</p>
     </div>`;
 }
 
@@ -2873,7 +2877,7 @@ function envelopeStats(envId) {
 }
 
 function portfolioStats(portfolioId) {
-  const envs = STATE.envelopes.filter(e => e.portfolio_id === portfolioId);
+  const envs = STATE.envelopes.filter(e => e.portfolio_id === portfolioId && e.actif !== false);
   let total = 0, invested = 0, actions = 0, obligations = 0, cash = 0;
 
   envs.forEach(env => {
@@ -2899,7 +2903,7 @@ function portfolioStats(portfolioId) {
     : { actions: 0, obligations: 0, cash: 0 };
 
   const totalCharges = STATE.charges
-    .filter(c => c.portfolio_id === portfolioId)
+    .filter(c => c.portfolio_id === portfolioId && c.actif !== false)
     .reduce((sum, c) => sum + (Number(c.montant) || 0), 0);
 
   return { total, invested, alloc, totalCharges };
@@ -2919,6 +2923,7 @@ function globalStats() {
     ? { actions: (actions / total * 100).toFixed(1), obligations: (obligations / total * 100).toFixed(1), cash: (cash / total * 100).toFixed(1) }
     : { actions: 0, obligations: 0, cash: 0 };
   const totalCharges = STATE.charges
+    .filter(c => c.actif !== false)
     .reduce((sum, c) => sum + (Number(c.montant) || 0), 0);
 
   return { total, invested, alloc, totalCharges };
@@ -3086,12 +3091,13 @@ function navbar(optsOrLeft = '') {
     </nav>`;
 }
 
-function statCards(total, invested, totalCharges = 0, annualReturn = null) {
+function statCards(total, invested, totalCharges = 0, annualReturn = null, clickHref = null) {
   const pv    = total - invested;
   const pvPct = invested > 0 ? ((pv / invested) * 100).toFixed(2) : 0;
   const nette = total - totalCharges;
   const pvColor  = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
   const pctColor = pv >= 0 ? 'text-emerald-500' : 'text-red-500';
+  const cardClick = clickHref ? `onclick="navigate('${clickHref}')" class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0 cursor-pointer hover:bg-slate-700 transition"` : `class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0"`;
 
   // Rendement annualisé — affiché si disponible
   let annualLine = '';
@@ -3105,15 +3111,15 @@ function statCards(total, invested, totalCharges = 0, annualReturn = null) {
 
   return `
     <div class="grid grid-cols-3 gap-3 sm:gap-4">
-      <div class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0">
+      <div ${cardClick}>
         <p class="text-slate-400 text-xs mb-1 truncate">${totalCharges > 0 ? 'Valeur nette' : 'Valeur totale'}</p>
         <p class="text-white text-base sm:text-2xl font-bold leading-tight break-all">${fmt(totalCharges > 0 ? nette : total)}</p>
       </div>
-      <div class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0">
+      <div ${cardClick}>
         <p class="text-slate-400 text-xs mb-1">Investi</p>
         <p class="text-white text-base sm:text-2xl font-bold leading-tight break-all">${fmt(invested)}</p>
       </div>
-      <div class="bg-slate-800 rounded-xl p-3 sm:p-4 min-w-0">
+      <div ${cardClick}>
         <p class="text-slate-400 text-xs mb-1">Plus-value</p>
         <p class="text-base sm:text-2xl font-bold leading-tight break-all ${pvColor}">${pv >= 0 ? '+' : ''}${fmt(pv)}</p>
         <p class="text-xs ${pctColor}"><span class="num">${pvPct}%</span></p>
@@ -3219,7 +3225,7 @@ function envelopesSection(portfolioId) {
     .filter(tc => envs.some(e => e.type === tc.key))
     .map(tc => {
       const group      = envs.filter(e => e.type === tc.key);
-      const groupTotal = group.reduce((sum, e) => sum + envelopeStats(e.id).total, 0);
+      const groupTotal = group.filter(e => e.actif !== false).reduce((sum, e) => sum + envelopeStats(e.id).total, 0);
       return `
         <div class="space-y-3">
           <h3 class="flex items-center gap-2 text-sm font-semibold text-slate-400">
@@ -3242,18 +3248,22 @@ function sortPositions(col) {
 
 function chargesSection(portfolioId) {
   const charges = STATE.charges.filter(c => c.portfolio_id === portfolioId);
-  const total   = charges.reduce((s, c) => s + (Number(c.montant) || 0), 0);
+  const activeTotal = charges.filter(c => c.actif !== false).reduce((s, c) => s + (Number(c.montant) || 0), 0);
 
-  const rows = charges.map(c => `
-    <tr class="border-t border-slate-700 hover:bg-slate-750">
+  const rows = charges.map(c => {
+    const isActive = c.actif !== false;
+    return `
+    <tr class="border-t border-slate-700 hover:bg-slate-750 ${isActive ? '' : 'opacity-50'}">
       <td class="py-3 px-4 text-white font-medium">${esc(c.nom)}</td>
-      <td class="py-3 px-4 text-red-400 font-medium">−${fmt(Number(c.montant))}</td>
+      <td class="py-3 px-4 ${isActive ? 'text-red-400' : 'text-slate-500'} font-medium">−${fmt(Number(c.montant))}</td>
       <td class="py-3 px-4 text-slate-400 text-sm">${c.date_fin ? fmtDate(c.date_fin) : '—'}</td>
-      <td class="py-3 px-4 flex gap-3">
+      <td class="py-3 px-4 flex gap-3 items-center">
+        <button onclick="toggleCharge('${c.id}')" class="text-xs transition px-1.5 py-0.5 rounded ${isActive ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400' : 'bg-slate-600 text-slate-400 hover:bg-emerald-500/20 hover:text-emerald-400'}" title="${isActive ? 'Désactiver' : 'Activer'}">${isActive ? 'Actif' : 'Inactif'}</button>
         <button onclick='openEditCharge(${JSON.stringify(c)})' class="text-slate-400 hover:text-blue-400 text-xs transition" title="Modifier">✏</button>
         <button onclick="confirmDelete('charge','${c.id}')" class="text-slate-500 hover:text-red-400 text-xs transition" title="Supprimer">✕</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   return `
     <div class="flex items-center justify-between">
@@ -3274,11 +3284,25 @@ function chargesSection(portfolioId) {
         <tbody>${rows}</tbody>
       </table>
       <div class="border-t border-slate-700 px-4 py-3 flex justify-between items-center bg-slate-800/60">
-        <span class="text-slate-400 text-sm font-medium">Total charges</span>
-        <span class="text-red-400 font-semibold">−${fmt(total)}</span>
+        <span class="text-slate-400 text-sm font-medium">Total charges actives</span>
+        <span class="text-red-400 font-semibold">−${fmt(activeTotal)}</span>
       </div>
     </div>`
     : `<p class="text-slate-500 text-sm py-2">Aucune charge à venir.</p>`}`;
+}
+
+function toggleCharge(id) {
+  const c = STATE.charges.find(x => x.id === id);
+  if (!c) return;
+  c.actif = c.actif === false ? true : false;
+  autoSaveToFile(); render();
+}
+
+function toggleEnvelope(id) {
+  const e = STATE.envelopes.find(x => x.id === id);
+  if (!e) return;
+  e.actif = e.actif === false ? true : false;
+  autoSaveToFile(); render();
 }
 
 function errorBanner(msg) {
@@ -3338,7 +3362,7 @@ function envelopeHistory(envelopeId) {
 // Les charges (portées au niveau portfolio) sont déduites de valeur_actuelle
 // pour éviter les chutes brutales quand une charge est saisie.
 function globalHistory() {
-  const totalCharges = STATE.charges.reduce((s, c) => s + (Number(c.montant) || 0), 0);
+  const totalCharges = STATE.charges.filter(c => c.actif !== false).reduce((s, c) => s + (Number(c.montant) || 0), 0);
 
   const byDate = {};
   dedupHistory(STATE.history).forEach(h => {
@@ -3367,7 +3391,7 @@ function globalHistory() {
 // Somme quotidienne des enveloppes d'un portfolio → courbe de valeur NETTE
 function portfolioHistory(portfolioId) {
   const totalCharges = STATE.charges
-    .filter(c => c.portfolio_id === portfolioId)
+    .filter(c => c.portfolio_id === portfolioId && c.actif !== false)
     .reduce((s, c) => s + (Number(c.montant) || 0), 0);
 
   const envIds = STATE.envelopes
