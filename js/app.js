@@ -8249,12 +8249,19 @@ function renderImmo(app) {
 
 function bienImmoCard(bien) {
   const r    = immoRentabilite(bien);
+  const rr   = immoRentabiliteReelle(bien.id, new Date().getFullYear());
   const cap  = immoCapitalRembourse(bien);
   const prix = Number(bien.prix_achat || 0);
   const surf = Number(bien.surface_m2 || 0);
   const hasCr = Number(bien.montant_credit || 0) > 0;
-  const cfCol = r.cfMensCredit >= 0 ? 'text-emerald-400' : 'text-red-400';
-  const rdCol = r.rendNetCredit >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const hasReel = rr.moisLoyers > 0 || rr.moisCharges > 0;
+  const cfVal  = hasReel ? rr.cfReel : r.cfMensCredit * 12;
+  const cfCol  = cfVal >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const rdCol  = r.rendNetCredit >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const cfLabel = hasReel ? 'CF réel YTD' : 'CF théo. annuel';
+  const cfText  = hasReel
+    ? `${cfVal >= 0 ? '+' : ''}${fmt(Math.round(cfVal))}`
+    : `${cfVal >= 0 ? '+' : ''}${fmt(Math.round(cfVal))} <span class="text-slate-600 font-normal text-xs">est.</span>`;
   return `
     <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer" onclick="navigate('#immo/${bien.id}')">
       <div class="flex items-start justify-between mb-4">
@@ -8269,8 +8276,8 @@ function bienImmoCard(bien) {
       </div>
       <div class="grid grid-cols-3 gap-3">
         <div>
-          <p class="text-slate-500 text-xs">CF mensuel</p>
-          <p class="${cfCol} font-bold text-sm">${r.cfMensCredit >= 0 ? '+' : ''}${fmt(r.cfMensCredit)}</p>
+          <p class="text-slate-500 text-xs">${cfLabel}</p>
+          <p class="${cfCol} font-bold text-sm">${cfText}</p>
         </div>
         <div>
           <p class="text-slate-500 text-xs">Rdt net</p>
@@ -8347,6 +8354,7 @@ function immoBloc1(bien) {
         ${Number(bien.mensualite_assurance_pno || 0) > 0 ? row('Assurance PNO', fmt(Number(bien.mensualite_assurance_pno)) + '/mois') : ''}
         ${bien.numero_pret ? row('N° prêt', `<span class="num">${esc(bien.numero_pret)}</span>`) : ''}
         ${bien.date_debut_credit ? row('Début crédit', bien.date_debut_credit) : ''}
+        ${bien.numero_contrat_assurance ? row('N° contrat assurance', `<span class="num">${esc(bien.numero_contrat_assurance)}</span>`) : ''}
         ` : ''}
       </div>
     </div>`;
@@ -9071,6 +9079,11 @@ function modalBienImmo() {
                   class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               </div>
               <div>
+                <label class="block text-slate-400 text-xs mb-1">N° contrat assurance</label>
+                <input id="bi-numassur" type="text" placeholder="Ex : 123456789"
+                  class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
                 <label class="block text-slate-400 text-xs mb-1">Date 1ère échéance</label>
                 <input id="bi-datecredit" type="date"
                   class="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -9233,6 +9246,7 @@ function openBienImmoModal(id = null) {
   set('bi-assur',      bien?.mensualite_assurance || '');
   set('bi-assur-pno',  bien?.mensualite_assurance_pno || '');
   set('bi-numpret',    bien?.numero_pret || '');
+  set('bi-numassur',   bien?.numero_contrat_assurance || '');
   set('bi-datecredit', bien?.date_debut_credit || '');
   previewMensualite();
   document.getElementById('modal-bien-immo').classList.remove('hidden');
@@ -9273,7 +9287,8 @@ async function saveBienImmo() {
     taux_credit:          ta / 100,
     mensualite_assurance:     parseFloat(document.getElementById('bi-assur')?.value) || 0,
     mensualite_assurance_pno: parseFloat(document.getElementById('bi-assur-pno')?.value) || 0,
-    numero_pret:          document.getElementById('bi-numpret')?.value?.trim() || '',
+    numero_pret:                    document.getElementById('bi-numpret')?.value?.trim() || '',
+    numero_contrat_assurance:       document.getElementById('bi-numassur')?.value?.trim() || '',
     date_debut_credit:    document.getElementById('bi-datecredit')?.value || '',
   };
   closeBienImmoModal();
