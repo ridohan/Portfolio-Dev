@@ -62,6 +62,27 @@ const PriceService = {
 
   // ─── REFRESH PRINCIPAL ──────────────────────────────────────────────────────
 
+  async fetchETFNames(isins) {
+    if (!isins.length) return {};
+    try {
+      // OpenFIGI API publique — 100 ISINs max par requête, 25 req/min sans clé
+      const body = isins.map(isin => ({ idType: 'ID_ISIN', idValue: isin }));
+      const res = await fetch('https://api.openfigi.com/v3/mapping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return {};
+      const data = await res.json();
+      const names = {};
+      isins.forEach((isin, i) => {
+        const first = data[i]?.data?.[0]?.name;
+        if (first) names[isin] = first.replace(/&amp;/g, '&');
+      });
+      return names;
+    } catch { return {}; }
+  },
+
   async refresh() {
     const now = new Date().toISOString();
     let etfOk = 0, cryptoOk = 0, errors = 0;
@@ -95,6 +116,22 @@ const PriceService = {
           etfOk++;
         } else { errors++; }
       });
+
+      // ── Résolution des noms — uniquement pour les positions sans nom ──────
+      const isinsWithoutName = isins.filter(isin =>
+        STATE.positions.some(p => p.identifiant === isin && (!p.nom || p.nom === isin))
+      );
+      if (isinsWithoutName.length) {
+        const names = await this.fetchETFNames(isinsWithoutName);
+        Object.entries(names).forEach(([isin, name]) => {
+          STATE.positions.forEach(p => {
+            if (p.identifiant === isin && (!p.nom || p.nom === isin)) p.nom = name;
+          });
+          // Mettre à jour aussi le nom dans STATE.prices
+          const priceEntry = STATE.prices.find(p => p.isin === isin);
+          if (priceEntry && (!priceEntry.nom || priceEntry.nom === isin)) priceEntry.nom = name;
+        });
+      }
     }
 
     // ── Fetch crypto ─────────────────────────────────────────────────────────

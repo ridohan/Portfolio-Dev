@@ -1185,8 +1185,10 @@ function generatePdfPortfolio() {
         const val  = prix*qty;
         const pls2 = pa>0 ? (prix-pa)/pa*100 : 0;
         const isEp = env.type==='épargne';
+        const posNom = pos.nom && pos.nom !== pos.identifiant ? pos.nom
+          : (STATE.prices.find(p => p.isin === pos.identifiant)?.nom || '');
         envRows += `<tr>
-          <td><strong>${pos.identifiant}</strong>${pos.nom?` <span class="muted">— ${pos.nom}</span>`:''}</td>
+          <td><strong>${pos.identifiant}</strong>${posNom && posNom !== pos.identifiant?` <span class="muted">— ${posNom}</span>`:''}</td>
           <td class="r">${isEp?'—':qty}</td>
           <td class="r muted">${isEp?'—':_n(pa)}</td>
           <td class="r">${isEp?'—':_n(prix)}</td>
