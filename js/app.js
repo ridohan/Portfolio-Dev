@@ -2311,7 +2311,7 @@ function positionsTable(positions, type) {
     const typeBadge  = isCash
       ? `<span class="text-xs px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">cash</span>`
       : isEpPos && type === 'bourse'
-        ? `<span class="text-xs px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300">épargne</span>`
+        ? (assetBadgeMap[pos.asset_type] || `<span class="text-xs px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300">épargne</span>`)
         : (assetBadgeMap[assetType] || '');
     const label = isCash ? '💶 Liquidités' : (isEpPos ? (pos.identifiant || '—') : (etfNom || pos.identifiant));
 
@@ -2330,10 +2330,13 @@ function positionsTable(positions, type) {
     if (type !== 'bourse') return '';
     let actions = 0, bonds = 0;
     sorted.forEach(pos => {
-      if (pos.identifiant === 'LIQUIDITES' || isPosEpargne(pos, type)) return;
-      const val = currentPrice(pos.identifiant, type) * Number(pos.quantite);
-      if (pos.asset_type === 'action')      actions += val;
-      else if (pos.asset_type === 'bond')   bonds   += val;
+      if (pos.identifiant === 'LIQUIDITES') return;
+      const isEp = isPosEpargne(pos, type);
+      const val  = isEp
+        ? (pos.valeur_actuelle != null ? Number(pos.valeur_actuelle) : Number(pos.prix_achat))
+        : currentPrice(pos.identifiant, type) * Number(pos.quantite);
+      if (pos.asset_type === 'action')    actions += val;
+      else if (pos.asset_type === 'bond') bonds   += val;
     });
     const total = actions + bonds;
     if (!total) return '';
@@ -2526,6 +2529,17 @@ function modalPosition(envelopeId, type) {
               <div><label class="label">Valeur actuelle (€)</label><input id="pos-ep-actuel" type="number" step="0.01" min="0" class="input" placeholder="= investi si vide" /></div>
             </div>
             <div><label class="label">Taux annuel (%) <span class="text-slate-500">optionnel</span></label><input id="pos-ep-taux" type="number" step="0.01" min="0" class="input" placeholder="ex : 2.5" /></div>
+            <div>
+              <label class="label">Type d'actif <span class="text-slate-500">optionnel</span></label>
+              <select id="pos-ep-asset-type" class="input">
+                <option value="">— Non défini</option>
+                <option value="bond">📉 Obligations / Fonds euro</option>
+                <option value="action">📈 Actions</option>
+                <option value="immobilier">🏠 Immobilier (SCPI/REIT)</option>
+                <option value="matieres_premieres">🪙 Matières premières</option>
+                <option value="diversifie">🌍 Diversifié / Multi-actifs</option>
+              </select>
+            </div>
           </div>
 
           <!-- Mode Liquidités -->
@@ -2666,6 +2680,17 @@ function modalEditPosition(type) {
               <div><label class="label">Valeur actuelle (€)</label><input id="edit-ep-actuel" type="number" step="0.01" min="0" class="input" placeholder="= investi si vide" /></div>
             </div>
             <div><label class="label">Taux annuel (%) <span class="text-slate-500">optionnel</span></label><input id="edit-ep-taux" type="number" step="0.01" min="0" class="input" /></div>
+            <div>
+              <label class="label">Type d'actif <span class="text-slate-500">optionnel</span></label>
+              <select id="edit-ep-asset-type" class="input">
+                <option value="">— Non défini</option>
+                <option value="bond">📉 Obligations / Fonds euro</option>
+                <option value="action">📈 Actions</option>
+                <option value="immobilier">🏠 Immobilier (SCPI/REIT)</option>
+                <option value="matieres_premieres">🪙 Matières premières</option>
+                <option value="diversifie">🌍 Diversifié / Multi-actifs</option>
+              </select>
+            </div>
           </div>
           <!-- Champs ETF/bourse standard -->
           <div id="edit-fields-bourse" class="${!isEpargne && !isCrypto ? '' : 'hidden'}">
@@ -2769,13 +2794,15 @@ function openModal(type, ...args) {
           if (errEl) { errEl.textContent = 'Nom et montant investi requis.'; errEl.classList.remove('hidden'); }
           setLoading(btn, false); return;
         }
-        const actuel = parseFloat(document.getElementById('pos-ep-actuel')?.value);
-        const taux   = parseFloat(document.getElementById('pos-ep-taux')?.value);
+        const actuel     = parseFloat(document.getElementById('pos-ep-actuel')?.value);
+        const taux       = parseFloat(document.getElementById('pos-ep-taux')?.value);
+        const assetTypeEp = g('pos-ep-asset-type');
         payload = {
           envelope_id: args[0], identifiant: nom, prix_achat: pa,
           quantite: isNaN(taux) ? 0 : taux,
           pos_type: 'épargne',
           ...(!isNaN(actuel) ? { valeur_actuelle: actuel } : {}),
+          ...(assetTypeEp ? { asset_type: assetTypeEp } : {}),
         };
       } else if (mode === 'crypto') {
         const symbole = g('pos-symbole');
@@ -2905,10 +2932,11 @@ function openEditPosition(pos) {
   const g = id => document.getElementById(id);
 
   if (isEpPos) {
-    if (g('edit-ep-nom'))    g('edit-ep-nom').value    = pos.identifiant || '';
-    if (g('edit-ep-pa'))     g('edit-ep-pa').value     = pos.prix_achat  != null ? pos.prix_achat  : '';
-    if (g('edit-ep-actuel')) g('edit-ep-actuel').value = pos.valeur_actuelle != null ? pos.valeur_actuelle : '';
-    if (g('edit-ep-taux'))   g('edit-ep-taux').value   = pos.quantite   != null ? pos.quantite   : '';
+    if (g('edit-ep-nom'))        g('edit-ep-nom').value        = pos.identifiant       || '';
+    if (g('edit-ep-pa'))         g('edit-ep-pa').value         = pos.prix_achat        != null ? pos.prix_achat        : '';
+    if (g('edit-ep-actuel'))     g('edit-ep-actuel').value     = pos.valeur_actuelle   != null ? pos.valeur_actuelle   : '';
+    if (g('edit-ep-taux'))       g('edit-ep-taux').value       = pos.quantite          != null ? pos.quantite          : '';
+    if (g('edit-ep-asset-type')) g('edit-ep-asset-type').value = pos.asset_type        || '';
   } else if (isCrypto) {
     if (g('edit-symbole'))    g('edit-symbole').value    = pos.symbole     || '';
     if (g('edit-identifiant')) g('edit-identifiant').value = pos.identifiant || '';
@@ -2937,14 +2965,16 @@ function openEditPosition(pos) {
           if (errEl) { errEl.textContent = 'Nom et montant investi requis.'; errEl.classList.remove('hidden'); }
           setLoading(btn, false); return;
         }
-        const actuelRaw = g('edit-ep-actuel')?.value;
-        const va = actuelRaw !== '' && actuelRaw != null ? Number(actuelRaw) : null;
+        const actuelRaw  = g('edit-ep-actuel')?.value;
+        const va         = actuelRaw !== '' && actuelRaw != null ? Number(actuelRaw) : null;
+        const assetTypeEp = gv('edit-ep-asset-type');
         updates = {
           identifiant: nom,
           prix_achat:  pa,
           quantite:    gn('edit-ep-taux'),
           pos_type:    'épargne',
           ...(va !== null ? { valeur_actuelle: va } : { valeur_actuelle: undefined }),
+          ...(assetTypeEp ? { asset_type: assetTypeEp } : { asset_type: undefined }),
         };
       } else if (mode === 'crypto') {
         updates = {
@@ -3057,10 +3087,17 @@ function portfolioStats(portfolioId) {
     else {
       const positions = STATE.positions.filter(p => p.envelope_id === env.id);
       positions.forEach(pos => {
-        const pr   = currentPrice(pos.identifiant, env.type);
-        const val  = pr * Number(pos.quantite);
+        const isEp = isPosEpargne(pos, env.type);
+        const val  = isEp
+          ? (pos.valeur_actuelle != null ? Number(pos.valeur_actuelle) : Number(pos.prix_achat))
+          : currentPrice(pos.identifiant, env.type) * Number(pos.quantite);
         if (pos.identifiant === 'LIQUIDITES') { cash += val; return; }
-        if (isPosEpargne(pos, env.type)) { cash += val; return; }
+        if (isEp) {
+          if (pos.asset_type === 'action')    actions     += val;
+          else if (pos.asset_type === 'bond') obligations += val;
+          else                                cash        += val;
+          return;
+        }
         if (env.type === 'crypto' || pos.asset_type === 'action') actions += val;
         else if (pos.asset_type === 'bond') obligations += val;
       });
