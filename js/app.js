@@ -789,6 +789,7 @@ function openPdfModal() {
       <p class="text-slate-500 text-xs mb-4">Génère un rapport mis en page dans un nouvel onglet — utilisez "Enregistrer en PDF" dans la boîte d'impression.</p>
       <div class="space-y-2">
         <button onclick="generatePdfPortfolio()" class="btn-secondary text-sm w-full text-left">📊 Rapport Portfolio complet</button>
+        <button onclick="generatePdfFinancier()" class="btn-secondary text-sm w-full text-left">📐 Rapport Financier — Allocation</button>
         <button onclick="generatePdfHistory()" class="btn-secondary text-sm w-full text-left">📈 Historique des valeurs</button>
         <button onclick="generatePdfImmo()" class="btn-secondary text-sm w-full text-left">🏠 Rapport Immobilier locatif</button>
         <button onclick="generatePdfResidences()" class="btn-secondary text-sm w-full text-left">🏡 Rapport Résidences</button>
@@ -1897,6 +1898,173 @@ function generatePdfHistory() {
       </button>
     </div>
     ${_pdfHeader('Historique Portfolio', `Du ${firstDate} au ${dateStr}`, dateStr)}
+    ${globalSection}
+    ${pfSections}
+    ${_pdfFooter(dateStr)}
+  </body></html>`;
+
+  _pdfOpen(html);
+}
+
+function generatePdfFinancier() {
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  const ASSET_LABELS = { action: 'Actions', bond: 'Obligations', immobilier: 'Immobilier', matieres_premieres: 'Mat. premières', diversifie: 'Diversifié' };
+  const ASSET_COLORS = { action: '#3182ce', bond: '#d69e2e', immobilier: '#dd6b20', matieres_premieres: '#d69e2e', diversifie: '#805ad5' };
+
+  // ── Calcul allocation réelle par enveloppe ───────────────────────────────
+  function envelopeAlloc(env) {
+    const positions = STATE.positions.filter(p => p.envelope_id === env.id);
+    let actions = 0, obligations = 0, cash = 0, other = 0;
+    positions.forEach(pos => {
+      const isEp = isPosEpargne(pos, env.type);
+      const val  = isEp
+        ? (pos.valeur_actuelle != null ? Number(pos.valeur_actuelle) : Number(pos.prix_achat))
+        : currentPrice(pos.identifiant, env.type) * Number(pos.quantite);
+      if (pos.identifiant === 'LIQUIDITES') { cash += val; return; }
+      if (pos.asset_type === 'action')    actions     += val;
+      else if (pos.asset_type === 'bond') obligations += val;
+      else if (isEp)                      cash        += val;
+      else                                other       += val;
+    });
+    const total = actions + obligations + cash + other;
+    return { actions, obligations, cash, other, total };
+  }
+
+  // ── Barre SVG inline actions/obligations/cash ────────────────────────────
+  function allocBar(a, ob, c, oth, total) {
+    if (!total) return '<span class="muted">—</span>';
+    const pA  = (a   / total * 100).toFixed(1);
+    const pOb = (ob  / total * 100).toFixed(1);
+    const pC  = (c   / total * 100).toFixed(1);
+    const pOth= (oth / total * 100).toFixed(1);
+    return `
+      <div style="display:flex;height:7pt;border-radius:3pt;overflow:hidden;margin:3pt 0 2pt;gap:1pt">
+        ${a   > 0 ? `<div style="background:#3182ce;width:${pA}%"  title="Actions ${pA}%"></div>`      : ''}
+        ${ob  > 0 ? `<div style="background:#d69e2e;width:${pOb}%" title="Obligations ${pOb}%"></div>` : ''}
+        ${c   > 0 ? `<div style="background:#38a169;width:${pC}%"  title="Cash ${pC}%"></div>`         : ''}
+        ${oth > 0 ? `<div style="background:#a0aec0;width:${pOth}%" title="Non classifié ${pOth}%"></div>` : ''}
+      </div>
+      <div style="font-size:8pt;color:#718096;display:flex;gap:8pt;flex-wrap:wrap">
+        ${a   > 0 ? `<span>🔵 Actions ${pA}%</span>`       : ''}
+        ${ob  > 0 ? `<span>🟡 Oblig. ${pOb}%</span>`       : ''}
+        ${c   > 0 ? `<span>🟢 Cash ${pC}%</span>`          : ''}
+        ${oth > 0 ? `<span>⚪ Non classifié ${pOth}%</span>` : ''}
+      </div>`;
+  }
+
+  // ── Sections par portfolio ───────────────────────────────────────────────
+  let pfSections = '';
+  let globalActions = 0, globalOblig = 0, globalCash = 0, globalOther = 0, globalTotal = 0;
+
+  STATE.portfolios.forEach(pf => {
+    const envs = STATE.envelopes.filter(e => e.portfolio_id === pf.id && e.actif !== false);
+    if (!envs.length) return;
+
+    let envRows = '';
+    let pfActions = 0, pfOblig = 0, pfCash = 0, pfOther = 0, pfTotal = 0;
+
+    envs.forEach(env => {
+      const stats = envelopeStats(env.id);
+      if (!stats.total) return;
+      const alloc = envelopeAlloc(env);
+      pfActions += alloc.actions; pfOblig += alloc.obligations;
+      pfCash    += alloc.cash;    pfOther += alloc.other;
+      pfTotal   += alloc.total;
+
+      const pv    = stats.total - stats.invested;
+      const pvPct = stats.invested > 0 ? (pv / stats.invested * 100).toFixed(2) : 0;
+
+      // Détail des positions (hors LIQUIDITES et épargne pure non classifiée)
+      const positions = STATE.positions.filter(p => p.envelope_id === env.id && p.identifiant !== 'LIQUIDITES');
+      let posRows = '';
+      positions.forEach(pos => {
+        const isEp  = isPosEpargne(pos, env.type);
+        const valAct = isEp
+          ? (pos.valeur_actuelle != null ? Number(pos.valeur_actuelle) : Number(pos.prix_achat))
+          : currentPrice(pos.identifiant, env.type) * Number(pos.quantite);
+        const valInv = isEp ? Number(pos.prix_achat) : Number(pos.prix_achat) * Number(pos.quantite);
+        const pvPos  = valAct - valInv;
+        const pvPctP = valInv > 0 ? (pvPos / valInv * 100).toFixed(2) : 0;
+        const nom    = pos.nom || STATE.prices.find(p => p.isin === pos.identifiant)?.nom || pos.identifiant;
+        const typeLabel = pos.asset_type ? (ASSET_LABELS[pos.asset_type] || pos.asset_type) : (isEp ? 'Épargne' : '—');
+        posRows += `<tr>
+          <td><strong>${pos.identifiant}</strong>${nom && nom !== pos.identifiant ? ` <span class="muted">— ${nom}</span>` : ''}</td>
+          <td>${typeLabel}</td>
+          <td class="r">${_n(valInv)}</td>
+          <td class="r">${_n(valAct)}</td>
+          <td class="r ${_sgn(pvPos)}">${pvPos >= 0 ? '+' : ''}${_n(pvPos)} (${pvPos >= 0 ? '+' : ''}${pvPctP}%)</td>
+        </tr>`;
+      });
+
+      envRows += `
+        <tr style="background:#f7fafc;font-weight:600">
+          <td colspan="5">
+            ${env.nom} <span class="muted tag" style="font-weight:400">${env.type}</span>
+            <div style="margin-top:3pt">${allocBar(alloc.actions, alloc.obligations, alloc.cash, alloc.other, alloc.total)}</div>
+          </td>
+        </tr>
+        <tr style="background:#f7fafc">
+          <td class="muted" style="padding-left:14pt">Investi</td>
+          <td></td>
+          <td class="r muted">${_n(stats.invested)}</td>
+          <td class="r muted">${_n(stats.total)}</td>
+          <td class="r ${_sgn(pv)}">${pv >= 0 ? '+' : ''}${_n(pv)} (${pv >= 0 ? '+' : ''}${pvPct}%)</td>
+        </tr>
+        ${posRows}`;
+    });
+
+    if (!pfTotal) return;
+    globalActions += pfActions; globalOblig += pfOblig;
+    globalCash    += pfCash;    globalOther += pfOther;
+    globalTotal   += pfTotal;
+
+    const pvPf  = pfTotal - STATE.envelopes.filter(e => e.portfolio_id === pf.id && e.actif !== false).reduce((s, e) => s + envelopeStats(e.id).invested, 0);
+    const pvPct = pfTotal > 0 ? (pvPf / (pfTotal - pvPf) * 100).toFixed(2) : 0;
+
+    pfSections += `
+    <div class="section">
+      <h2>${pf.nom}</h2>
+      <div class="grid4" style="margin-bottom:8pt">
+        <div class="card"><div class="lbl">Valeur totale</div><div class="val">${_n(pfTotal)}</div></div>
+        <div class="card"><div class="lbl">Actions</div><div class="val" style="color:#3182ce">${(pfActions/pfTotal*100).toFixed(1)}%</div><div class="sub">${_n(pfActions)}</div></div>
+        <div class="card"><div class="lbl">Obligations</div><div class="val" style="color:#d69e2e">${(pfOblig/pfTotal*100).toFixed(1)}%</div><div class="sub">${_n(pfOblig)}</div></div>
+        <div class="card"><div class="lbl">Cash / Non classifié</div><div class="val" style="color:#38a169">${((pfCash+pfOther)/pfTotal*100).toFixed(1)}%</div><div class="sub">${_n(pfCash+pfOther)}</div></div>
+      </div>
+      <div style="margin-bottom:10pt">${allocBar(pfActions, pfOblig, pfCash, pfOther, pfTotal)}</div>
+      <table>
+        <thead><tr>
+          <th>Position / Enveloppe</th>
+          <th>Type</th>
+          <th class="r">Investi</th>
+          <th class="r">Valeur actuelle</th>
+          <th class="r">+/− €</th>
+        </tr></thead>
+        <tbody>${envRows}</tbody>
+      </table>
+    </div>`;
+  });
+
+  // ── Synthèse globale ─────────────────────────────────────────────────────
+  const globalSection = globalTotal ? `
+    <div class="section">
+      <h2>Synthèse globale</h2>
+      <div class="grid4" style="margin-bottom:8pt">
+        <div class="card"><div class="lbl">Total patrimoine financier</div><div class="val">${_n(globalTotal)}</div></div>
+        <div class="card"><div class="lbl">Actions</div><div class="val" style="color:#3182ce">${(globalActions/globalTotal*100).toFixed(1)}%</div><div class="sub">${_n(globalActions)}</div></div>
+        <div class="card"><div class="lbl">Obligations</div><div class="val" style="color:#d69e2e">${(globalOblig/globalTotal*100).toFixed(1)}%</div><div class="sub">${_n(globalOblig)}</div></div>
+        <div class="card"><div class="lbl">Cash / Non classifié</div><div class="val" style="color:#38a169">${((globalCash+globalOther)/globalTotal*100).toFixed(1)}%</div><div class="sub">${_n(globalCash+globalOther)}</div></div>
+      </div>
+      ${allocBar(globalActions, globalOblig, globalCash, globalOther, globalTotal)}
+    </div>` : '';
+
+  const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+  <title>Rapport Financier — ${dateStr}</title>
+  ${_pdfStyle()}
+  </head><body>
+    <div class="no-print"><button onclick="window.print()" style="padding:6pt 14pt;background:#1a365d;color:#fff;border:none;border-radius:4pt;cursor:pointer;font-size:10pt">🖨 Imprimer / Enregistrer PDF</button></div>
+    ${_pdfHeader('Rapport Financier', `Répartition & allocation au ${dateStr}`, dateStr)}
     ${globalSection}
     ${pfSections}
     ${_pdfFooter(dateStr)}
