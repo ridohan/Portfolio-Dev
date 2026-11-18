@@ -198,12 +198,12 @@ const SnapshotService = {
       const positions = STATE.positions.filter(p => p.envelope_id === envelope.id);
       if (!positions.length) return;
 
-      const isEpargne = envelope.type === 'épargne';
       let valeurInvestie = 0, valeurActuelle = 0;
 
       positions.forEach(pos => {
         const qte     = Number(pos.quantite)   || 0;
         const pxAchat = Number(pos.prix_achat) || 0;
+        const isEpPos = envelope.type === 'épargne' || pos.pos_type === 'épargne';
 
         if (pos.identifiant === 'LIQUIDITES') {
           valeurInvestie += qte;
@@ -211,13 +211,18 @@ const SnapshotService = {
           return;
         }
 
-        const lookupKey = pos.identifiant; // ID CoinGecko pour crypto, ISIN pour bourse
-        // Fallback Number(identifiant) pour les types non reconnus (livret, PEL…)
-        // où l'identifiant contient directement la valeur en € — miroir de currentPrice()
-        const pxActuel = isEpargne ? pxAchat : (priceIndex[lookupKey] || Number(lookupKey) || 0);
+        if (isEpPos) {
+          // valeur_actuelle dissociée de prix_achat si renseignée
+          const va = pos.valeur_actuelle != null ? Number(pos.valeur_actuelle) : pxAchat;
+          valeurInvestie += pxAchat;
+          valeurActuelle += va;
+          return;
+        }
 
-        valeurInvestie += isEpargne ? pxAchat : pxAchat * qte;
-        valeurActuelle += isEpargne ? pxAchat : pxActuel * qte;
+        const lookupKey = pos.identifiant;
+        const pxActuel = priceIndex[lookupKey] || Number(lookupKey) || 0;
+        valeurInvestie += pxAchat * qte;
+        valeurActuelle += pxActuel * qte;
       });
 
       const pvEuros = valeurActuelle - valeurInvestie;
