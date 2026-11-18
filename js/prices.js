@@ -65,9 +65,10 @@ const PriceService = {
   async fetchETFNames(isins) {
     if (!isins.length) return {};
     try {
-      // OpenFIGI API publique — 100 ISINs max par requête, 25 req/min sans clé
+      const proxy = (STATE.ui_prefs?.justetf_proxy_url || '').trim().replace(/\/$/, '');
+      const url = proxy ? `${proxy}/openfigi/v3/mapping` : 'https://api.openfigi.com/v3/mapping';
       const body = isins.map(isin => ({ idType: 'ID_ISIN', idValue: isin }));
-      const res = await fetch('https://api.openfigi.com/v3/mapping', {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -91,7 +92,7 @@ const PriceService = {
     const bourseIds = STATE.envelopes.filter(e => e.type === 'bourse').map(e => e.id);
     const isins = [...new Set(
       STATE.positions
-        .filter(p => bourseIds.includes(p.envelope_id) && p.identifiant && p.identifiant !== 'LIQUIDITES')
+        .filter(p => bourseIds.includes(p.envelope_id) && p.identifiant && p.identifiant !== 'LIQUIDITES' && p.pos_type !== 'épargne')
         .map(p => p.identifiant)
     )];
 
