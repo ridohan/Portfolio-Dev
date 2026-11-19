@@ -2378,7 +2378,10 @@ function envelopeCard(e) {
         </div>
         <div class="flex flex-col items-end gap-1.5 flex-shrink-0 ml-2">
           <span class="${pv >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)</span>
-          <button onclick="event.stopPropagation();toggleEnvelope('${e.id}')" class="text-xs transition px-1.5 py-0.5 rounded ${isActive ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400' : 'bg-slate-600 text-slate-400 hover:bg-emerald-500/20 hover:text-emerald-400'}" title="${isActive ? 'Désactiver' : 'Activer'}">${isActive ? 'Actif' : 'Inactif'}</button>
+          <div class="flex items-center gap-1.5">
+            ${e.exclure_rendement ? `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-500" title="Exclue du calcul de rendement">exclu rend.</span>` : ''}
+            <button onclick="event.stopPropagation();toggleEnvelope('${e.id}')" class="text-xs transition px-1.5 py-0.5 rounded ${isActive ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400' : 'bg-slate-600 text-slate-400 hover:bg-emerald-500/20 hover:text-emerald-400'}" title="${isActive ? 'Désactiver' : 'Activer'}">${isActive ? 'Actif' : 'Inactif'}</button>
+          </div>
         </div>
       </div>
       <p class="text-white text-xl font-bold mt-3 cursor-pointer" onclick="navigate('#envelope/${e.id}')">${fmt(total)}</p>
@@ -2833,6 +2836,10 @@ function modalEditEnvelope() {
             <label class="label">Date d'ouverture <span class="text-slate-500">optionnel</span></label>
             <input name="date_ouverture" id="edit-envelope-date-ouverture" type="date" class="input" />
           </div>
+          <div class="flex items-center gap-3 py-1">
+            <input type="checkbox" id="edit-envelope-exclure-rendement" class="w-4 h-4 rounded accent-blue-500" />
+            <label for="edit-envelope-exclure-rendement" class="text-slate-300 text-sm cursor-pointer">Exclure du calcul de rendement</label>
+          </div>
           <p id="err-edit-envelope" class="text-red-400 text-xs hidden"></p>
           <div class="flex gap-2 pt-1">
             <button type="submit" class="btn-primary flex-1">Enregistrer</button>
@@ -3094,15 +3101,17 @@ function openEditEnvelope(e) {
   document.getElementById('modal-edit-envelope')?.classList.remove('hidden');
   document.getElementById('edit-envelope-nom').value = e.nom || '';
   document.getElementById('edit-envelope-date-ouverture').value = e.date_ouverture || '';
+  document.getElementById('edit-envelope-exclure-rendement').checked = !!e.exclure_rendement;
 
   document.getElementById('form-edit-envelope').onsubmit = async ev => {
     ev.preventDefault();
     const btn = ev.target.querySelector('[type=submit]');
     setLoading(btn, true);
     const d = Object.fromEntries(new FormData(ev.target));
+    const exclure = document.getElementById('edit-envelope-exclure-rendement').checked;
     try {
       STATE.envelopes = STATE.envelopes.map(en => en.id === e.id
-        ? { ...en, nom: d.nom, date_ouverture: d.date_ouverture || null }
+        ? { ...en, nom: d.nom, date_ouverture: d.date_ouverture || null, exclure_rendement: exclure || undefined }
         : en);
       closeModal('edit-envelope');
       saveAndRender();
@@ -4350,7 +4359,9 @@ function computeAnnualReturn(histEntries, dateOuverture = null) {
 // Moyenne pondérée des CAGR par enveloppe, filtrée sur un portfolio (ou globale si null).
 // Retourne { value, estimated } pour compatibilité avec statCards.
 function estimateAnnualReturnForEnvelopes(envelopes) {
-  const results = envelopes.map(e => _envelopeAnnualReturn(e)).filter(r => r !== null && r.value !== null);
+  const results = envelopes
+    .filter(e => !e.exclure_rendement)
+    .map(e => _envelopeAnnualReturn(e)).filter(r => r !== null && r.value !== null);
   if (!results.length) return { value: getDefaultReturnRate(), estimated: true };
 
   const totalVal = results.reduce((s, r) => s + r.valeurActuelle, 0);
