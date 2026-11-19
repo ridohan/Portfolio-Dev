@@ -2308,6 +2308,10 @@ function renderPortfolio(app, portfolioId) {
   const pv    = total - invested;
   const rebal = rebalancingSuggestions(portfolioId);
   const envs  = STATE.envelopes.filter(e => e.portfolio_id === portfolioId);
+  const pfOpeningDate = (() => {
+    const dates = envs.filter(e => e.date_ouverture).map(e => new Date(e.date_ouverture).getTime());
+    return dates.length ? new Date(Math.min(...dates)).toISOString().slice(0, 10) : null;
+  })();
 
   app.innerHTML = `
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Retour</a>`)}
@@ -2332,7 +2336,7 @@ function renderPortfolio(app, portfolioId) {
         </div>
         <p class="text-slate-400 text-xs sm:text-sm">Cible : ${p.cible_actions}% actions · ${p.cible_obligations}% obligations · ${p.cible_cash}% cash</p>
       </div>
-      ${statCards(total, invested, totalCharges, computeAnnualReturn(portfolioHistory(portfolioId)))}
+      ${statCards(total, invested, totalCharges, computeAnnualReturn(portfolioHistory(portfolioId), pfOpeningDate))}
       ${historySparkline(portfolioHistory(portfolioId), '#hist-pf/' + portfolioId)}
       ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
@@ -2402,7 +2406,7 @@ function renderEnvelope(app, envelopeId) {
         </div>
         <p class="text-slate-400 text-xs sm:text-sm capitalize">${e.type}</p>
       </div>
-      ${statCards(total, invested, 0, computeAnnualReturn(envelopeHistory(envelopeId)))}
+      ${statCards(total, invested, 0, computeAnnualReturn(envelopeHistory(envelopeId), e.date_ouverture || null))}
       ${historySparkline(envelopeHistory(envelopeId), '#hist-env/' + envelopeId)}
       <h2 class="text-lg font-semibold text-white">Positions</h2>
       ${positionsTable(positions, e.type)}
@@ -4303,24 +4307,21 @@ function _envelopeAnnualReturn(envelope) {
 }
 
 // Calcule le rendement annualisé (CAGR) à partir d'un tableau d'entrées history.
-// Pour la vue historique globale — utilise la date_ouverture la plus ancienne comme fallback.
+// `dateOuverture` : date d'ouverture de l'enveloppe/périmètre concerné (string YYYY-MM-DD).
+//   Si absent, cherche la plus ancienne parmi les enveloppes passées dans `envelopes` (ou toutes).
 // Retourne { value: number|null, estimated: boolean }
-function computeAnnualReturn(histEntries) {
+function computeAnnualReturn(histEntries, dateOuverture = null) {
   if (!histEntries || !histEntries.length) return { value: null, estimated: false };
   const last        = histEntries[histEntries.length - 1];
   const totalReturn = Number(last.pv_pct) / 100;
   if (!isFinite(totalReturn) || totalReturn <= -1) return { value: null, estimated: false };
 
-  // Cherche la date d'ouverture la plus ancienne parmi toutes les enveloppes
-  const openings = STATE.envelopes.filter(e => e.actif !== false && e.date_ouverture).map(e => new Date(e.date_ouverture));
-  const earliestOpening = openings.length ? new Date(Math.min(...openings)) : null;
-
   let days, fromOpening;
-  if (earliestOpening) {
-    days = (Date.now() - earliestOpening.getTime()) / 86400000;
+  if (dateOuverture) {
+    days        = (Date.now() - new Date(dateOuverture).getTime()) / 86400000;
     fromOpening = true;
   } else if (histEntries.length >= 2) {
-    days = (new Date(last.date) - new Date(histEntries[0].date)) / 86400000;
+    days        = (new Date(last.date) - new Date(histEntries[0].date)) / 86400000;
     fromOpening = false;
   } else {
     days = 0; fromOpening = false;
