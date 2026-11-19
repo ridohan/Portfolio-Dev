@@ -2319,6 +2319,43 @@ function portfolioCard(p) {
 
 // ─── PORTFOLIO DETAIL ─────────────────────────────────────────────────────────
 
+function portfolioDiversificationBloc(portfolioId) {
+  // Positions bourse de ce portfolio uniquement
+  const bourseEnvIds = STATE.envelopes
+    .filter(e => e.portfolio_id === portfolioId && e.type === 'bourse')
+    .map(e => e.id);
+  if (!bourseEnvIds.length) return '';
+
+  const byCat = {};
+  bourseEnvIds.forEach(envId => {
+    const env = STATE.envelopes.find(e => e.id === envId);
+    STATE.positions.filter(p => p.envelope_id === envId).forEach(pos => {
+      if (isPosEpargne(pos, 'bourse') || pos.identifiant === 'LIQUIDITES') return;
+      const val = Math.round(currentPrice(pos.identifiant, 'bourse') * Number(pos.quantite || 0));
+      if (val <= 0) return;
+      const cat = inferEtfCategory(pos, 'bourse');
+      byCat[cat] = (byCat[cat] || 0) + val;
+    });
+  });
+
+  const entries = INVEST_CATEGORIES
+    .filter(c => byCat[c.key] > 0)
+    .map(c => ({ ...c, val: byCat[c.key] }))
+    .sort((a, b) => b.val - a.val);
+
+  if (!entries.length) return '';
+
+  const total = entries.reduce((s, e) => s + e.val, 0);
+  const chart = svgHorizBars(entries, 'ETF Bourse');
+
+  return `
+    <div class="bg-slate-800 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Analyse Bourse — Diversification ETF</h2>
+      <p class="text-slate-500 text-xs mb-4">${fmt(Math.round(total))} · Positions bourse de ce portfolio</p>
+      ${chart}
+    </div>`;
+}
+
 function renderPortfolio(app, portfolioId) {
   const p = STATE.portfolios.find(x => x.id === portfolioId);
   if (!p) { navigate('#dashboard'); return; }
@@ -2329,7 +2366,7 @@ function renderPortfolio(app, portfolioId) {
   const envs  = STATE.envelopes.filter(e => e.portfolio_id === portfolioId);
 
   app.innerHTML = `
-    ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Retour</a>`)}
+    ${navbar(`<a href="#investissements" onclick="navigate('#investissements');return false;" class="text-slate-400 hover:text-white text-sm">← Retour</a>`)}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
       <div class="space-y-2">
         <div class="flex items-center justify-between gap-2">
@@ -2358,6 +2395,7 @@ function renderPortfolio(app, portfolioId) {
       <h2 class="text-lg font-semibold text-white">Enveloppes</h2>
       ${envelopeTypeAllocBar(STATE.envelopes.filter(e => e.portfolio_id === portfolioId))}
       ${envelopesSection(portfolioId)}
+      ${portfolioDiversificationBloc(portfolioId)}
       ${chargesSection(portfolioId)}
     </div>
     ${modalEnvelope()}
@@ -2520,7 +2558,8 @@ function positionsTable(positions, type) {
       ? (Number(pos.quantite) > 0 ? `${Number(pos.quantite).toFixed(2)}%` : '—')
       : `${pos.quantite} × ${paFmt}`;
 
-    return { pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel, pv, isEpPos };
+    const etfCat = type === 'bourse' && !isCash && !isEpPos ? inferEtfCategory(pos, type) : null;
+    return { pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel, pv, isEpPos, etfCat };
   });
 
   // Récap allocation pour les enveloppes bourse
@@ -2554,7 +2593,18 @@ function positionsTable(positions, type) {
       </div>`;
   })();
 
-  const mobileCards = rowData.map(({ pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel }) => `
+  const catBadgeMap = {
+    'Monde':             `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">🌍 Monde</span>`,
+    'USA':               `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">🇺🇸 USA</span>`,
+    'Europe':            `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">🇪🇺 Europe</span>`,
+    'Pays émergents':    `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">🌏 Émergents</span>`,
+    'Obligataire':       `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">📉 Oblig.</span>`,
+    'Monétaire & Divers':`<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">💰 Monét.</span>`,
+    'Crypto':            `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">₿ Crypto</span>`,
+    'Liquidités':        `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">💶 Cash</span>`,
+  };
+
+  const mobileCards = rowData.map(({ pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel, etfCat }) => `
     <div class="border-t border-slate-700 px-4 py-3">
       <div class="flex items-start justify-between gap-2 mb-1.5">
         <div class="min-w-0">
@@ -2568,19 +2618,21 @@ function positionsTable(positions, type) {
       </div>
       <div class="flex items-center gap-2 flex-wrap mt-1">
         ${typeBadge}
+        ${etfCat ? (catBadgeMap[etfCat] || `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">${esc(etfCat)}</span>`) : ''}
         <span class="text-slate-400 text-xs">${qtyStr}</span>
         <span class="text-white text-sm font-semibold">${fmt(valActuel)}</span>
         <span class="${pvColor} text-xs font-medium">${pvStr}</span>
       </div>
     </div>`).join('');
 
-  const desktopRows = rowData.map(({ pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel }) => `
+  const desktopRows = rowData.map(({ pos, label, typeBadge, qtyStr, pvColor, pvStr, valActuel, etfCat }) => `
     <tr class="border-t border-slate-700 hover:bg-slate-750">
       <td class="py-3 px-4">
         <p class="text-white font-medium">${esc(label)}</p>
         <p class="text-slate-500 text-xs">${esc(pos.identifiant)}</p>
       </td>
       ${type === 'bourse' ? `<td class="py-3 px-4">${typeBadge}</td>` : ''}
+      ${type === 'bourse' ? `<td class="py-3 px-4">${etfCat ? (catBadgeMap[etfCat] || `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-300">${esc(etfCat)}</span>`) : '<span class="text-slate-600 text-xs">—</span>'}</td>` : ''}
       <td class="py-3 px-4 text-slate-300">${qtyStr}</td>
       <td class="py-3 px-4 text-white">${fmt(valActuel)}</td>
       <td class="py-3 px-4 ${pvColor}">${pvStr}</td>
@@ -2600,6 +2652,7 @@ function positionsTable(positions, type) {
           <tr class="text-slate-400 text-left">
             ${th('identifiant', isEpargne ? 'Compte' : 'Identifiant')}
             ${isBourse ? th('type', 'Type') : ''}
+            ${isBourse ? th('categorie', 'Catégorie') : ''}
             <th class="py-3 px-4">${isEpargne ? 'Taux' : 'Quantité × Prix achat'}</th>
             ${th('valeur', 'Valeur actuelle')}
             ${th('pv', 'Plus-value')}
@@ -2701,6 +2754,18 @@ function modalPosition(envelopeId, type) {
                 <option value="immobilier">🏠 Immobilier (SCPI/REIT)</option>
                 <option value="matieres_premieres">🪙 Matières premières</option>
                 <option value="diversifie">🌍 Diversifié / Multi-actifs</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Catégorie diversification <span class="text-slate-500">optionnel</span></label>
+              <select id="pos-categorie" class="input">
+                <option value="">— Auto (par nom)</option>
+                <option value="Monde">🌍 Monde</option>
+                <option value="USA">🇺🇸 USA</option>
+                <option value="Europe">🇪🇺 Europe</option>
+                <option value="Pays émergents">🌏 Pays émergents</option>
+                <option value="Obligataire">📉 Obligataire</option>
+                <option value="Monétaire & Divers">💰 Monétaire & Divers</option>
               </select>
             </div>`}
           </div>
@@ -2920,6 +2985,18 @@ function modalEditPosition(type) {
                 <option value="diversifie">🌍 Diversifié / Multi-actifs</option>
               </select>
             </div>
+            <div class="mt-2">
+              <label class="label">Catégorie diversification <span class="text-slate-500">optionnel</span></label>
+              <select id="edit-pos-categorie" class="input">
+                <option value="">— Auto (par nom)</option>
+                <option value="Monde">🌍 Monde</option>
+                <option value="USA">🇺🇸 USA</option>
+                <option value="Europe">🇪🇺 Europe</option>
+                <option value="Pays émergents">🌏 Pays émergents</option>
+                <option value="Obligataire">📉 Obligataire</option>
+                <option value="Monétaire & Divers">💰 Monétaire & Divers</option>
+              </select>
+            </div>
           </div>
           <p id="err-edit-position" class="text-red-400 text-xs hidden"></p>
           <div class="flex gap-2 pt-1">
@@ -3027,11 +3104,12 @@ function openModal(type, ...args) {
         const pa         = gn('pos-pa');
         const qty        = parseFloat(document.getElementById('pos-qty')?.value) || 0;
         const assetType  = g('pos-asset-type');
+        const categorie  = g('pos-categorie');
         if (!isin || !pa || !qty) {
           if (errEl) { errEl.textContent = 'ISIN, prix et quantité requis.'; errEl.classList.remove('hidden'); }
           setLoading(btn, false); return;
         }
-        payload = { envelope_id: args[0], identifiant: isin, prix_achat: pa, quantite: qty, ...(assetType ? { asset_type: assetType } : {}) };
+        payload = { envelope_id: args[0], identifiant: isin, prix_achat: pa, quantite: qty, ...(assetType ? { asset_type: assetType } : {}), ...(categorie ? { categorie } : {}) };
       }
       try {
         STATE.positions.push({ id: newId('pos'), ...payload });
@@ -3156,10 +3234,11 @@ function openEditPosition(pos) {
     if (g('edit-symbole'))    g('edit-symbole').value    = pos.symbole     || '';
     if (g('edit-identifiant')) g('edit-identifiant').value = pos.identifiant || '';
   } else {
-    if (g('edit-isin'))       g('edit-isin').value       = pos.identifiant  || '';
-    if (g('edit-pa'))         g('edit-pa').value         = pos.prix_achat   != null ? pos.prix_achat  : '';
-    if (g('edit-qty'))        g('edit-qty').value        = pos.quantite     != null ? pos.quantite    : '';
-    if (g('edit-asset-type')) g('edit-asset-type').value = pos.asset_type   || '';
+    if (g('edit-isin'))         g('edit-isin').value         = pos.identifiant  || '';
+    if (g('edit-pa'))           g('edit-pa').value           = pos.prix_achat   != null ? pos.prix_achat  : '';
+    if (g('edit-qty'))          g('edit-qty').value          = pos.quantite     != null ? pos.quantite    : '';
+    if (g('edit-asset-type'))   g('edit-asset-type').value   = pos.asset_type   || '';
+    if (g('edit-pos-categorie')) g('edit-pos-categorie').value = pos.categorie  || '';
   }
 
   document.getElementById('form-edit-position').onsubmit = async e => {
@@ -3201,11 +3280,13 @@ function openEditPosition(pos) {
       } else {
         const isin      = gv('edit-isin');
         const assetType = gv('edit-asset-type');
+        const categorie = gv('edit-pos-categorie');
         updates = {
           identifiant: isin || pos.identifiant,
           prix_achat:  gn('edit-pa'),
           quantite:    gn('edit-qty'),
           ...(assetType ? { asset_type: assetType } : { asset_type: undefined }),
+          ...(categorie ? { categorie } : { categorie: undefined }),
         };
       }
       STATE.positions = STATE.positions.map(p => p.id === pos.id ? { ...p, ...updates } : p);
@@ -7321,16 +7402,17 @@ function inferEtfCategory(pos, envType) {
   if (pos.identifiant === 'LIQUIDITES') return 'Liquidités';
   if (envType === 'crypto') return 'Crypto';
 
+  // Priorité 1 : catégorie manuelle sur la position
+  if (pos.categorie && String(pos.categorie).trim()) return String(pos.categorie).trim();
+
   const price = STATE.prices.find(p => p.isin === pos.identifiant);
 
-  // Priorité 1 : colonne "categorie" renseignée manuellement dans la sheet prices
-  // Valeurs attendues : "Monde", "USA", "Europe", "Pays émergents",
-  //                     "Obligataire", "Monétaire & Divers"
+  // Priorité 2 : colonne "categorie" renseignée dans la sheet prices
   if (price?.categorie && String(price.categorie).trim()) {
     return String(price.categorie).trim();
   }
 
-  // Priorité 2 : matching par mots-clés sur le nom (pos.nom + nom JustETF depuis prices)
+  // Priorité 3 : matching par mots-clés sur le nom (pos.nom + nom JustETF depuis prices)
   const priceName = price?.nom || '';
   const search = ((pos.nom || '') + ' ' + priceName).toLowerCase().trim()
               || (pos.identifiant || '').toLowerCase();
