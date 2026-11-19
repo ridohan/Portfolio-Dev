@@ -2295,6 +2295,9 @@ function portfolioCard(p) {
   const { total, invested, alloc, totalCharges } = portfolioStats(p.id);
   const pv      = total - invested;
   const pvPct   = invested > 0 ? ((pv / invested) * 100).toFixed(1) : 0;
+  const cagr    = estimateAnnualReturnForEnvelopes(envs.filter(e => e.actif !== false));
+  const cagrStr = cagr.value !== null ? `${cagr.value >= 0 ? '+' : ''}${cagr.value}%/an${cagr.estimated ? '*' : ''}` : null;
+  const pvColor = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
 
   return `
     <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition cursor-pointer" onclick="navigate('#portfolio/${p.id}')">
@@ -2303,9 +2306,10 @@ function portfolioCard(p) {
           <h3 class="text-white font-semibold">${esc(p.nom)}</h3>
           <p class="text-slate-400 text-xs">${envs.length} enveloppe${envs.length > 1 ? 's' : ''}</p>
         </div>
-        <span class="${pv >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm font-medium">
-          ${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)
-        </span>
+        <div class="text-right">
+          <p class="${pvColor} text-sm font-medium">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)</p>
+          ${cagrStr ? `<p class="${pvColor} text-xs opacity-70">${cagrStr}</p>` : ''}
+        </div>
       </div>
       <p class="text-white text-xl font-bold mb-1">${fmt(totalCharges > 0 ? total - totalCharges : total)}</p>
       <p class="text-slate-500 text-xs h-4 mb-2">${totalCharges > 0 ? `Brut : ${fmt(total)} · Charges : −${fmt(totalCharges)}` : ''}</p>
@@ -2368,6 +2372,9 @@ function envelopeCard(e) {
   const pv    = total - invested;
   const pvPct = invested > 0 ? ((pv / invested) * 100).toFixed(1) : 0;
   const badge = { bourse: 'bg-blue-500/20 text-blue-300', crypto: 'bg-purple-500/20 text-purple-300', épargne: 'bg-emerald-500/20 text-emerald-300' };
+  const cagr    = !e.exclure_rendement ? _envelopeAnnualReturn(e) : null;
+  const cagrStr = cagr?.value != null ? `${cagr.value >= 0 ? '+' : ''}${cagr.value}%/an${cagr.estimated ? '*' : ''}` : null;
+  const pvColor = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
 
   return `
     <div class="bg-slate-800 rounded-xl p-5 hover:bg-slate-750 transition ${isActive ? '' : 'opacity-50'}">
@@ -2377,8 +2384,11 @@ function envelopeCard(e) {
           <span class="text-xs px-2 py-0.5 rounded-full ${badge[e.type] || 'bg-slate-600 text-slate-300'}">${e.type}</span>
         </div>
         <div class="flex flex-col items-end gap-1.5 flex-shrink-0 ml-2">
-          <span class="${pv >= 0 ? 'text-emerald-400' : 'text-red-400'} text-sm">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)</span>
-          <div class="flex items-center gap-1.5">
+          <div class="text-right">
+            <p class="${pvColor} text-sm">${pv >= 0 ? '+' : ''}${fmt(pv)} (${pvPct}%)</p>
+            ${cagrStr ? `<p class="${pvColor} text-xs opacity-70">${cagrStr}</p>` : ''}
+          </div>
+          <div class="flex items-center gap-1.5 mt-1">
             ${e.exclure_rendement ? `<span class="text-xs px-1.5 py-0.5 rounded bg-slate-600/60 text-slate-500" title="Exclue du calcul de rendement">exclu rend.</span>` : ''}
             <button onclick="event.stopPropagation();toggleEnvelope('${e.id}')" class="text-xs transition px-1.5 py-0.5 rounded ${isActive ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400' : 'bg-slate-600 text-slate-400 hover:bg-emerald-500/20 hover:text-emerald-400'}" title="${isActive ? 'Désactiver' : 'Activer'}">${isActive ? 'Actif' : 'Inactif'}</button>
           </div>
