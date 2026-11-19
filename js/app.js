@@ -2205,7 +2205,7 @@ function _dashBlock(id, stats) {
           </a>
         </div>
       </div>
-      ${statCards(total, invested, totalCharges, computeAnnualReturn(globalHistory()), '#investissements')}
+      ${statCards(total, invested, totalCharges, estimateAnnualReturn(), '#investissements')}
       ${allocBar(alloc, 'Allocation globale', 'md', null, total)}
       ${historySparkline(globalHistory(), '#hist-global')}`;
     case 'patrimoine_global': return patrimoineGlobalBloc(stats);
@@ -2260,12 +2260,14 @@ function _dashBlock(id, stats) {
 
 function renderDashboard(app) {
   const stats = globalStats();
-  const order = loadDashOrder();
+  const order  = loadDashOrder();
+  const hidden = loadDashHidden();
+  const visible = order.filter(id => !hidden.includes(id));
 
   app.innerHTML = `
     ${navbar({ dashReorder: true })}
     <div class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
-      ${order.map(id => _dashBlock(id, stats)).join('')}
+      ${visible.map(id => _dashBlock(id, stats)).join('')}
     </div>
     ${modalPortfolio()}
     ${modalEoy()}
@@ -2617,6 +2619,10 @@ function modalEnvelope() {
             <option value="crypto">Crypto</option>
             <option value="épargne">Épargne</option>
           </select>
+          <div>
+            <label class="label">Date d'ouverture <span class="text-slate-500">optionnel</span></label>
+            <input name="date_ouverture" type="date" class="input" />
+          </div>
           <p id="err-envelope" class="text-red-400 text-xs hidden"></p>
           <div class="flex gap-2 pt-1">
             <button type="submit" class="btn-primary flex-1">Créer</button>
@@ -2808,6 +2814,10 @@ function modalEditEnvelope() {
             <label class="label">Nom</label>
             <input name="nom" id="edit-envelope-nom" required class="input" />
           </div>
+          <div>
+            <label class="label">Date d'ouverture <span class="text-slate-500">optionnel</span></label>
+            <input name="date_ouverture" id="edit-envelope-date-ouverture" type="date" class="input" />
+          </div>
           <p id="err-edit-envelope" class="text-red-400 text-xs hidden"></p>
           <div class="flex gap-2 pt-1">
             <button type="submit" class="btn-primary flex-1">Enregistrer</button>
@@ -2916,7 +2926,7 @@ function openModal(type, ...args) {
       setLoading(btn, true);
       const d = Object.fromEntries(new FormData(e.target));
       try {
-        STATE.envelopes.push({ id: newId('env'), nom: d.nom, type: d.type, portfolio_id: args[0], sub_portfolio_id: '' });
+        STATE.envelopes.push({ id: newId('env'), nom: d.nom, type: d.type, portfolio_id: args[0], sub_portfolio_id: '', date_ouverture: d.date_ouverture || null });
         closeModal('envelope'); saveAndRender();
       } finally { setLoading(btn, false); }
     };
@@ -3068,6 +3078,7 @@ function openEditPortfolio(p) {
 function openEditEnvelope(e) {
   document.getElementById('modal-edit-envelope')?.classList.remove('hidden');
   document.getElementById('edit-envelope-nom').value = e.nom || '';
+  document.getElementById('edit-envelope-date-ouverture').value = e.date_ouverture || '';
 
   document.getElementById('form-edit-envelope').onsubmit = async ev => {
     ev.preventDefault();
@@ -3075,7 +3086,9 @@ function openEditEnvelope(e) {
     setLoading(btn, true);
     const d = Object.fromEntries(new FormData(ev.target));
     try {
-      STATE.envelopes = STATE.envelopes.map(en => en.id === e.id ? { ...en, nom: d.nom } : en);
+      STATE.envelopes = STATE.envelopes.map(en => en.id === e.id
+        ? { ...en, nom: d.nom, date_ouverture: d.date_ouverture || null }
+        : en);
       closeModal('edit-envelope');
       saveAndRender();
     } finally { setLoading(btn, false); }
@@ -4251,58 +4264,96 @@ function getMinHistoryMonths() { return Number(getUiPref('return_min_history_mon
 // Taux de rendement par défaut si l'historique est insuffisant (en %)
 function getDefaultReturnRate()  { return Number(getUiPref('return_default_rate', 7)); }
 
+// Calcule la durée en jours pour une enveloppe donnée.
+// Priorité : date_ouverture de l'enveloppe → premier snapshot → 0
+// Retourne { days, fromOpening }
+function _envelopeDurationDays(envelope, histEntries) {
+  if (envelope?.date_ouverture) {
+    const days = (Date.now() - new Date(envelope.date_ouverture).getTime()) / 86400000;
+    return { days: Math.max(1, days), fromOpening: true };
+  }
+  if (histEntries && histEntries.length >= 2) {
+    const days = (new Date(histEntries[histEntries.length - 1].date) - new Date(histEntries[0].date)) / 86400000;
+    return { days, fromOpening: false };
+  }
+  return { days: 0, fromOpening: false };
+}
+
+// Calcule le CAGR d'une enveloppe : { value, estimated, valeurActuelle }
+// Utilisé pour la moyenne pondérée globale.
+function _envelopeAnnualReturn(envelope) {
+  const hist = envelopeHistory(envelope.id);
+  const last = hist.length ? hist[hist.length - 1] : null;
+  if (!last) return null;
+
+  const totalReturn = Number(last.pv_pct) / 100;
+  if (!isFinite(totalReturn) || totalReturn <= -1) return null;
+
+  const valeurActuelle = Number(last.valeur_actuelle) || 0;
+  const { days, fromOpening } = _envelopeDurationDays(envelope, hist);
+  const minDays  = getMinHistoryMonths() * 30;
+  const reliable = fromOpening || days >= minDays;
+
+  if (!reliable) {
+    return { value: Math.round(totalReturn * 1000) / 10, estimated: true, valeurActuelle };
+  }
+  const years      = Math.max(days, 1) / 365;
+  const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
+  return { value: Math.round(annualized * 10) / 10, estimated: false, valeurActuelle };
+}
+
 // Calcule le rendement annualisé (CAGR) à partir d'un tableau d'entrées history.
+// Pour la vue historique globale — utilise la date_ouverture la plus ancienne comme fallback.
 // Retourne { value: number|null, estimated: boolean }
-//   • value      : rendement annualisé en %, arrondi à 0.1 %
-//   • estimated  : true si l'historique est < 6 mois (on suppose 5 ans de détention)
 function computeAnnualReturn(histEntries) {
   if (!histEntries || !histEntries.length) return { value: null, estimated: false };
   const last        = histEntries[histEntries.length - 1];
   const totalReturn = Number(last.pv_pct) / 100;
   if (!isFinite(totalReturn) || totalReturn <= -1) return { value: null, estimated: false };
 
-  const first    = histEntries[0];
-  const histDays = histEntries.length >= 2
-    ? (new Date(last.date) - new Date(first.date)) / 86400000
-    : 0;
+  // Cherche la date d'ouverture la plus ancienne parmi toutes les enveloppes
+  const openings = STATE.envelopes.filter(e => e.actif !== false && e.date_ouverture).map(e => new Date(e.date_ouverture));
+  const earliestOpening = openings.length ? new Date(Math.min(...openings)) : null;
 
-  // Moins de N mois d'historique → hypothèse 5 ans de détention
-  const minDays   = getMinHistoryMonths() * 30;
-  const estimated = histDays < minDays;
-  const years     = estimated ? 5 : histDays / 365;
+  let days, fromOpening;
+  if (earliestOpening) {
+    days = (Date.now() - earliestOpening.getTime()) / 86400000;
+    fromOpening = true;
+  } else if (histEntries.length >= 2) {
+    days = (new Date(last.date) - new Date(histEntries[0].date)) / 86400000;
+    fromOpening = false;
+  } else {
+    days = 0; fromOpening = false;
+  }
 
+  const minDays  = getMinHistoryMonths() * 30;
+  const reliable = fromOpening || days >= minDays;
+  if (!reliable) return { value: Math.round(totalReturn * 1000) / 10, estimated: true };
+
+  const years      = Math.max(days, 1) / 365;
   const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
-  return { value: Math.round(annualized * 10) / 10, estimated };
+  return { value: Math.round(annualized * 10) / 10, estimated: false };
 }
 
-// Estime le rendement annuel net à partir de l'historique global du portfolio.
-// Méthode : annualise le PV% total (valeur_actuelle / valeur_investie − 1).
-//
-// Durée utilisée :
-//   • Historique >= 6 mois → on utilise la durée réelle observée
-//   • Historique < 6 mois (ou absent) → on suppose que les positions sont
-//     détenues depuis 5 ans (hypothèse conservative pour un portefeuille existant)
+// Estime le rendement annuel net global — moyenne pondérée par valeur des CAGR par enveloppe.
+// Retourne { value, estimated } pour compatibilité avec statCards.
 function estimateAnnualReturn() {
-  const hist = globalHistory();
-  const last  = hist.length ? hist[hist.length - 1] : null;
+  const activeEnvs = STATE.envelopes.filter(e => e.actif !== false);
+  const results = activeEnvs.map(e => _envelopeAnnualReturn(e)).filter(r => r !== null && r.value !== null);
 
-  // PV% : ratio rendement total depuis le prix d'achat
-  const totalReturn = last ? Number(last.pv_pct) / 100 : null;
-  if (totalReturn === null || !isFinite(totalReturn) || totalReturn <= -1) return getDefaultReturnRate();
+  if (!results.length) return { value: getDefaultReturnRate(), estimated: true };
 
-  // Durée réelle de l'historique en jours
-  const first       = hist[0];
-  const histDays    = hist.length >= 2
-    ? (new Date(last.date) - new Date(first.date)) / 86400000
-    : 0;
+  const totalVal = results.reduce((s, r) => s + r.valeurActuelle, 0);
+  const estimated = results.some(r => r.estimated);
 
-  // Si moins de N mois d'historique : on pose l'hypothèse de 5 ans de détention
-  const minDays = getMinHistoryMonths() * 30;
-  const years   = histDays >= minDays ? histDays / 365 : 5;
+  let value;
+  if (totalVal <= 0) {
+    value = results.reduce((s, r) => s + r.value, 0) / results.length;
+  } else {
+    value = results.reduce((s, r) => s + r.value * r.valeurActuelle, 0) / totalVal;
+  }
 
-  const annualized = (Math.pow(1 + totalReturn, 1 / years) - 1) * 100;
-  // Arrondi au 0.5 % le plus proche, borné entre 0 et 20 %
-  return Math.max(0, Math.min(20, Math.round(annualized * 2) / 2));
+  return { value: Math.max(0, Math.min(20, Math.round(value * 2) / 2)), estimated };
 }
 
 // ─── PROJECTION FIN D'ANNÉE (EOY) ────────────────────────────────────────────
@@ -4334,6 +4385,16 @@ function loadDashOrder() {
 }
 function saveDashOrder(arr) { persistUiPref(DASH_ORDER_KEY, arr); }
 
+function loadDashHidden() { return getUiPref('dash_blocks_hidden', []); }
+function saveDashHidden(arr) { persistUiPref('dash_blocks_hidden', arr); }
+function toggleDashBlockVisible(id) {
+  const hidden = loadDashHidden();
+  const idx = hidden.indexOf(id);
+  if (idx >= 0) hidden.splice(idx, 1); else hidden.push(id);
+  saveDashHidden(hidden);
+  _renderDashOrderModal();
+}
+
 function openDashOrderModal() {
   let modal = document.getElementById('modal-dash-order');
   if (!modal) {
@@ -4354,19 +4415,28 @@ function closeDashOrderModal() {
 function _renderDashOrderModal() {
   const modal = document.getElementById('modal-dash-order');
   if (!modal) return;
-  const order = loadDashOrder();
+  const order  = loadDashOrder();
+  const hidden = loadDashHidden();
   modal.innerHTML = `
     <div class="modal-box w-full max-w-sm" onclick="event.stopPropagation()">
-      <h3 class="text-base font-bold text-white mb-1">⊞ Ordre des blocs</h3>
-      <p class="text-slate-500 text-xs mb-4">Utilisez ▲ ▼ pour réorganiser l'affichage du dashboard.</p>
+      <h3 class="text-base font-bold text-white mb-1">⊞ Blocs du dashboard</h3>
+      <p class="text-slate-500 text-xs mb-4">▲ ▼ pour réorganiser · 👁 pour afficher/masquer.</p>
       <div class="space-y-1.5 mb-5">
         ${order.map((id, i) => {
-          const block = DASH_BLOCKS_DEF.find(b => b.id === id);
+          const block   = DASH_BLOCKS_DEF.find(b => b.id === id);
           if (!block) return '';
+          const visible = !hidden.includes(id);
           return `
-            <div class="flex items-center gap-2 bg-slate-700/60 rounded-lg px-3 py-2.5">
-              <span class="text-slate-600 text-xs w-4 text-center select-none">${i + 1}</span>
-              <span class="flex-1 text-sm text-white">${block.label}</span>
+            <div class="flex items-center gap-2 rounded-lg px-3 py-2.5 transition ${visible ? 'bg-slate-700/60' : 'bg-slate-800/40'}">
+              <span class="text-slate-600 text-xs w-4 text-center select-none">${visible ? i + 1 : '—'}</span>
+              <span class="flex-1 text-sm ${visible ? 'text-white' : 'text-slate-500 line-through'}">${block.label}</span>
+              <button onclick="toggleDashBlockVisible('${id}')"
+                class="p-1 rounded transition ${visible ? 'text-slate-300 hover:text-white hover:bg-slate-600' : 'text-slate-600 hover:text-slate-400 hover:bg-slate-700'}"
+                title="${visible ? 'Masquer' : 'Afficher'}">
+                ${visible
+                  ? `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+                  : `<svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 012.07-3.542M6.228 6.228A9.98 9.98 0 0112 5c4.478 0 8.268 2.943 9.542 7a9.98 9.98 0 01-4.512 5.5M6.228 6.228L3 3m3.228 3.228l3.65 3.65M17.772 17.772l3.228 3.228m-3.228-3.228l-3.65-3.65"/></svg>`}
+              </button>
               <div class="flex gap-0.5">
                 <button onclick="moveDashBlock('${id}',-1)"
                   class="px-1.5 py-0.5 rounded text-xs transition ${i === 0 ? 'text-slate-700 cursor-not-allowed' : 'text-slate-400 hover:text-white hover:bg-slate-600'}"
@@ -4545,7 +4615,7 @@ function openProjModal(id = null) {
   const sim = id ? loadProjections().find(s => s.id === id) : null;
   document.getElementById('proj-nom').value   = sim?.nom   || '';
   document.getElementById('proj-annee').value = sim?.annee || (new Date().getFullYear() + 5);
-  document.getElementById('proj-rate').value  = sim?.rate  ?? estimateAnnualReturn();
+  document.getElementById('proj-rate').value  = sim?.rate  ?? estimateAnnualReturn().value;
   document.getElementById('proj-pmt').value   = sim?.pmt   || 0;
   document.getElementById('proj-delete-row')?.classList.toggle('hidden', !id);
   document.getElementById('modal-proj').classList.remove('hidden');
@@ -4875,7 +4945,7 @@ let _eoy = { rate: null, pmt: 0 };
 function _eoyInit() {
   const saved = getUiPref(EOY_KEY, null);
   if (saved) _eoy = { ..._eoy, ...saved };
-  if (_eoy.rate === null) _eoy.rate = estimateAnnualReturn();
+  if (_eoy.rate === null) _eoy.rate = estimateAnnualReturn().value;
 }
 
 function _eoySave() {
@@ -4983,7 +5053,7 @@ function modalEoy() {
 function _fpInit() {
   const { total, totalCharges } = globalStats();
   const capital          = Math.max(0, Math.round(total - totalCharges)); // valeur nette
-  const defaultRendement = estimateAnnualReturn();
+  const defaultRendement = estimateAnnualReturn().value;
 
   if (!_fp) {
     const saved = STATE.fire_profile && STATE.fire_profile[0];
@@ -7359,7 +7429,7 @@ function renderInvestissements(app) {
   const pvPct    = gs.invested > 0 ? (pv / gs.invested * 100).toFixed(2) : '0.00';
   const pvCol    = pv >= 0 ? 'text-emerald-400' : 'text-red-400';
   const pfNet    = Math.max(0, gs.total - gs.totalCharges);
-  const annRetObj = computeAnnualReturn(globalHistory());
+  const annRetObj = estimateAnnualReturn();
   const annRetVal = annRetObj?.value ?? null;
   const annRetStr = annRetVal !== null ? (annRetVal >= 0 ? '+' : '') + annRetVal.toFixed(2) + '%' + (annRetObj.estimated ? '*' : '') : '—';
   const annRetCol = annRetVal !== null && annRetVal >= 0 ? 'text-emerald-400' : 'text-red-400';
