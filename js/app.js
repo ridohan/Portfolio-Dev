@@ -2308,10 +2308,6 @@ function renderPortfolio(app, portfolioId) {
   const pv    = total - invested;
   const rebal = rebalancingSuggestions(portfolioId);
   const envs  = STATE.envelopes.filter(e => e.portfolio_id === portfolioId);
-  const pfOpeningDate = (() => {
-    const dates = envs.filter(e => e.date_ouverture).map(e => new Date(e.date_ouverture).getTime());
-    return dates.length ? new Date(Math.min(...dates)).toISOString().slice(0, 10) : null;
-  })();
 
   app.innerHTML = `
     ${navbar(`<a href="#dashboard" class="text-slate-400 hover:text-white text-sm">← Retour</a>`)}
@@ -2336,7 +2332,7 @@ function renderPortfolio(app, portfolioId) {
         </div>
         <p class="text-slate-400 text-xs sm:text-sm">Cible : ${p.cible_actions}% actions · ${p.cible_obligations}% obligations · ${p.cible_cash}% cash</p>
       </div>
-      ${statCards(total, invested, totalCharges, computeAnnualReturn(portfolioHistory(portfolioId), pfOpeningDate))}
+      ${statCards(total, invested, totalCharges, estimateAnnualReturnForEnvelopes(envs.filter(e => e.actif !== false)))}
       ${historySparkline(portfolioHistory(portfolioId), '#hist-pf/' + portfolioId)}
       ${allocBar(alloc, 'Allocation réelle', 'lg', { actions: p.cible_actions, obligations: p.cible_obligations, cash: p.cible_cash }, total)}
       ${rebal.length ? rebalancingCard(rebal) : ''}
@@ -4336,25 +4332,27 @@ function computeAnnualReturn(histEntries, dateOuverture = null) {
   return { value: Math.round(annualized * 10) / 10, estimated: false };
 }
 
-// Estime le rendement annuel net global — moyenne pondérée par valeur des CAGR par enveloppe.
+// Moyenne pondérée des CAGR par enveloppe, filtrée sur un portfolio (ou globale si null).
 // Retourne { value, estimated } pour compatibilité avec statCards.
-function estimateAnnualReturn() {
-  const activeEnvs = STATE.envelopes.filter(e => e.actif !== false);
-  const results = activeEnvs.map(e => _envelopeAnnualReturn(e)).filter(r => r !== null && r.value !== null);
-
+function estimateAnnualReturnForEnvelopes(envelopes) {
+  const results = envelopes.map(e => _envelopeAnnualReturn(e)).filter(r => r !== null && r.value !== null);
   if (!results.length) return { value: getDefaultReturnRate(), estimated: true };
 
   const totalVal = results.reduce((s, r) => s + r.valeurActuelle, 0);
   const estimated = results.some(r => r.estimated);
-
   let value;
   if (totalVal <= 0) {
     value = results.reduce((s, r) => s + r.value, 0) / results.length;
   } else {
     value = results.reduce((s, r) => s + r.value * r.valeurActuelle, 0) / totalVal;
   }
-
   return { value: Math.max(0, Math.min(20, Math.round(value * 2) / 2)), estimated };
+}
+
+// Estime le rendement annuel net global — moyenne pondérée par valeur des CAGR par enveloppe.
+// Retourne { value, estimated } pour compatibilité avec statCards.
+function estimateAnnualReturn() {
+  return estimateAnnualReturnForEnvelopes(STATE.envelopes.filter(e => e.actif !== false));
 }
 
 // ─── PROJECTION FIN D'ANNÉE (EOY) ────────────────────────────────────────────
