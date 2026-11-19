@@ -1998,10 +1998,13 @@ function generatePdfFinancier() {
         </tr>`;
       });
 
+      const envCagr = _envelopeAnnualReturn(env);
+      const envCagrStr = envCagr?.value != null ? ` · ${envCagr.value >= 0 ? '+' : ''}${envCagr.value}%/an${envCagr.estimated ? '*' : ''}` : '';
+      const pvColor = pv >= 0 ? '#276749' : '#c53030';
       envRows += `
         <tr style="background:#f7fafc;font-weight:600">
           <td colspan="5">
-            ${env.nom} <span class="muted tag" style="font-weight:400">${env.type}</span>
+            ${env.nom} <span class="muted tag" style="font-weight:400">${env.type}</span>${env.date_ouverture ? ` <span class="muted" style="font-weight:400;font-size:8pt">ouvert le ${new Date(env.date_ouverture).toLocaleDateString('fr-FR')}</span>` : ''}
             <div style="margin-top:3pt">${allocBar(alloc.actions, alloc.obligations, alloc.cash, alloc.other, alloc.total)}</div>
           </td>
         </tr>
@@ -2010,7 +2013,7 @@ function generatePdfFinancier() {
           <td></td>
           <td class="r muted">${_n(stats.invested)}</td>
           <td class="r muted">${_n(stats.total)}</td>
-          <td class="r ${_sgn(pv)}">${pv >= 0 ? '+' : ''}${_n(pv)} (${pv >= 0 ? '+' : ''}${pvPct}%)</td>
+          <td class="r" style="color:${pvColor}">${pv >= 0 ? '+' : ''}${_n(pv)} (${pv >= 0 ? '+' : ''}${pvPct}%${envCagrStr})</td>
         </tr>
         ${posRows}`;
     });
@@ -2020,17 +2023,22 @@ function generatePdfFinancier() {
     globalCash    += pfCash;    globalOther += pfOther;
     globalTotal   += pfTotal;
 
-    const pvPf  = pfTotal - STATE.envelopes.filter(e => e.portfolio_id === pf.id && e.actif !== false).reduce((s, e) => s + envelopeStats(e.id).invested, 0);
-    const pvPct = pfTotal > 0 ? (pvPf / (pfTotal - pvPf) * 100).toFixed(2) : 0;
+    const pfInvested = STATE.envelopes.filter(e => e.portfolio_id === pf.id && e.actif !== false).reduce((s, e) => s + envelopeStats(e.id).invested, 0);
+    const pvPf    = pfTotal - pfInvested;
+    const pvPctPf = pfInvested > 0 ? (pvPf / pfInvested * 100).toFixed(2) : '0.00';
+    const pfEnvs  = STATE.envelopes.filter(e => e.portfolio_id === pf.id && e.actif !== false);
+    const pfCagr  = estimateAnnualReturnForEnvelopes(pfEnvs);
+    const pfCagrStr = pfCagr.value !== null ? `${pfCagr.value >= 0 ? '+' : ''}${pfCagr.value}%/an${pfCagr.estimated ? '*' : ''}` : '—';
+    const pvPfColor = pvPf >= 0 ? '#276749' : '#c53030';
 
     pfSections += `
     <div class="section">
       <h2>${pf.nom}</h2>
       <div class="grid4" style="margin-bottom:8pt">
-        <div class="card"><div class="lbl">Valeur totale</div><div class="val">${_n(pfTotal)}</div></div>
+        <div class="card"><div class="lbl">Valeur totale</div><div class="val">${_n(pfTotal)}</div><div class="sub">${_n(pfInvested)} investi</div></div>
+        <div class="card"><div class="lbl">Plus-value</div><div class="val" style="color:${pvPfColor}">${pvPf >= 0 ? '+' : ''}${_n(pvPf)}</div><div class="sub" style="color:${pvPfColor}">${pvPf >= 0 ? '+' : ''}${pvPctPf}% · ${pfCagrStr}</div></div>
         <div class="card"><div class="lbl">Actions</div><div class="val" style="color:#3182ce">${(pfActions/pfTotal*100).toFixed(1)}%</div><div class="sub">${_n(pfActions)}</div></div>
-        <div class="card"><div class="lbl">Obligations</div><div class="val" style="color:#d69e2e">${(pfOblig/pfTotal*100).toFixed(1)}%</div><div class="sub">${_n(pfOblig)}</div></div>
-        <div class="card"><div class="lbl">Cash / Non classifié</div><div class="val" style="color:#38a169">${((pfCash+pfOther)/pfTotal*100).toFixed(1)}%</div><div class="sub">${_n(pfCash+pfOther)}</div></div>
+        <div class="card"><div class="lbl">Obligations / Cash</div><div class="val" style="color:#d69e2e">${(pfOblig/pfTotal*100).toFixed(1)}% / <span style="color:#38a169">${((pfCash+pfOther)/pfTotal*100).toFixed(1)}%</span></div><div class="sub">${_n(pfOblig)} / ${_n(pfCash+pfOther)}</div></div>
       </div>
       <div style="margin-bottom:10pt">${allocBar(pfActions, pfOblig, pfCash, pfOther, pfTotal)}</div>
       <table>
@@ -2047,14 +2055,21 @@ function generatePdfFinancier() {
   });
 
   // ── Synthèse globale ─────────────────────────────────────────────────────
+  const globalInvested = STATE.envelopes.filter(e => e.actif !== false).reduce((s, e) => s + envelopeStats(e.id).invested, 0);
+  const globalPv       = globalTotal - globalInvested;
+  const globalPvPct    = globalInvested > 0 ? (globalPv / globalInvested * 100).toFixed(2) : '0.00';
+  const globalCagr     = estimateAnnualReturn();
+  const globalCagrStr  = globalCagr.value !== null ? `${globalCagr.value >= 0 ? '+' : ''}${globalCagr.value}%/an${globalCagr.estimated ? '*' : ''}` : '—';
+  const gPvColor       = globalPv >= 0 ? '#276749' : '#c53030';
+
   const globalSection = globalTotal ? `
     <div class="section">
       <h2>Synthèse globale</h2>
       <div class="grid4" style="margin-bottom:8pt">
-        <div class="card"><div class="lbl">Total patrimoine financier</div><div class="val">${_n(globalTotal)}</div></div>
+        <div class="card"><div class="lbl">Total patrimoine financier</div><div class="val">${_n(globalTotal)}</div><div class="sub">${_n(globalInvested)} investi</div></div>
+        <div class="card"><div class="lbl">Plus-value</div><div class="val" style="color:${gPvColor}">${globalPv >= 0 ? '+' : ''}${_n(globalPv)}</div><div class="sub" style="color:${gPvColor}">${globalPv >= 0 ? '+' : ''}${globalPvPct}% · ${globalCagrStr}</div></div>
         <div class="card"><div class="lbl">Actions</div><div class="val" style="color:#3182ce">${(globalActions/globalTotal*100).toFixed(1)}%</div><div class="sub">${_n(globalActions)}</div></div>
-        <div class="card"><div class="lbl">Obligations</div><div class="val" style="color:#d69e2e">${(globalOblig/globalTotal*100).toFixed(1)}%</div><div class="sub">${_n(globalOblig)}</div></div>
-        <div class="card"><div class="lbl">Cash / Non classifié</div><div class="val" style="color:#38a169">${((globalCash+globalOther)/globalTotal*100).toFixed(1)}%</div><div class="sub">${_n(globalCash+globalOther)}</div></div>
+        <div class="card"><div class="lbl">Obligations / Cash</div><div class="val" style="color:#d69e2e">${(globalOblig/globalTotal*100).toFixed(1)}% / <span style="color:#38a169">${((globalCash+globalOther)/globalTotal*100).toFixed(1)}%</span></div><div class="sub">${_n(globalOblig)} / ${_n(globalCash+globalOther)}</div></div>
       </div>
       ${allocBar(globalActions, globalOblig, globalCash, globalOther, globalTotal)}
     </div>` : '';
